@@ -28,12 +28,27 @@ def trotter_step_heisenberg(num_qubits: int, step_size: float = 0.25, nondegener
             
     return trott_hamiltonian
 
-def heisenber_hamiltonian(num_qubits: int, total_time: int, step_size: float = 0.25, nondegenerate = True) -> QuantumCircuit:
+def ham_evol(num_qubits: int, total_time: float, trotter_step: QuantumCircuit,
+                       step_size: float = 0.25, nondegenerate = True) -> QuantumCircuit:
+    """Time parametrized Hamiltonian evolution"""
     
     circ = QuantumCircuit(num_qubits, name="H")
-    trotter_step = trotter_step_heisenberg(num_qubits, nondegenerate)
     
-    for i in range(int(total_time / step_size)):
+    for i in range(int(np.ceil(total_time / step_size))):
         circ.compose(trotter_step, inplace=True)
     
     return circ
+
+def qft_circ(num_qubits: int) -> QuantumCircuit:
+    """QFT with QTSP convention: |t> -> sum exp(-iwt) |w>"""
+    
+    circ = QuantumCircuit(num_qubits, name="QFT")
+    for j in reversed(range(num_qubits)):
+        circ.h(j)
+        num_entanglements = max(0, j)
+        for k in reversed(range(j - num_entanglements, j)):
+            lam = np.pi * (2.0 ** (k - j))
+            circ.cp(lam, j, k)
+                
+    for i in range(num_qubits // 2):
+        circ.swap(i, num_qubits - i - 1)
