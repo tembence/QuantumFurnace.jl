@@ -1,10 +1,13 @@
 import numpy as np
 import qutip as qt
-from qiskit import QuantumCircuit
+from qiskit import QuantumCircuit, QuantumRegister
 from qiskit.quantum_info.operators import Operator
+from qiskit.quantum_info import Statevector, partial_trace, random_statevector
 from itertools import combinations
+from time import time
 
-def get_hamiltonian_matrix(*terms: list[qt.Qobj], num_qubits: int) -> np.ndarray:  #TODO: Add coefficients for terms
+# ----------------------------------------------- Matrix related functions ----------------------------------------------- #
+def hamiltonian_matrix(*terms: list[qt.Qobj], num_qubits: int) -> np.ndarray:  #TODO: Add coefficients for terms
     """Gets the Hamiltonian as a Qobj. Assumes periodic boundaries.
     Args:
         terms: list of Qobjs, each Qobj is a single body term in the list
@@ -16,6 +19,7 @@ def get_hamiltonian_matrix(*terms: list[qt.Qobj], num_qubits: int) -> np.ndarray
             hamiltonian += pad_term(term, num_qubits, q).data
             
     return hamiltonian
+
 
 def pad_term(terms: list[qt.Qobj], num_qubits: int, position: int) -> qt.Qobj:
     """ Pads a many-body term with identity operators for the rest of the system.
@@ -32,10 +36,108 @@ def pad_term(terms: list[qt.Qobj], num_qubits: int, position: int) -> qt.Qobj:
     
     return qt.tensor(padded_tensor_list)
 
-def get_smallest_bohr_freq(hamiltonian_matrix) -> float:
+
+def shift_spectrum(hamiltonian: qt.Qobj) -> qt.Qobj:
+
+    eigenenergies, _ = np.linalg.eigh(hamiltonian)
+    smallest_eigval = np.round(eigenenergies[0], 5)
+    largest_eigval = np.round(eigenenergies[-1], 5)
+    
+    # Shift spectrum to nonnegatives
+    if smallest_eigval < 0:
+        shift = abs(smallest_eigval)
+    else:
+        shift = 0
+        
+    shifted_hamiltonian = hamiltonian + shift * qt.qeye(hamiltonian.shape[0])
+        
+    return shifted_hamiltonian
+
+
+# ----------------------------------------------- Energy related functions ----------------------------------------------- #
+def smallest_bohr_freq(hamiltonian_matrix) -> float:
     """Get the smallest Bohr frequency \omega_0 for a given Hamiltonian.
     """
-
     eigvals = np.linalg.eigvalsh(hamiltonian_matrix)
-
     return np.min([eigvals[j] - eigvals[i] for i, j in combinations(range(len(eigvals)), 2)])
+
+
+def energy_from_full_state(circ: QuantumCircuit, hamiltonian: qt.Qobj, subspace_qubits: list[int], qr_index: int):
+    """Compute energy of a subsystem from full statevector of the circuit. 
+    Subspace of interest is the one with `qr_index` in the `subspace_qubits` list (in Qiskit order)
+    (Order between qutip tensor() and qiskit QRs are reversed) (*)
+    """
+    
+    total_num_qubits = circ.num_qubits
+    observable_list = []
+    for q in range(len(subspace_qubits)):
+        if q != qr_index:
+            num_qubits_in_subspace = subspace_qubits[q]
+            observable_list.append(qt.qeye(2**num_qubits_in_subspace))
+        else:
+            observable_list.append(qt.Qobj(hamiltonian))
+    
+    observable_list.reverse()
+    full_observable = qt.tensor(observable_list)  # (*)
+    full_observable.dims = [[2**total_num_qubits], [2**total_num_qubits]]
+    full_circ_statevector = qt.Qobj(Statevector(circ).data)
+    energy = qt.expect(full_observable, full_circ_statevector)
+    
+    return energy
+
+def reduced_density_matrix(circ: QuantumCircuit, subspace_qubits: list[int], qr_indices: list[int]):
+    """Compute partial trace of a statevector over not `qr_indices` 
+    to get the reduced density matrix of subsystems `qr_indidces`.
+    `subspace_qubits` list is in Qiskit circuit order, so is `qr_index`.
+    """
+    statevector = Statevector(circ).data  # 'abcd'
+    full_density_matrix = np.einsum('i, j -> ij', statevector, statevector.conj())
+    subspace_dims = [2**q for q in subspace_qubits]
+    full_density_matrix = full_density_matrix.reshape(subspace_dims * 2)  # dims: '2, 8, 4, 2, 8, 4' - indices: 'abcdABCD'
+    print(full_density_matrix.shape)
+
+    lowercase_letters = 'abcdefghijklmnopqrstuvwxyz'
+    uppercase_letters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'
+    subsystem_indices = lowercase_letters[:len(subspace_qubits)]*2  # 'abcdabcd'
+    indices_of_reduced_density_matrix = ''
+
+    for qr_index in qr_indices:  # 'aBcDabcd'
+        index_of_reduced_density_matrix = uppercase_letters[qr_index]
+        indices_of_reduced_density_matrix += index_of_reduced_density_matrix
+        subsystem_indices = subsystem_indices.replace(subsystem_indices[qr_index], index_of_reduced_density_matrix, 1)
+        
+    for qr_index in qr_indices:
+        indices_of_reduced_density_matrix += lowercase_letters[qr_index]
+    
+    # 'aBcDabcd' -> 'BDbd' (summed over a and c)
+    reduced_density_matrix = np.einsum(subsystem_indices + '->' + indices_of_reduced_density_matrix, full_density_matrix)
+    reduced_density_matrix_dim = np.prod([subspace_dims[i] for i in qr_indices])
+    
+    return reduced_density_matrix.reshape((reduced_density_matrix_dim, reduced_density_matrix_dim))
+    
+
+if __name__ == '__main__':
+    X = qt.sigmax()
+    Y = qt.sigmay()
+    Z = qt.sigmaz()
+
+    num_qubits = 3
+    H = hamiltonian_matrix([X, X], [Y, Y], [Z, Z], [Z], num_qubits=num_qubits)
+
+    qr0 = QuantumRegister(1, 'qr0')
+    qr1 = QuantumRegister(2, 'qr1')
+    qrsys = QuantumRegister(num_qubits, 'sys')
+    qr3 = QuantumRegister(4, 'q3')
+
+    circ = QuantumCircuit(qr0, qr1, qrsys, qr3)
+    qr_index = circ.qregs.index(qrsys)
+
+    # energy = energy_from_full_state(circ, H, subspace_qubits=[qr0.size, qr1.size, qrsys.size, qr3.size], qr_index=qr_index)
+
+    rand_state = random_statevector(2**np.sum([qr.size for qr in circ.qregs]))
+    circ.initialize(rand_state, range(np.sum([qr.size for qr in circ.qregs])))
+    rdm = reduced_density_matrix(circ, [1, 2, 3, 4], qr_indices=[1, 3])
+    rdm_qiskit = partial_trace(Statevector(circ), [0, 3, 4, 5])  #FIXME: QIskit and my reduced density matrix doesnt match up 
+    print(rdm)
+    rdm_qiskit = rdm_qiskit.data.reshape(rdm.shape)
+    print(np.isclose(rdm, rdm_qiskit))
