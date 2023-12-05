@@ -53,6 +53,44 @@ def shift_spectrum(hamiltonian: qt.Qobj) -> qt.Qobj:
         
     return shifted_hamiltonian
 
+def rescale_and_shift_spectrum(hamiltonian: qt.Qobj) -> qt.Qobj:
+    """Rescale and shift to get spectrum in [0, 1]
+    Note, it's only in this interval later after we set shift = shift / rescaling_factor
+    """
+    eigenenergies, _ = np.linalg.eigh(hamiltonian)
+    smallest_eigval = np.round(eigenenergies[0], 5)
+    largest_eigval = np.round(eigenenergies[-1], 5)
+    
+    # Rescale and shift spectrum [0, 1]
+    if smallest_eigval < 0:
+        rescaling_factor = (abs(smallest_eigval) + abs(largest_eigval))
+        shift = abs(smallest_eigval)
+    else:
+        rescaling_factor = abs(largest_eigval)
+        shift = 0
+        
+    shifted_rescaled_hamiltonian = (hamiltonian + shift * qt.qeye(hamiltonian.shape[0])) / rescaling_factor
+        
+    return shifted_rescaled_hamiltonian
+
+def rescaling_and_shift_factors(hamiltonian: qt.Qobj) -> tuple[float, float]:
+    """Rescale and shift to get spectrum in [0, 1]
+    Note, it's only in this interval later after we set shift = shift / rescaling_factor
+    """
+    eigenenergies, _ = np.linalg.eigh(hamiltonian)
+    smallest_eigval = np.round(eigenenergies[0], 5)
+    largest_eigval = np.round(eigenenergies[-1], 5)
+    
+    # Rescale and shift spectrum [0, 1]
+    if smallest_eigval < 0:
+        rescaling_factor = (abs(smallest_eigval) + abs(largest_eigval))
+        shift = abs(smallest_eigval)
+    else:
+        rescaling_factor = abs(largest_eigval)
+        shift = 0
+        
+    return rescaling_factor, shift
+
 
 # ----------------------------------------------- Energy related functions ----------------------------------------------- #
 def smallest_bohr_freq(hamiltonian_matrix) -> float:
@@ -114,6 +152,15 @@ def reduced_density_matrix(circ: QuantumCircuit, subspace_qubits: list[int], qr_
     reduced_density_matrix_dim = np.prod([subspace_dims[i] for i in qr_indices])
     
     return reduced_density_matrix.reshape((reduced_density_matrix_dim, reduced_density_matrix_dim))
+
+def stich_energy_bits_to_value(counts: dict[str, int], shots: int) -> int:
+    bitstrings = list(counts.keys())
+    num_estimating_qubits = len(bitstrings[0])
+    energy_values = [- int(bitstring[0])*2**(num_estimating_qubits - 1) + int(bitstring[1:], 2) for bitstring in bitstrings]
+
+    omega_prime = np.sum([energy_values[i] * counts[bitstrings[i]] for i in range(len(bitstrings))]) / shots
+    omega = - omega_prime * 2**(num_estimating_qubits) / 2*np.pi
+    return omega_prime
     
 
 if __name__ == '__main__':
@@ -123,7 +170,9 @@ if __name__ == '__main__':
 
     num_qubits = 3
     H = hamiltonian_matrix([X, X], [Y, Y], [Z, Z], [Z], num_qubits=num_qubits)
-
+    H_prime = rescale_and_shift_spectrum(H)
+    print(np.linalg.eigvalsh(H_prime))
+    
     qr0 = QuantumRegister(1, 'qr0')
     qr1 = QuantumRegister(2, 'qr1')
     qrsys = QuantumRegister(num_qubits, 'sys')
@@ -134,10 +183,12 @@ if __name__ == '__main__':
 
     # energy = energy_from_full_state(circ, H, subspace_qubits=[qr0.size, qr1.size, qrsys.size, qr3.size], qr_index=qr_index)
 
-    rand_state = random_statevector(2**np.sum([qr.size for qr in circ.qregs]))
-    circ.initialize(rand_state, range(np.sum([qr.size for qr in circ.qregs])))
-    rdm = reduced_density_matrix(circ, [1, 2, 3, 4], qr_indices=[1, 3])
-    rdm_qiskit = partial_trace(Statevector(circ), [0, 3, 4, 5])  #FIXME: QIskit and my reduced density matrix doesnt match up 
-    print(rdm)
-    rdm_qiskit = rdm_qiskit.data.reshape(rdm.shape)
-    print(np.isclose(rdm, rdm_qiskit))
+    # rand_state = random_statevector(2**np.sum([qr.size for qr in circ.qregs]))
+    # circ.initialize(rand_state, range(np.sum([qr.size for qr in circ.qregs])))
+    # rdm = reduced_density_matrix(circ, [1, 2, 3, 4], qr_indices=[1, 3])
+    # rdm_qiskit = partial_trace(Statevector(circ), [0, 3, 4, 5])  #FIXME: QIskit and my reduced density matrix doesnt match up 
+    # print(rdm)
+    # rdm_qiskit = rdm_qiskit.data.reshape(rdm.shape)
+    # print(np.isclose(rdm, rdm_qiskit))
+    
+    measurement_result = {'1010': 79, '0111': 63, '0110': 44, '1000': 45, '0000': 58, '1100': 59, '0100': 65, '0001': 69, '0011': 58, '1111': 69, '1101': 75, '0010': 57, '1110': 59, '1011': 65, '1001': 65, '0101': 70}

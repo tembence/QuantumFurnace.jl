@@ -11,9 +11,13 @@ from time import time
 from typing import Optional
 
 from tools.quantum import ham_evol, trotter_step_heisenberg
-from tools.classical import smallest_bohr_freq, hamiltonian_matrix, energy_from_full_state, shift_spectrum
+from tools.classical import *
 
+
+#TODO: With a fixed step size we are not doing the exact amount of time evolution needed... but sometimes more
 #TODO: Make spectrum nondegenerate
+#TODO: Do it for 1-2 qubits, and ES as initial state with a jump that brings it to an ES exactly
+
 def operator_fourier_circuit(op: Operator, num_sys_qubits: int, num_energy_bits: int,
                              trott_ham_step: QuantumCircuit, with_gauss: bool=True, sigma: float = None) -> QuantumCircuit:
 
@@ -21,7 +25,8 @@ def operator_fourier_circuit(op: Operator, num_sys_qubits: int, num_energy_bits:
     qr_sys = QuantumRegister(num_sys_qubits, name='sys')
     circ = QuantumCircuit(qr_energy, qr_sys, name="OFT")
     
-    ham_time_evol = lambda T: ham_evol(num_qubits, total_time=T, trotter_step=trott_ham_step)
+    ham_time_evol = lambda T: ham_evol(num_qubits, total_time=T, trotter_step=trott_ham_step, 
+                                       shift=shift, rescaling_factor=rescaling_factor)  
 
     # System initialization
     rand_initial_state = random_statevector(2**num_sys_qubits, seed=667)
@@ -42,10 +47,11 @@ def operator_fourier_circuit(op: Operator, num_sys_qubits: int, num_energy_bits:
             T = 2 ** (num_energy_bits - 1)
         else:
             T = - 2 ** (w - 1)
-        
-        controlled_time_evol = ham_time_evol(T).control(1, label=f'{T}t0')
+            
+        # Total time evolution is 2pi * T for correct QPE kickback:
+        controlled_time_evol = ham_time_evol(2*np.pi*T).control(1, label=f'{T}t0') 
         circ.compose(controlled_time_evol, qubits=[qr_energy[w], *qr_sys], inplace=True)
-        
+    
     # Jump A
     random.seed(667)
     random_sys_qubit = random.randint(0, num_qubits - 1)
@@ -68,7 +74,7 @@ def operator_fourier_circuit(op: Operator, num_sys_qubits: int, num_energy_bits:
         controlled_time_evol = ham_time_evol(T).control(1, label=f'{T}t0')
         circ.compose(controlled_time_evol, qubits=[qr_energy[w], *qr_sys], inplace=True)
         
-    circ.compose(QFT(num_energy_bits, inverse=True), qubits=qr_energy, inplace=True)  #TODO: Test if inverse or not
+    circ.compose(QFT(num_energy_bits, inverse=True), qubits=qr_energy, inplace=True)
     
     return circ
     
@@ -107,25 +113,30 @@ if __name__ == "__main__":
     hamiltonian = shift_spectrum(hamiltonian)
     # bohr_unit = smallest_bohr_freq(hamiltonian)
     # print(bohr_unit)
+    rescaling_factor, shift = rescaling_and_shift_factors(hamiltonian)
     
     op_fourier_circ = operator_fourier_circuit(pauliX, num_qubits, num_energy_bits, trottereized_ham_step,
                                                with_gauss=False, sigma=sigma)
     
-    full_state = Statevector(op_fourier_circ)
-    traced_over_qubits = [op_fourier_circ.qubits.index(qubit) for qubit in op_fourier_circ.qregs[1]]
-    omega_dm = partial_trace(full_state, traced_over_qubits)
-    print(omega_dm.probabilities([0, 1, 2, 3]))
+    # full_state = Statevector(op_fourier_circ)
+    # traced_over_qubits = [op_fourier_circ.qubits.index(qubit) for qubit in op_fourier_circ.qregs[1]]
+    # omega_dm = partial_trace(full_state, traced_over_qubits)
+    # print(omega_dm.probabilities([0, 1, 2, 3]))
     
     #* Run on simulator
-    # cr_energy = ClassicalRegister(num_energy_bits, name='cw')
-    # qr_oft = QuantumRegister(num_qubits + num_energy_bits, name='oft')
-    # circ = QuantumCircuit(*op_fourier_circ.qregs, cr_energy)
-    # circ.compose(op_fourier_circ, range(num_energy_bits + num_qubits), inplace=True)
-    # circ.measure(range(num_energy_bits), cr_energy)
+    cr_energy = ClassicalRegister(num_energy_bits, name='cw')
+    qr_oft = QuantumRegister(num_qubits + num_energy_bits, name='oft')
+    circ = QuantumCircuit(*op_fourier_circ.qregs, cr_energy)
+    circ.compose(op_fourier_circ, range(num_energy_bits + num_qubits), inplace=True)
+    circ.measure(range(num_energy_bits), cr_energy)
     # print(circ)
-    # tr_circ = transpile(circ, basis_gates=['cx', 'u3'], optimization_level=3)
+    tr_circ = transpile(circ, basis_gates=['cx', 'u3'], optimization_level=3)
     
-    # simulator = Aer.get_backend('statevector_simulator')
-    # job = simulator.run(tr_circ, shots=1000)
-    # counts = job.result().get_counts()
-    # print(counts)
+    simulator = Aer.get_backend('statevector_simulator')
+    shots = 1000
+    job = simulator.run(tr_circ, shots=shots)
+    counts = job.result().get_counts()
+    print(counts)
+    
+    energy = stich_energy_bits_to_value(counts, shots=shots)
+    print(energy)
