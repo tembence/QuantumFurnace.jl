@@ -4,53 +4,58 @@ import qutip as qt
 from qiskit import QuantumCircuit, QuantumRegister, ClassicalRegister, transpile
 from qiskit.quantum_info.operators import Operator, Pauli
 from qiskit.circuit import Parameter
-from classical import *
+from tools.classical import hamiltonian_matrix, rescaling_and_shift_factors
 
-class Hamiltonian:  #TODO: Write a trotter circuit generator for an input qt.Qobj Hamiltonian
+class HamHam:  #TODO: Write a trotter circuit generator for an input qt.Qobj Hamiltonian
     def __init__(self, hamiltonian_qt: qt.Qobj):
-        self.hamiltonian_qt = hamiltonian_qt
+        self.qt = hamiltonian_qt
         self.shift: float = 0.
         self.rescaling_factor: float = 1.
-        self.rescaled_hamiltonian_qt = None
+        self.rescaled_qt = None
         self.trotter_step_circ: QuantumCircuit = None
-        self.trotter_circ: QuantumCircuit = None
+        
 
-def trotter_step_heisenberg(num_qubits: int, step_size: float = 0.25, nondegenerate = True) -> QuantumCircuit:
+def trotter_step_heisenberg(num_qubits: int, nondegenerate = True) -> QuantumCircuit:
     """Parametrized trotter step circuit for 1D Heisenberg chain: H = XX + YY + ZZ
        It has a fixed step size, for which Trotter errors should be fine, thus for longer time evolution
        we just need to adjust the number of steps 
     """
     
     trott_hamiltonian = QuantumCircuit(num_qubits, name="H")
-    
-    theta = 2 * step_size  # Qiskit convention, rxx(2x) = exp(...x...)
+      
+    step_size_param = Parameter('theta')
     # Periodic boundary conditions
     for i in range(num_qubits):
         if i != num_qubits - 1:
-            trott_hamiltonian.rxx(theta, i, i + 1)
-            trott_hamiltonian.ryy(theta, i, i + 1)
-            trott_hamiltonian.rzz(theta, i, i + 1)
-        if (i == num_qubits - 1) and (num_qubits > 2):
-            trott_hamiltonian.rxx(theta, i, 0)
-            trott_hamiltonian.ryy(theta, i, 0)
-            trott_hamiltonian.rzz(theta, i, 0)
+            trott_hamiltonian.rxx(-2*step_size_param, i, i + 1)  #! Qiskit convention, rxx(-2x) = exp(x)
+            trott_hamiltonian.ryy(-2*step_size_param, i, i + 1)
+            trott_hamiltonian.rzz(-2*step_size_param, i, i + 1)
+        if (i == num_qubits - 1):
+            trott_hamiltonian.rxx(-2*step_size_param, i, 0)
+            trott_hamiltonian.ryy(-2*step_size_param, i, 0)
+            trott_hamiltonian.rzz(-2*step_size_param, i, 0)
         # if nondegenerate:
         #     interaction_strength = 3.5
         #     trott_hamiltonian.rz(interaction_strength * theta, 0)
             
     return trott_hamiltonian
 
-def ham_evol(num_qubits: int, total_time: float, trotter_step: QuantumCircuit,
-                       step_size: float = 0.25, shift: float = None, rescaling_factor: float = None) -> QuantumCircuit:
-    """Time parametrized Hamiltonian evolution"""  #TODO: Make it actually parametrized, so doesnt have to be regenerated
+def ham_evol(num_qubits: int, trotter_step: QuantumCircuit, num_trotter_steps: int, time: float,
+             shift: float = 0) -> QuantumCircuit:
+    """Time parametrized Hamiltonian evolution
+    For QPE feed in 2pi * time amount of time
+    For rescaled Hamitlonian in QPE feed in 2pi * time / rescaling_factor amount of time
+    """
     
     circ = QuantumCircuit(num_qubits, name="H")
-    # Shift and rescale circuit Hamiltonian, spec(H) in [0, 1]
-    circ.global_phase = - shift
-    total_time /= rescaling_factor
+    if shift != 0: #! Comment out for OFT
+        circ.global_phase = shift
     
-    for i in range(int(np.ceil(total_time / step_size))):
+    for _ in range(num_trotter_steps):
         circ.compose(trotter_step, inplace=True)
+    
+    step_size = time / num_trotter_steps
+    circ.assign_parameters([step_size], inplace=True)
     
     return circ
 
@@ -88,14 +93,13 @@ if __name__ == "__main__":
     X = qt.sigmax()
     Y = qt.sigmay()
     Z = qt.sigmaz()
-    hamiltonian = hamiltonian_matrix([X, X], [Y, Y], [Z, Z], num_qubits=num_qubits)
+    hamiltonian = hamiltonian_matrix([X, X], [Y, Y], [Z, Z], coeffs=[1, 1, 1], num_qubits=num_qubits)
     print(np.linalg.eigvalsh(hamiltonian))
     rescaling_factor, shift = rescaling_and_shift_factors(hamiltonian)
     trotter_step = trotter_step_heisenberg(num_qubits)
     
     circ = QuantumCircuit(num_qubits, name="H")
     # Shift and rescale circuit Hamiltonian, spec(H) in [0, 1]
-    circ.global_phase = - shift
     total_time /= rescaling_factor
 
     for i in range(int(np.ceil(total_time / step_size))):

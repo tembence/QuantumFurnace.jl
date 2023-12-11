@@ -10,7 +10,7 @@ import random
 from time import time
 from typing import Optional
 
-from tools.quantum import ham_evol, trotter_step_heisenberg
+from tools.quantum import *
 from tools.classical import *
 
 
@@ -18,15 +18,14 @@ from tools.classical import *
 #TODO: Make spectrum nondegenerate
 #TODO: Do it for 1-2 qubits, and ES as initial state with a jump that brings it to an ES exactly
 
-def operator_fourier_circuit(op: Operator, num_sys_qubits: int, num_energy_bits: int,
-                             trott_ham_step: QuantumCircuit, with_gauss: bool=True, sigma: float = None) -> QuantumCircuit:
+def operator_fourier_circuit(op: Operator, num_sys_qubits: int, num_energy_bits: int, hamiltonian: HamHam,
+                             with_gauss: bool=True, sigma: float = None) -> QuantumCircuit:
 
+    
+    trott_ham_step = hamiltonian.trotter_step_circ
     qr_energy = QuantumRegister(num_energy_bits, name='w')
     qr_sys = QuantumRegister(num_sys_qubits, name='sys')
     circ = QuantumCircuit(qr_energy, qr_sys, name="OFT")
-    
-    ham_time_evol = lambda T: ham_evol(num_qubits, total_time=T, trotter_step=trott_ham_step, 
-                                       shift=shift, rescaling_factor=rescaling_factor)  
 
     # System initialization
     rand_initial_state = random_statevector(2**num_sys_qubits, seed=667)
@@ -41,16 +40,29 @@ def operator_fourier_circuit(op: Operator, num_sys_qubits: int, num_energy_bits:
         prep_circ = brute_prepare_gaussian_state(num_energy_bits, sigma)
         circ.compose(prep_circ, qr_energy, inplace=True)
     
-    # exp(-iTH)
+    rescaling_factor = hamiltonian.rescaling_factor
+    ham_time_evol = lambda m, T: ham_evol(num_qubits, trotter_step=trott_ham_step, num_trotter_steps=m, time=T,
+                                          rescaling_factor=rescaling_factor)  
+    
+    # exp(-i 2pi H_rs T)
     for w in range(num_energy_bits):
         if w == 0:  # Sign bit
             T = 2 ** (num_energy_bits - 1)
         else:
             T = - 2 ** (w - 1)
-            
-        # Total time evolution is 2pi * T for correct QPE kickback:
-        controlled_time_evol = ham_time_evol(2*np.pi*T).control(1, label=f'{T}t0') 
+        
+        # phase_shift = 2 * np.pi * shift * T / rescaling_factor  # To have a shifted spectrum in circuit too
+        # circ.p(-phase_shift, qr_energy[w])  #! They cancel I think, but then still wrong in old Metropolis
+        # step number given that step_size <= max step size (to keep Trotter error low)
+        max_step_size = 0.1
+        num_trott_steps = int(np.ceil(2 * np.pi * np.abs(T) / (rescaling_factor * max_step_size)))
+        
+        controlled_time_evol = ham_time_evol(num_trott_steps, T).control(1, label=f'{T}t0') 
         circ.compose(controlled_time_evol, qubits=[qr_energy[w], *qr_sys], inplace=True)
+        print(f'I used:')
+        print(f'rescaling_factor: {rescaling_factor}')
+        print(f'Num trott steps: {num_trott_steps}')
+        print(f'For QPE time: {T}')
     
     # Jump A
     random.seed(667)
@@ -64,17 +76,24 @@ def operator_fourier_circuit(op: Operator, num_sys_qubits: int, num_energy_bits:
     omega = energy_postjump - energy_prejump
     print(f'Energy jump: {omega}')
     
-    # exp(iTH)
-    for w in reversed(range(num_energy_bits)):
+    # # exp(i 2pi H_rs T)
+    for w in (range(num_energy_bits)):
         if w == 0:
             T = -2 ** (num_energy_bits - 1)
         else:
             T = 2 ** (w - 1)
         
-        controlled_time_evol = ham_time_evol(T).control(1, label=f'{T}t0')
+        # phase_shift = 2 * np.pi * shift * T / rescaling_factor
+        # circ.p(phase_shift, qr_energy[w])
+        
+        max_step_size = 0.1
+        num_trott_steps = int(np.ceil(2 * np.pi * np.abs(T) / (rescaling_factor * max_step_size)))
+        
+        controlled_time_evol = ham_time_evol(num_trott_steps, T).control(1, label=f'{T}t0')
         circ.compose(controlled_time_evol, qubits=[qr_energy[w], *qr_sys], inplace=True)
         
     circ.compose(QFT(num_energy_bits, inverse=True), qubits=qr_energy, inplace=True)
+    print(circ)
     
     return circ
     
@@ -102,20 +121,26 @@ if __name__ == "__main__":
     num_qubits = 4
     num_energy_bits = 4
     sigma = 0.5
-    trottereized_ham_step = trotter_step_heisenberg(num_qubits)
-    pauliX = Operator(Pauli('X'))
-    
-    # Bohr frequency
     X = qt.sigmax()
     Y = qt.sigmay()
     Z = qt.sigmaz()
-    hamiltonian = hamiltonian_matrix([X, X], [Y, Y], [Z, Z], [Z], num_qubits=num_qubits)
-    hamiltonian = shift_spectrum(hamiltonian)
+    hamiltonian = HamHam(hamiltonian_matrix([X, X], [Y, Y], [Z, Z], coeffs=[1, 1, 1], num_qubits=num_qubits))
+    hamiltonian.trotter_step_circ = trotter_step_heisenberg(num_qubits)
+    spectrum = np.linalg.eigvalsh(hamiltonian.qt)
+    print(f'Spectrum: {spectrum}')
+    
+    pauliX = Operator(Pauli('X'))
+    
+    # Bohr frequency
+    
     # bohr_unit = smallest_bohr_freq(hamiltonian)
     # print(bohr_unit)
-    rescaling_factor, shift = rescaling_and_shift_factors(hamiltonian)
+    hamiltonian.rescaling_factor, hamiltonian.shift = rescaling_and_shift_factors(hamiltonian.qt)
+    hamiltonian.rescaled_qt = hamiltonian.qt / hamiltonian.rescaling_factor + hamiltonian.shift * qt.qeye(hamiltonian.qt.shape[0])
     
-    op_fourier_circ = operator_fourier_circuit(pauliX, num_qubits, num_energy_bits, trottereized_ham_step,
+    print(f'normalized spectrum {np.linalg.eigvalsh(hamiltonian.rescaled_qt)}')
+    
+    op_fourier_circ = operator_fourier_circuit(pauliX, num_qubits, num_energy_bits, hamiltonian,
                                                with_gauss=False, sigma=sigma)
     
     # full_state = Statevector(op_fourier_circ)
@@ -124,19 +149,19 @@ if __name__ == "__main__":
     # print(omega_dm.probabilities([0, 1, 2, 3]))
     
     #* Run on simulator
-    cr_energy = ClassicalRegister(num_energy_bits, name='cw')
-    qr_oft = QuantumRegister(num_qubits + num_energy_bits, name='oft')
-    circ = QuantumCircuit(*op_fourier_circ.qregs, cr_energy)
-    circ.compose(op_fourier_circ, range(num_energy_bits + num_qubits), inplace=True)
-    circ.measure(range(num_energy_bits), cr_energy)
-    # print(circ)
-    tr_circ = transpile(circ, basis_gates=['cx', 'u3'], optimization_level=3)
+    # cr_energy = ClassicalRegister(num_energy_bits, name='cw')
+    # qr_oft = QuantumRegister(num_qubits + num_energy_bits, name='oft')
+    # circ = QuantumCircuit(*op_fourier_circ.qregs, cr_energy)
+    # circ.compose(op_fourier_circ, range(num_energy_bits + num_qubits), inplace=True)
+    # circ.measure(range(num_energy_bits), cr_energy)
+    # # print(circ)
+    # tr_circ = transpile(circ, basis_gates=['cx', 'u3'], optimization_level=3)
     
-    simulator = Aer.get_backend('statevector_simulator')
-    shots = 1000
-    job = simulator.run(tr_circ, shots=shots)
-    counts = job.result().get_counts()
-    print(counts)
+    # simulator = Aer.get_backend('statevector_simulator')
+    # shots = 1000
+    # job = simulator.run(tr_circ, shots=shots)
+    # counts = job.result().get_counts()
+    # print(counts)
     
-    energy = stich_energy_bits_to_value(counts, shots=shots)
-    print(energy)
+    # energy = stich_energy_bits_to_value(counts, shots=shots)
+    # print(energy)

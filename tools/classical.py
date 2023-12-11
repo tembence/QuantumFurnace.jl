@@ -5,25 +5,30 @@ from qiskit.quantum_info.operators import Operator
 from qiskit.quantum_info import Statevector, partial_trace, random_statevector
 from itertools import combinations
 from time import time
+from scipy.linalg import expm
 
 # ----------------------------------------------- Matrix related functions ----------------------------------------------- #
-def hamiltonian_matrix(*terms: list[qt.Qobj], num_qubits: int) -> np.ndarray:  #TODO: Add coefficients for terms
+def hamiltonian_matrix(*terms: list[qt.Qobj], coeffs: list[float], num_qubits: int) -> np.ndarray:
     """Gets the Hamiltonian as a Qobj. Assumes periodic boundaries.
     Args:
         terms: list of Qobjs, each Qobj is a single body term in the list
                 building a many-body term together, e.g. [X, Y, Z] -> X^Y^Z"""
     
+    if len(terms) != len(coeffs):
+        raise ValueError("Number of terms and coefficients must match.")
+    
     hamiltonian = np.zeros((2**num_qubits, 2**num_qubits))
-    for term in terms:
+    for coeff_i, term in enumerate(terms):
         for q in range(num_qubits):
-            hamiltonian += pad_term(term, num_qubits, q).data
+            hamiltonian += coeffs[coeff_i] * pad_term(term, num_qubits, q).data
             
     return hamiltonian
 
 
 def pad_term(terms: list[qt.Qobj], num_qubits: int, position: int) -> qt.Qobj:
     """ Pads a many-body term with identity operators for the rest of the system.
-    Assumes periodic boundary conditions."""
+    Assumes periodic boundary conditions.
+    Position: is the index of the first qubit of the term."""
     
     term_size = len(terms)
     end_position = (position + term_size - 1)
@@ -36,12 +41,34 @@ def pad_term(terms: list[qt.Qobj], num_qubits: int, position: int) -> qt.Qobj:
     
     return qt.tensor(padded_tensor_list)
 
+def trotter_heisenberg_qutip(num_qubits: int, step_size: float, num_trotter_steps: int, 
+                             shift: float = 0) -> qt.Qobj:
+    
+    trott_hamiltonian_qt = qt.qeye(2**num_qubits)
+    trott_step_qt = qt.qeye(2**num_qubits)
+    
+    if shift != 0:
+        trott_hamiltonian_qt = trott_hamiltonian_qt * qt.Qobj(expm(1j*shift*np.eye(2**num_qubits)))
+    
+    for i in range(num_qubits):
+        XX = pad_term([qt.sigmax(), qt.sigmax()], num_qubits, i)
+        YY = pad_term([qt.sigmay(), qt.sigmay()], num_qubits, i)
+        ZZ = pad_term([qt.sigmaz(), qt.sigmaz()], num_qubits, i)
+        eXX = expm(1j*step_size*XX.full())
+        eYY = expm(1j*step_size*YY.full())
+        eZZ = expm(1j*step_size*ZZ.full())
+        
+        trott_step_qt = trott_step_qt * qt.Qobj(eZZ) * qt.Qobj(eYY) * qt.Qobj(eXX)
+        
+    for _ in range(num_trotter_steps):
+        trott_hamiltonian_qt = trott_hamiltonian_qt * trott_step_qt
+    
+    return trott_hamiltonian_qt
 
 def shift_spectrum(hamiltonian: qt.Qobj) -> qt.Qobj:
 
     eigenenergies, _ = np.linalg.eigh(hamiltonian)
     smallest_eigval = np.round(eigenenergies[0], 5)
-    largest_eigval = np.round(eigenenergies[-1], 5)
     
     # Shift spectrum to nonnegatives
     if smallest_eigval < 0:
@@ -75,13 +102,13 @@ def rescale_and_shift_spectrum(hamiltonian: qt.Qobj) -> qt.Qobj:
 
 def rescaling_and_shift_factors(hamiltonian: qt.Qobj) -> tuple[float, float]:
     """Rescale and shift to get spectrum in [0, 1]
-    Note, it's only in this interval later after we set shift = shift / rescaling_factor
     """
-    eigenenergies, _ = np.linalg.eigh(hamiltonian)
+    eigenenergies = np.linalg.eigvalsh(hamiltonian)
     smallest_eigval = np.round(eigenenergies[0], 5)
     largest_eigval = np.round(eigenenergies[-1], 5)
     
     # Rescale and shift spectrum [0, 1]
+    rescaling_factor = 1.
     if smallest_eigval < 0:
         rescaling_factor = (abs(smallest_eigval) + abs(largest_eigval))
         shift = abs(smallest_eigval)
@@ -89,8 +116,24 @@ def rescaling_and_shift_factors(hamiltonian: qt.Qobj) -> tuple[float, float]:
         rescaling_factor = abs(largest_eigval)
         shift = 0
         
-    return rescaling_factor, shift
+    return rescaling_factor, shift/rescaling_factor
 
+# def qpe_rescaling_and_shift_factors(hamiltonian: qt.Qobj) -> tuple[float, float]:
+#     """global_phase = - 2pi * shift"""
+    
+#     eigenenergies, _ = np.linalg.eigh(hamiltonian)
+#     smallest_eigval = np.round(eigenenergies[0], 5)
+#     largest_eigval = np.round(eigenenergies[-1], 5)
+    
+#     # Rescale and shift spectrum [0, 1]
+#     if smallest_eigval < 0:
+#         rescaling_factor = (abs(smallest_eigval) + abs(largest_eigval))
+#         shift = abs(smallest_eigval)
+#     else:
+#         rescaling_factor = abs(largest_eigval)
+#         shift = 0
+        
+#     return rescaling_factor, -2 * np.pi * shift
 
 # ----------------------------------------------- Energy related functions ----------------------------------------------- #
 def smallest_bohr_freq(hamiltonian_matrix) -> float:
@@ -161,7 +204,8 @@ def stich_energy_bits_to_value(counts: dict[str, int], shots: int) -> int:
     omega_prime = np.sum([energy_values[i] * counts[bitstrings[i]] for i in range(len(bitstrings))]) / shots
     omega = - omega_prime * 2**(num_estimating_qubits) / 2*np.pi
     return omega_prime
-    
+
+
 
 if __name__ == '__main__':
     X = qt.sigmax()
