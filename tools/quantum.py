@@ -6,7 +6,7 @@ from qiskit.quantum_info.operators import Operator, Pauli
 from qiskit.circuit import Parameter
 from tools.classical import hamiltonian_matrix, rescaling_and_shift_factors
 
-class HamHam:  #TODO: Write a trotter circuit generator for an input qt.Qobj Hamiltonian
+class HamHam:  #TODO: Write a qiskit trotter circuit generator for an input qt.Qobj Hamiltonian
     def __init__(self, hamiltonian_qt: qt.Qobj):
         self.qt = hamiltonian_qt
         self.shift: float = 0.
@@ -40,16 +40,13 @@ def trotter_step_heisenberg(num_qubits: int, nondegenerate = True) -> QuantumCir
             
     return trott_hamiltonian
 
-def ham_evol(num_qubits: int, trotter_step: QuantumCircuit, num_trotter_steps: int, time: float,
-             shift: float = 0) -> QuantumCircuit:
+def ham_evol(num_qubits: int, trotter_step: QuantumCircuit, num_trotter_steps: int, time: float) -> QuantumCircuit:
     """Time parametrized Hamiltonian evolution
     For QPE feed in 2pi * time amount of time
     For rescaled Hamitlonian in QPE feed in 2pi * time / rescaling_factor amount of time
     """
     
     circ = QuantumCircuit(num_qubits, name="H")
-    if shift != 0: #! Comment out for OFT
-        circ.global_phase = shift
     
     for _ in range(num_trotter_steps):
         circ.compose(trotter_step, inplace=True)

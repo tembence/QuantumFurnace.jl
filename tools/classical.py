@@ -8,7 +8,8 @@ from time import time
 from scipy.linalg import expm
 
 # ----------------------------------------------- Matrix related functions ----------------------------------------------- #
-def hamiltonian_matrix(*terms: list[qt.Qobj], coeffs: list[float], num_qubits: int) -> np.ndarray:
+def hamiltonian_matrix(*terms: list[qt.Qobj], coeffs: list[float], num_qubits: int, 
+                       sym_break_term: list[qt.Qobj] = None) -> np.ndarray:
     """Gets the Hamiltonian as a Qobj. Assumes periodic boundaries.
     Args:
         terms: list of Qobjs, each Qobj is a single body term in the list
@@ -21,6 +22,12 @@ def hamiltonian_matrix(*terms: list[qt.Qobj], coeffs: list[float], num_qubits: i
     for coeff_i, term in enumerate(terms):
         for q in range(num_qubits):
             hamiltonian += coeffs[coeff_i] * pad_term(term, num_qubits, q).data
+    
+    # Add symmetry breaking term (breaks translation symmetry but also spin flip sym if chosen well) -> makes spectrum unique
+    if (sym_break_term != None) and (num_qubits != 2):
+        for q in range(1, num_qubits - 1):
+            print(f'Applied sym breaking term onto qubit {q}')
+            hamiltonian += pad_term(sym_break_term, num_qubits, q).data
             
     return hamiltonian
 
@@ -28,7 +35,9 @@ def hamiltonian_matrix(*terms: list[qt.Qobj], coeffs: list[float], num_qubits: i
 def pad_term(terms: list[qt.Qobj], num_qubits: int, position: int) -> qt.Qobj:
     """ Pads a many-body term with identity operators for the rest of the system.
     Assumes periodic boundary conditions.
-    Position: is the index of the first qubit of the term."""
+    Position: is the index of the first qubit of the term.
+    QISKIT AND QUTIP ORDER ARE REVERSED !
+    """
     
     term_size = len(terms)
     end_position = (position + term_size - 1)
@@ -39,6 +48,8 @@ def pad_term(terms: list[qt.Qobj], num_qubits: int, position: int) -> qt.Qobj:
     for i, term_index in enumerate(term_indices):
         padded_tensor_list[term_index] = terms[i]
     
+    padded_tensor_list.reverse()
+    
     return qt.tensor(padded_tensor_list)
 
 def trotter_heisenberg_qutip(num_qubits: int, step_size: float, num_trotter_steps: int, 
@@ -48,9 +59,11 @@ def trotter_heisenberg_qutip(num_qubits: int, step_size: float, num_trotter_step
     trott_step_qt = qt.qeye(2**num_qubits)
     
     if shift != 0:
+        
         trott_hamiltonian_qt = trott_hamiltonian_qt * qt.Qobj(expm(1j*shift*np.eye(2**num_qubits)))
-    
+    #FIXME: This order is maybe still wrong, and should be reversed or corrected
     for i in range(num_qubits):
+        # print(f'eXX, eYY, eZZ for qubit {i, (i+1)%num_qubits}')
         XX = pad_term([qt.sigmax(), qt.sigmax()], num_qubits, i)
         YY = pad_term([qt.sigmay(), qt.sigmay()], num_qubits, i)
         ZZ = pad_term([qt.sigmaz(), qt.sigmaz()], num_qubits, i)
@@ -58,9 +71,10 @@ def trotter_heisenberg_qutip(num_qubits: int, step_size: float, num_trotter_step
         eYY = expm(1j*step_size*YY.full())
         eZZ = expm(1j*step_size*ZZ.full())
         
-        trott_step_qt = trott_step_qt * qt.Qobj(eZZ) * qt.Qobj(eYY) * qt.Qobj(eXX)
+        trott_step_qt = trott_step_qt * qt.Qobj(eXX) * qt.Qobj(eYY) * qt.Qobj(eZZ)
         
     for _ in range(num_trotter_steps):
+        # print(f'Applied Trotter step {_}')
         trott_hamiltonian_qt = trott_hamiltonian_qt * trott_step_qt
     
     return trott_hamiltonian_qt
