@@ -15,30 +15,53 @@ class HamHam:  #TODO: Write a qiskit trotter circuit generator for an input qt.Q
         self.trotter_step_circ: QuantumCircuit = None
         
 
-def trotter_step_heisenberg(num_qubits: int, nondegenerate = True) -> QuantumCircuit:
+def trotter_step_heisenberg(num_qubits: int, coeffs = [1, 1, 1],
+                            symbreak: bool = False) -> QuantumCircuit:
     """Parametrized trotter step circuit for 1D Heisenberg chain: H = XX + YY + ZZ
        It has a fixed step size, for which Trotter errors should be fine, thus for longer time evolution
        we just need to adjust the number of steps 
+       Symbreak done with Z gates, with strength = 1 and at default the non-bdr qubits.
     """
     
-    trott_hamiltonian = QuantumCircuit(num_qubits, name="H")
+    trotter_step_circ = QuantumCircuit(num_qubits, name="H")
+    symbreak_positions = list(range(1, num_qubits - 1))
       
-    step_size_param = Parameter('theta')
-    # Periodic boundary conditions
+    step_size = Parameter('theta')
     for i in range(num_qubits):
         if i != num_qubits - 1:
-            trott_hamiltonian.rxx(-2*step_size_param, i, i + 1)  #! Qiskit convention, rxx(-2x) = exp(x)
-            trott_hamiltonian.ryy(-2*step_size_param, i, i + 1)
-            trott_hamiltonian.rzz(-2*step_size_param, i, i + 1)
-        if (i == num_qubits - 1):
-            trott_hamiltonian.rxx(-2*step_size_param, i, 0)
-            trott_hamiltonian.ryy(-2*step_size_param, i, 0)
-            trott_hamiltonian.rzz(-2*step_size_param, i, 0)
-        # if nondegenerate:
-        #     interaction_strength = 3.5
-        #     trott_hamiltonian.rz(interaction_strength * theta, 0)
+            trotter_step_circ.rxx(-2 * coeffs[0] * step_size, i, i + 1)   #! Qiskit convention, rxx(-2x) = exp(x)
+            trotter_step_circ.ryy(-2 * coeffs[1] * step_size, i, i + 1)
+            trotter_step_circ.rzz(-2 * coeffs[2] * step_size, i, i + 1)
+        if (i == num_qubits - 1):  # Periodic boundary conditions
+            trotter_step_circ.rxx(-2 * coeffs[0] * step_size, i, 0)
+            trotter_step_circ.ryy(-2 * coeffs[1] * step_size, i, 0)
+            trotter_step_circ.rzz(-2 * coeffs[2] * step_size, i, 0)
+        if symbreak == True:
+            if i in symbreak_positions:
+                trotter_step_circ.rz(-2 * step_size, i)
             
-    return trott_hamiltonian
+    return trotter_step_circ
+
+
+def second_order_trotter_step_circ(num_qubits: int, coeffs = [1, 1, 1]):
+    qr = QuantumRegister(num_qubits, name="q")
+    first_stage_circ = QuantumCircuit(qr)
+    step_size = Parameter('theta')
+    
+    for i in range(qr.size):
+        if i != num_qubits - 1:
+            first_stage_circ.rxx(-2 * coeffs[0] * step_size / 2, i, i + 1)
+            first_stage_circ.ryy(-2 * coeffs[1] * step_size / 2, i, i + 1)
+            first_stage_circ.rzz(-2 * coeffs[2] * step_size / 2, i, i + 1)
+        if (i == num_qubits - 1):
+            first_stage_circ.rxx(-2 * coeffs[0] * step_size / 2, i, 0)
+            first_stage_circ.ryy(-2 * coeffs[1] * step_size / 2, i, 0)
+            first_stage_circ.rzz(-2 * coeffs[2] * step_size / 2, i, 0)
+    
+    second_stage_circ = first_stage_circ.reverse_ops()
+    trotter_step_circ = first_stage_circ.compose(second_stage_circ, qr)
+    
+    return trotter_step_circ
 
 def ham_evol(num_qubits: int, trotter_step: QuantumCircuit, num_trotter_steps: int, time: float) -> QuantumCircuit:
     """Time parametrized Hamiltonian evolution

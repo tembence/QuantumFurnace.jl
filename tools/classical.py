@@ -9,7 +9,7 @@ from scipy.linalg import expm
 
 # ----------------------------------------------- Matrix related functions ----------------------------------------------- #
 def hamiltonian_matrix(*terms: list[qt.Qobj], coeffs: list[float], num_qubits: int, 
-                       sym_break_term: list[qt.Qobj] = None) -> np.ndarray:
+                       symbreak_term: list[qt.Qobj] = None) -> np.ndarray:
     """Gets the Hamiltonian as a Qobj. Assumes periodic boundaries.
     Args:
         terms: list of Qobjs, each Qobj is a single body term in the list
@@ -24,10 +24,10 @@ def hamiltonian_matrix(*terms: list[qt.Qobj], coeffs: list[float], num_qubits: i
             hamiltonian += coeffs[coeff_i] * pad_term(term, num_qubits, q).data
     
     # Add symmetry breaking term (breaks translation symmetry but also spin flip sym if chosen well) -> makes spectrum unique
-    if (sym_break_term != None) and (num_qubits != 2):
-        for q in range(1, num_qubits - 1):
+    if (symbreak_term != None) and (num_qubits != 2):
+        for q in range(1, num_qubits - 1):  #TODO: Could be a smarter way to break symmetry
             print(f'Applied sym breaking term onto qubit {q}')
-            hamiltonian += pad_term(sym_break_term, num_qubits, q).data
+            hamiltonian += pad_term(symbreak_term, num_qubits, q).data  # strength = 1
             
     return hamiltonian
 
