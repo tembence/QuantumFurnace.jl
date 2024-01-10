@@ -26,7 +26,7 @@ def hamiltonian_matrix(*terms: list[qt.Qobj], coeffs: list[float], num_qubits: i
     # Add symmetry breaking term (breaks translation symmetry but also spin flip sym if chosen well) -> makes spectrum unique
     if (symbreak_term != None) and (num_qubits != 2):
         for q in range(1, num_qubits - 1):  #TODO: Could be a smarter way to break symmetry
-            print(f'Applied sym breaking term onto qubit {q}')
+            # print(f'Applied sym breaking term onto qubit {q}')
             hamiltonian += pad_term(symbreak_term, num_qubits, q).data  # strength = 1
             
     return hamiltonian
@@ -98,9 +98,9 @@ def rescale_and_shift_spectrum(hamiltonian: qt.Qobj) -> qt.Qobj:
     """Rescale and shift to get spectrum in [0, 1]
     Note, it's only in this interval later after we set shift = shift / rescaling_factor
     """
-    eigenenergies, _ = np.linalg.eigh(hamiltonian)
-    smallest_eigval = np.round(eigenenergies[0], 5)
-    largest_eigval = np.round(eigenenergies[-1], 5)
+    eigenenergies = np.linalg.eigvalsh(hamiltonian)
+    smallest_eigval = eigenenergies[0]
+    largest_eigval = eigenenergies[-1]
     
     # Rescale and shift spectrum [0, 1]
     if smallest_eigval < 0:
@@ -110,7 +110,8 @@ def rescale_and_shift_spectrum(hamiltonian: qt.Qobj) -> qt.Qobj:
         rescaling_factor = abs(largest_eigval)
         shift = 0
         
-    shifted_rescaled_hamiltonian = (hamiltonian + shift * qt.qeye(hamiltonian.shape[0])) / rescaling_factor
+    # shifted_rescaled_hamiltonian = (hamiltonian + shift * qt.qeye(hamiltonian.shape[0])) / rescaling_factor #! UNCOMMENT
+    shifted_rescaled_hamiltonian = (hamiltonian) / rescaling_factor
         
     return shifted_rescaled_hamiltonian
 

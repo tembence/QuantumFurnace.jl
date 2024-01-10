@@ -52,7 +52,7 @@ def operator_fourier_circuit(op: Operator, num_sys_qubits: int, num_energy_bits:
             T = - 2 ** (w - 1)
         
         # phase_shift = 2 * np.pi * shift * T / rescaling_factor  # To have a shifted spectrum in circuit too
-        # circ.p(-phase_shift, qr_energy[w])  #! They cancel I think, but then still wrong in old Metropolis
+        # circ.p(phase_shift, qr_energy[w])  #! They cancel I think, but then still wrong in old Metropolis
         # step number given that step_size <= max step size (to keep Trotter error low)
         max_step_size = 0.1
         num_trott_steps = int(np.ceil(2 * np.pi * np.abs(T) / (rescaling_factor * max_step_size)))
