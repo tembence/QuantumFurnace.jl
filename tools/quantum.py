@@ -24,7 +24,7 @@ def trotter_step_heisenberg(num_qubits: int, coeffs = [1, 1, 1],
     """
     
     trotter_step_circ = QuantumCircuit(num_qubits, name="H")
-    symbreak_positions = list(range(1, num_qubits - 1))
+    symbreak_positions = list(range(1, num_qubits - 1))  # Bulk qubits
       
     step_size = Parameter('theta')
     for i in range(num_qubits):
