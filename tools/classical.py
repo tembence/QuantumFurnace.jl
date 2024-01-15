@@ -52,30 +52,35 @@ def pad_term(terms: list[qt.Qobj], num_qubits: int, position: int) -> qt.Qobj:
     
     return qt.tensor(padded_tensor_list)
 
-def trotter_heisenberg_qutip(num_qubits: int, step_size: float, num_trotter_steps: int, 
-                             shift: float = 0) -> qt.Qobj:
+def trotter_heisenberg_qutip(num_qubits: int, step_size: float, num_trotter_steps: int, coeffs: list[float],
+                             shift: float = 0, symbreak: bool = True) -> qt.Qobj:
     
     trott_hamiltonian_qt = qt.qeye(2**num_qubits)
     trott_step_qt = qt.qeye(2**num_qubits)
     
     if shift != 0:
-        
-        trott_hamiltonian_qt = trott_hamiltonian_qt * qt.Qobj(expm(1j*shift*np.eye(2**num_qubits)))
-    #FIXME: This order is maybe still wrong, and should be reversed or corrected
+        trott_hamiltonian_qt = trott_hamiltonian_qt * qt.Qobj(expm(1j * shift * np.eye(2**num_qubits)))
+    
+    # End of a product is the beginning of the operator chain applied.
     for i in range(num_qubits):
         # print(f'eXX, eYY, eZZ for qubit {i, (i+1)%num_qubits}')
         XX = pad_term([qt.sigmax(), qt.sigmax()], num_qubits, i)
         YY = pad_term([qt.sigmay(), qt.sigmay()], num_qubits, i)
         ZZ = pad_term([qt.sigmaz(), qt.sigmaz()], num_qubits, i)
-        eXX = expm(1j*step_size*XX.full())
-        eYY = expm(1j*step_size*YY.full())
-        eZZ = expm(1j*step_size*ZZ.full())
-        
-        trott_step_qt = trott_step_qt * qt.Qobj(eXX) * qt.Qobj(eYY) * qt.Qobj(eZZ)
+        eXX = expm(1j * coeffs[0] * step_size * XX.full())
+        eYY = expm(1j * coeffs[1] * step_size * YY.full())
+        eZZ = expm(1j * coeffs[2] * step_size * ZZ.full())
+        if (i in range(1, num_qubits - 1)) and (symbreak == True):
+            # print(f'eZ for qubit {i}')
+            Z = pad_term([qt.sigmaz()], num_qubits, i)
+            eZ = expm(1j * step_size * Z.full())
+            trott_step_qt = qt.Qobj(eZ) * qt.Qobj(eZZ) * qt.Qobj(eYY) * qt.Qobj(eXX) * trott_step_qt
+        else:
+            trott_step_qt = qt.Qobj(eZZ) * qt.Qobj(eYY) * qt.Qobj(eXX) * trott_step_qt
         
     for _ in range(num_trotter_steps):
         # print(f'Applied Trotter step {_}')
-        trott_hamiltonian_qt = trott_hamiltonian_qt * trott_step_qt
+        trott_hamiltonian_qt =  trott_step_qt * trott_hamiltonian_qt
     
     return trott_hamiltonian_qt
 
@@ -110,8 +115,8 @@ def rescale_and_shift_spectrum(hamiltonian: qt.Qobj) -> qt.Qobj:
         rescaling_factor = abs(largest_eigval)
         shift = 0
         
-    # shifted_rescaled_hamiltonian = (hamiltonian + shift * qt.qeye(hamiltonian.shape[0])) / rescaling_factor #! UNCOMMENT
-    shifted_rescaled_hamiltonian = (hamiltonian) / rescaling_factor
+    shifted_rescaled_hamiltonian = (hamiltonian + shift * qt.qeye(hamiltonian.shape[0])) / rescaling_factor
+    # shifted_rescaled_hamiltonian = (hamiltonian) / rescaling_factor
         
     return shifted_rescaled_hamiltonian
 
