@@ -15,13 +15,15 @@ class HamHam:  #TODO: Write a qiskit trotter circuit generator for an input qt.Q
         self.trotter_step_circ: QuantumCircuit = None
         
 
-def trotter_step_heisenberg(num_qubits: int, coeffs = [1, 1, 1],
-                            symbreak: bool = False) -> QuantumCircuit:
+def trotter_step_heisenberg(num_qubits: int, coeffs: list[float], symbreak: bool = False) -> QuantumCircuit:
     """Parametrized trotter step circuit for 1D Heisenberg chain: H = XX + YY + ZZ
        It has a fixed step size, for which Trotter errors should be fine, thus for longer time evolution
        we just need to adjust the number of steps 
        Symbreak done with Z gates, with strength = 1 and at default the non-bdr qubits.
     """
+    
+    if symbreak == True and len(coeffs) != 4:
+        raise ValueError("Symbreaking Heisenberg requires 4 coefficients")
     
     trotter_step_circ = QuantumCircuit(num_qubits, name="H")
     symbreak_positions = list(range(1, num_qubits - 1))  # Bulk qubits
@@ -38,7 +40,7 @@ def trotter_step_heisenberg(num_qubits: int, coeffs = [1, 1, 1],
             trotter_step_circ.rzz(-2 * coeffs[2] * step_size, i, 0)
         if symbreak == True:
             if i in symbreak_positions:
-                trotter_step_circ.rz(-2 * step_size, i)
+                trotter_step_circ.rz(-2 * coeffs[3] * step_size, i)
             
     return trotter_step_circ
 

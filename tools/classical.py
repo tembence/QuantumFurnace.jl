@@ -9,13 +9,16 @@ from scipy.linalg import expm
 
 # ----------------------------------------------- Matrix related functions ----------------------------------------------- #
 def hamiltonian_matrix(*terms: list[qt.Qobj], coeffs: list[float], num_qubits: int, 
-                       symbreak_term: list[qt.Qobj] = None) -> np.ndarray:
+                       symbreak_term: list[qt.Qobj] = []) -> np.ndarray:
     """Gets the Hamiltonian as a Qobj. Assumes periodic boundaries.
     Args:
         terms: list of Qobjs, each Qobj is a single body term in the list
-                building a many-body term together, e.g. [X, Y, Z] -> X^Y^Z"""
+                building a many-body term together, e.g. [X, Y, Z] -> X^Y^Z
+        coeffs: list of coefficients for each term in `terms` and the last one is for the `symbreak_term` if
+                we want to break the symmetry.
+    """
     
-    if len(terms) != len(coeffs):
+    if (len(terms) + len(symbreak_term)) != len(coeffs):
         raise ValueError("Number of terms and coefficients must match.")
     
     hamiltonian = np.zeros((2**num_qubits, 2**num_qubits))
@@ -24,10 +27,10 @@ def hamiltonian_matrix(*terms: list[qt.Qobj], coeffs: list[float], num_qubits: i
             hamiltonian += coeffs[coeff_i] * pad_term(term, num_qubits, q).data
     
     # Add symmetry breaking term (breaks translation symmetry but also spin flip sym if chosen well) -> makes spectrum unique
-    if (symbreak_term != None) and (num_qubits != 2):
-        for q in range(1, num_qubits - 1):  #TODO: Could be a smarter way to break symmetry
+    if (len(symbreak_term) != 0) and (num_qubits != 2):
+        for q in range(1, num_qubits - 1):
             # print(f'Applied sym breaking term onto qubit {q}')
-            hamiltonian += pad_term(symbreak_term, num_qubits, q).data  # strength = 1
+            hamiltonian += coeffs[-1] * pad_term(symbreak_term, num_qubits, q).data
             
     return hamiltonian
 
@@ -55,6 +58,9 @@ def pad_term(terms: list[qt.Qobj], num_qubits: int, position: int) -> qt.Qobj:
 def trotter_heisenberg_qutip(num_qubits: int, step_size: float, num_trotter_steps: int, coeffs: list[float],
                              shift: float = 0, symbreak: bool = True) -> qt.Qobj:
     
+    if symbreak == True and len(coeffs) != 4:
+        raise ValueError("If symbreak is True, then 3+1 coefficients are needed.")
+        
     trott_hamiltonian_qt = qt.qeye(2**num_qubits)
     trott_step_qt = qt.qeye(2**num_qubits)
     
@@ -73,7 +79,7 @@ def trotter_heisenberg_qutip(num_qubits: int, step_size: float, num_trotter_step
         if (i in range(1, num_qubits - 1)) and (symbreak == True):
             # print(f'eZ for qubit {i}')
             Z = pad_term([qt.sigmaz()], num_qubits, i)
-            eZ = expm(1j * step_size * Z.full())
+            eZ = expm(1j * coeffs[3] * step_size * Z.full())
             trott_step_qt = qt.Qobj(eZ) * qt.Qobj(eZZ) * qt.Qobj(eYY) * qt.Qobj(eXX) * trott_step_qt
         else:
             trott_step_qt = qt.Qobj(eZZ) * qt.Qobj(eYY) * qt.Qobj(eXX) * trott_step_qt
