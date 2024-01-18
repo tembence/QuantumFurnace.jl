@@ -38,8 +38,8 @@ def hamiltonian_matrix(*terms: list[qt.Qobj], coeffs: list[float], num_qubits: i
 def pad_term(terms: list[qt.Qobj], num_qubits: int, position: int) -> qt.Qobj:
     """ Pads a many-body term with identity operators for the rest of the system.
     Assumes periodic boundary conditions.
-    Position: is the index of the first qubit of the term.
-    QISKIT AND QUTIP ORDER ARE REVERSED !
+    Position: is the index of the first qubit of the term. (Qiskit order)
+    QISKIT AND QUTIP ORDER ARE REVERSED ! QISKIT 0 = LSB (TOP TO BOTTOM), QUTIP 0 = MSB (LEFT TO RIGHT)
     """
     
     term_size = len(terms)
@@ -51,7 +51,7 @@ def pad_term(terms: list[qt.Qobj], num_qubits: int, position: int) -> qt.Qobj:
     for i, term_index in enumerate(term_indices):
         padded_tensor_list[term_index] = terms[i]
     
-    padded_tensor_list.reverse()
+    padded_tensor_list.reverse()  #!
     
     return qt.tensor(padded_tensor_list)
 
@@ -69,7 +69,7 @@ def trotter_heisenberg_qutip(num_qubits: int, step_size: float, num_trotter_step
     
     # End of a product is the beginning of the operator chain applied.
     for i in range(num_qubits):
-        # print(f'eXX, eYY, eZZ for qubit {i, (i+1)%num_qubits}')
+        print(f'eXX, eYY, eZZ for qubit {i, (i+1)%num_qubits}')
         XX = pad_term([qt.sigmax(), qt.sigmax()], num_qubits, i)
         YY = pad_term([qt.sigmay(), qt.sigmay()], num_qubits, i)
         ZZ = pad_term([qt.sigmaz(), qt.sigmaz()], num_qubits, i)
@@ -122,23 +122,6 @@ def rescaling_and_shift_factors(hamiltonian: qt.Qobj) -> tuple[float, float]:
         shift = 0
         
     return rescaling_factor, shift/rescaling_factor
-
-# def qpe_rescaling_and_shift_factors(hamiltonian: qt.Qobj) -> tuple[float, float]:
-#     """global_phase = - 2pi * shift"""
-    
-#     eigenenergies, _ = np.linalg.eigh(hamiltonian)
-#     smallest_eigval = np.round(eigenenergies[0], 5)
-#     largest_eigval = np.round(eigenenergies[-1], 5)
-    
-#     # Rescale and shift spectrum [0, 1]
-#     if smallest_eigval < 0:
-#         rescaling_factor = (abs(smallest_eigval) + abs(largest_eigval))
-#         shift = abs(smallest_eigval)
-#     else:
-#         rescaling_factor = abs(largest_eigval)
-#         shift = 0
-        
-#     return rescaling_factor, -2 * np.pi * shift
 
 # ----------------------------------------------- Energy related functions ----------------------------------------------- #
 def smallest_bohr_freq(hamiltonian_matrix) -> float:
