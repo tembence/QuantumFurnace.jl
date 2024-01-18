@@ -105,27 +105,6 @@ def shift_spectrum(hamiltonian: qt.Qobj) -> qt.Qobj:
         
     return shifted_hamiltonian
 
-def rescale_and_shift_spectrum(hamiltonian: qt.Qobj) -> qt.Qobj:
-    """Rescale and shift to get spectrum in [0, 1]
-    Note, it's only in this interval later after we set shift = shift / rescaling_factor
-    """
-    eigenenergies = np.linalg.eigvalsh(hamiltonian)
-    smallest_eigval = eigenenergies[0]
-    largest_eigval = eigenenergies[-1]
-    
-    # Rescale and shift spectrum [0, 1]
-    if smallest_eigval < 0:
-        rescaling_factor = (abs(smallest_eigval) + abs(largest_eigval))
-        shift = abs(smallest_eigval)
-    else:
-        rescaling_factor = abs(largest_eigval)
-        shift = 0
-        
-    shifted_rescaled_hamiltonian = (hamiltonian + shift * qt.qeye(hamiltonian.shape[0])) / rescaling_factor
-    # shifted_rescaled_hamiltonian = (hamiltonian) / rescaling_factor
-        
-    return shifted_rescaled_hamiltonian
-
 def rescaling_and_shift_factors(hamiltonian: qt.Qobj) -> tuple[float, float]:
     """Rescale and shift to get spectrum in [0, 1]
     """
