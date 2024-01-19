@@ -108,9 +108,6 @@ def shift_spectrum(hamiltonian: qt.Qobj) -> qt.Qobj:
 def rescaling_and_shift_factors(hamiltonian: qt.Qobj, signed: bool=False) -> tuple[float, float]:
     """Rescale and shift to get spectrum in [0, 1]
     """
-    #TODO: If the lowest energy is more negative than the largest energy is positive, then in the signed case,
-    #TODO: without a shift, the spectrum could be [-0.6, 0.4] or so. We need a shift to -0.5
-    
     eigenenergies = np.linalg.eigvalsh(hamiltonian)
     smallest_eigval = np.round(eigenenergies[0], 5)
     largest_eigval = np.round(eigenenergies[-1], 5)
