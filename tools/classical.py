@@ -105,7 +105,7 @@ def shift_spectrum(hamiltonian: qt.Qobj) -> qt.Qobj:
         
     return shifted_hamiltonian
 
-def rescaling_and_shift_factors(hamiltonian: qt.Qobj) -> tuple[float, float]:
+def rescaling_and_shift_factors(hamiltonian: qt.Qobj, signed: bool=False) -> tuple[float, float]:
     """Rescale and shift to get spectrum in [0, 1]
     """
     #TODO: If the lowest energy is more negative than the largest energy is positive, then in the signed case,
@@ -115,16 +115,15 @@ def rescaling_and_shift_factors(hamiltonian: qt.Qobj) -> tuple[float, float]:
     smallest_eigval = np.round(eigenenergies[0], 5)
     largest_eigval = np.round(eigenenergies[-1], 5)
     
-    # Rescale and shift spectrum [0, 1]
-    rescaling_factor = 1.
-    if smallest_eigval < 0:
-        rescaling_factor = (abs(smallest_eigval) + abs(largest_eigval))
-        shift = abs(smallest_eigval)
-    else:
-        rescaling_factor = abs(largest_eigval)
-        shift = 0
+    # Rescale and shift spectrum [-0.5, 0.5]
+    rescaling_factor = largest_eigval - smallest_eigval
+    # To centre spectrum around 0:
+    shift = -(largest_eigval + smallest_eigval) / (2 * rescaling_factor)
+    
+    if signed == False:  # shift to [0, 1]
+        shift += 0.5
         
-    return rescaling_factor, shift/rescaling_factor
+    return rescaling_factor, shift
 
 # ----------------------------------------------- Energy related functions ----------------------------------------------- #
 def smallest_bohr_freq(hamiltonian_matrix) -> float:
