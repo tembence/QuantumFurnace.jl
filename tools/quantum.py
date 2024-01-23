@@ -7,13 +7,13 @@ from qiskit.circuit import Parameter
 from tools.classical import hamiltonian_matrix, rescaling_and_shift_factors
 
 class HamHam:  #TODO: Write a qiskit trotter circuit generator for an input qt.Qobj Hamiltonian
-    def __init__(self, hamiltonian_qt: qt.Qobj):
+    def __init__(self, hamiltonian_qt: qt.Qobj, shift: float, rescaling_factor: float,
+                 trotter_step_circ: QuantumCircuit):
         self.qt = hamiltonian_qt
-        self.shift: float = 0.
-        self.rescaling_factor: float = 1.
-        self.rescaled_qt = None
-        self.trotter_step_circ: QuantumCircuit = None
-        
+        self.shift: float = shift
+        self.rescaling_factor: float = rescaling_factor
+        self.trotter_step_circ: QuantumCircuit = trotter_step_circ
+        self.spectrum, self.eigenstates = np.linalg.eigh(self.qt.full())
 
 def trotter_step_heisenberg(num_qubits: int, coeffs: list[float], symbreak: bool = False) -> QuantumCircuit:
     """Parametrized trotter step circuit for 1D Heisenberg chain: H = XX + YY + ZZ

@@ -13,92 +13,90 @@ from typing import Optional
 from tools.quantum import *
 from tools.classical import *
 
-
 #TODO: With a fixed step size we are not doing the exact amount of time evolution needed... but sometimes more
-#TODO: Make spectrum nondegenerate
 #TODO: Do it for 1-2 qubits, and ES as initial state with a jump that brings it to an ES exactly
 
-def operator_fourier_circuit(op: Operator, num_sys_qubits: int, num_energy_bits: int, hamiltonian: HamHam,
-                             with_gauss: bool=True, sigma: float = None) -> QuantumCircuit:
+#TODO: Check if qiskit transpiles many T = 1 controlled evolutions the same as just having T = 1, 2, 4, 8 one controlled ev.
+#! Careful with different random seeds in main and here.
+#TODO: Is 1 eps distance enough from 1, now that the spectrum is shifted correctly?
 
-    
-    trott_ham_step = hamiltonian.trotter_step_circ
+def operator_fourier_circuit(op: Operator, num_qubits: int, num_energy_bits: int, hamiltonian: HamHam,
+                             initial_state: QuantumCircuit = None, sigma: float = 0.) -> QuantumCircuit:
+
+    trotter_step_circ = hamiltonian.trotter_step_circ
     qr_energy = QuantumRegister(num_energy_bits, name='w')
-    qr_sys = QuantumRegister(num_sys_qubits, name='sys')
+    qr_sys = QuantumRegister(num_qubits, name='sys')
     circ = QuantumCircuit(qr_energy, qr_sys, name="OFT")
-
-    # System initialization
-    rand_initial_state = random_statevector(2**num_sys_qubits, seed=667)
-    circ.initialize(rand_initial_state, qr_sys)
+    circ.initialize(initial_state, qr_sys)
     
-    energy_prejump = energy_from_full_state(circ, hamiltonian, [num_energy_bits, num_sys_qubits], qr_index=1)
+    # Could rewrtie this function to a simpler numpy one later:
+    # energy_prejump = energy_from_full_state(circ, hamiltonian, [num_energy_bits, num_sys_qubits], qr_index=1)
+    
+    # Energy before jump
+    statevector = Statevector(circ).data
+    padded_rescaled_hamiltonian = np.kron(hamiltonian.qt.full(), np.eye(2**num_energy_bits))  # top-bottom = right-left
+    energy_before_jump = statevector.conj().T @ padded_rescaled_hamiltonian @ statevector
+    print(f'Energy before jump: {energy_before_jump.real}')
     
     # Gaussian prep
-    if with_gauss:
-        if sigma is None:
-            raise ValueError("If with_gauss=True, sigma must be provided.")
+    if sigma != 0.:
         prep_circ = brute_prepare_gaussian_state(num_energy_bits, sigma)
         circ.compose(prep_circ, qr_energy, inplace=True)
+    else:  # Conventional QPE
+        circ.h(qr_energy)
     
-    rescaling_factor = hamiltonian.rescaling_factor
-    ham_time_evol = lambda m, T: ham_evol(num_qubits, trotter_step=trott_ham_step, num_trotter_steps=m, time=T,
-                                          rescaling_factor=rescaling_factor)  
+    # Time evolutions for unit time, T = 1 (in H's units and scale)
+    num_trotter_steps = 10
+    T = 1
+    total_time = 2 * np.pi * T
+    U_pos = ham_evol(num_qubits, trotter_step=trotter_step_circ, num_trotter_steps=num_trotter_steps, time=total_time)
+    U_neg = ham_evol(num_qubits, trotter_step=trotter_step_circ, num_trotter_steps=num_trotter_steps, time=(-1)*total_time)
+    cU_pos = U_pos.control(1, label='+')
+    cU_neg = U_neg.control(1, label='-')
     
-    # exp(-i 2pi H_rs T)
+    # exp(-i 2pi H T) E_old
     for w in range(num_energy_bits):
-        if w == 0:  # Sign bit
-            T = 2 ** (num_energy_bits - 1)
-        else:
-            T = - 2 ** (w - 1)
-        
-        # phase_shift = 2 * np.pi * shift * T / rescaling_factor  # To have a shifted spectrum in circuit too
-        # circ.p(phase_shift, qr_energy[w])  #! They cancel I think, but then still wrong in old Metropolis
-        # step number given that step_size <= max step size (to keep Trotter error low)
-        max_step_size = 0.1
-        num_trott_steps = int(np.ceil(2 * np.pi * np.abs(T) / (rescaling_factor * max_step_size)))
-        
-        controlled_time_evol = ham_time_evol(num_trott_steps, T).control(1, label=f'{T}t0') 
-        circ.compose(controlled_time_evol, qubits=[qr_energy[w], *qr_sys], inplace=True)
-        print(f'I used:')
-        print(f'rescaling_factor: {rescaling_factor}')
-        print(f'Num trott steps: {num_trott_steps}')
-        print(f'For QPE time: {T}')
+        circ.p(total_time * hamiltonian.shift * 2**w, qr_energy[w])  #! Shift, cancel?
+        if w != num_energy_bits - 1:
+            for _ in range(2**w):
+                circ.compose(cU_neg, [w, *list(qr_sys)], inplace=True)
+        else:  # q = last qubit (MSB) has opposite sign
+            for _ in range(2**w):
+                circ.compose(cU_pos, [w, *list(qr_sys)], inplace=True)
     
     # Jump A
-    random.seed(667)
+    random.seed(666)
     random_sys_qubit = random.randint(0, num_qubits - 1)
     op_circ = QuantumCircuit(1, name="A")
     op_circ.append(op, [0])
     circ.compose(op_circ, qr_sys[random_sys_qubit], inplace=True)
     print(f'Jump applied to {random_sys_qubit}th qubit')
     
-    energy_postjump = energy_from_full_state(circ, hamiltonian, [num_energy_bits, num_sys_qubits], qr_index=1)
-    omega = energy_postjump - energy_prejump
-    print(f'Energy jump: {omega}')
+    statevector = Statevector(circ).data
+    energy_after_jump = statevector.conj().T @ padded_rescaled_hamiltonian @ statevector
+    print(f'Energy after jump: {energy_after_jump.real}')
+    omega = energy_after_jump - energy_before_jump
+    print(f'Energy jump: {omega.real}')
     
-    # # exp(i 2pi H_rs T)
-    for w in (range(num_energy_bits)):
-        if w == 0:
-            T = -2 ** (num_energy_bits - 1)
-        else:
-            T = 2 ** (w - 1)
-        
-        # phase_shift = 2 * np.pi * shift * T / rescaling_factor
-        # circ.p(phase_shift, qr_energy[w])
-        
-        max_step_size = 0.1
-        num_trott_steps = int(np.ceil(2 * np.pi * np.abs(T) / (rescaling_factor * max_step_size)))
-        
-        controlled_time_evol = ham_time_evol(num_trott_steps, T).control(1, label=f'{T}t0')
-        circ.compose(controlled_time_evol, qubits=[qr_energy[w], *qr_sys], inplace=True)
+    # # exp(i 2pi H T)
+    for w in range(num_energy_bits):
+        circ.p(total_time * hamiltonian.shift * 2**w, qr_energy[w])  #! Shift, cancel? #TODO: Try without shifts
+        if w != num_energy_bits - 1:
+            for _ in range(2**w):
+                circ.compose(cU_pos, [w, *list(qr_sys)], inplace=True)
+        else:  # q = last qubit (MSB) has opposite sign
+            for _ in range(2**w):
+                circ.compose(cU_neg, [w, *list(qr_sys)], inplace=True)
         
     circ.compose(QFT(num_energy_bits, inverse=True), qubits=qr_energy, inplace=True)
-    print(circ)
-    
+
     return circ
     
 def brute_prepare_gaussian_state(num_energy_bits: int, sigma: float) -> QuantumCircuit:
-    """An early implementation for low number of energy register qubits. For more qubits we would use QSVT maybe."""
+    """An early implementation for low number of energy register qubits. 
+    For more qubits we would use QSVT maybe."""
+    #FIXME: This is wrong. Maybe due to extra factors or the unit goes into the sigma, 
+    # and leads to unexpected form for the gaussian
     
     # Time labels in computational basis
     decimal_time_labels = list(range(2**(num_energy_bits - 1)))
@@ -136,7 +134,8 @@ if __name__ == "__main__":
     # bohr_unit = smallest_bohr_freq(hamiltonian)
     # print(bohr_unit)
     hamiltonian.rescaling_factor, hamiltonian.shift = rescaling_and_shift_factors(hamiltonian.qt)
-    hamiltonian.rescaled_qt = hamiltonian.qt / hamiltonian.rescaling_factor + hamiltonian.shift * qt.qeye(hamiltonian.qt.shape[0])
+    hamiltonian.rescaled_qt = hamiltonian.qt / hamiltonian.rescaling_factor + \
+        hamiltonian.shift * qt.qeye(hamiltonian.qt.shape[0])
     
     print(f'normalized spectrum {np.linalg.eigvalsh(hamiltonian.rescaled_qt)}')
     
