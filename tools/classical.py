@@ -1,6 +1,6 @@
 import numpy as np
 import qutip as qt
-from qiskit import QuantumCircuit, QuantumRegister
+from qiskit import QuantumCircuit, QuantumRegister, ClassicalRegister
 from qiskit.quantum_info.operators import Operator
 from qiskit.quantum_info import Statevector, partial_trace, random_statevector
 from itertools import combinations
@@ -18,11 +18,12 @@ class HamHam:  #TODO: Write a qiskit trotter circuit generator for an input qt.Q
         self.rescaled_coeffs = rescaled_coeffs
         self.trotter_step_circ: QuantumCircuit = None
 
-#FIXME: A bit off sometimes
-def find_ideal_heisenberg(num_qubits: int, bohr_bound: float, eps: float, signed: bool = True, for_oft: bool = True) -> HamHam:
+#FIXME: A bit off sometimes, the centering of the spectrum
+def find_ideal_heisenberg(num_qubits: int, bohr_bound: float, eps: float,
+                          signed: bool = True, for_oft: bool = True) -> HamHam:
     """Find a Heisenberg Hamiltonian with ideal spectrum for QPE, by which we mean
     that the spectrum is not degenerate and the Bohr frequencies are not shorter than the `bohr_bound`.
-    And also that the spec(H) is in [-0.25 + eps/2, 0.25 - eps/2] for the QPE to work for OFT. 
+    And also that the spec(H) is in [0, 0.5 - eps/2] for the QPE in OFT. 
     For normal signed QPE it gives [-0.5 + eps, 0.5 - eps]
     
     Args:
@@ -31,8 +32,8 @@ def find_ideal_heisenberg(num_qubits: int, bohr_bound: float, eps: float, signed
         eps (float): Distance from the spectrum bounds, to avoid overlap of the boundary eigenstates in measurements.
     """
     
-    if signed != for_oft:
-        raise ValueError('OFT has to be always with signed bitstrings.')
+    if for_oft == True and signed == True:
+        raise ValueError("For OFT we want unsigned spectrum")
     
     X = qt.sigmax()
     Y = qt.sigmay()
@@ -51,7 +52,7 @@ def find_ideal_heisenberg(num_qubits: int, bohr_bound: float, eps: float, signed
         hamiltonian_qt = hamiltonian_matrix([X, X], [Y, Y], [Z, Z], coeffs=coeffs, num_qubits=num_qubits, symbreak_term=[Z])
         rescaling_factor, shift = rescaling_and_shift_factors(hamiltonian_qt, eps=eps, signed=signed)
         if for_oft:
-            rescaling_factor *= 2 # [-0.25 + eps / 2, 0.25 - eps / 2] 
+            rescaling_factor *= 2 # [0.5 - eps / 2] 
             shift /= 2
         
         rescaled_hamiltonian_qt = hamiltonian_qt / rescaling_factor + shift * qt.qeye(hamiltonian_qt.shape[0])
@@ -103,7 +104,8 @@ def hamiltonian_matrix(*terms: list[qt.Qobj], coeffs: list[float], num_qubits: i
         for q in range(num_qubits):
             hamiltonian += coeffs[coeff_i] * pad_term(term, num_qubits, q).data
     
-    # Add symmetry breaking term (breaks translation symmetry but also spin flip sym if chosen well) -> makes spectrum unique
+    # Add symmetry breaking term (breaks translation symmetry but also spin flip sym if chosen well) 
+    # -> makes spectrum unique
     if (len(symbreak_term) != 0) and (num_qubits != 2):
         for q in range(1, num_qubits - 1):
             # print(f'Applied sym breaking term onto qubit {q}')
@@ -271,6 +273,50 @@ def stich_energy_bits_to_value(counts: dict[str, int], shots: int) -> int:
     omega = - omega_prime * 2**(num_estimating_qubits) / 2*np.pi
     return omega_prime
 
+#* BitHandler
+class BitHandler:
+    """Handles qiskit classical bitstrings for multiple measured registers in.
+       Order matters! Top register is the last bits in the bitstring."""
+
+    def __init__(self, classical_registers: list[ClassicalRegister]):
+        self.classical_registers = classical_registers
+        self.measured_counts = {}
+        self.measured_bitstring = ''
+        self.bitstring_of_creg = {register: '' for register in classical_registers}
+    
+    def get_counts_for_creg(self, cr: ClassicalRegister) -> dict[str, int]:
+        #? Do we just add shots together for 1001 0 and 1001 1, or equiv for the boltzmann cases 0, 1?
+        counts_for_cr = {}
+        for bits in self.measured_counts.keys():
+            self.measured_bitstring = bits
+            val = self.measured_counts[bits]
+            bitstring_for_cr = self.get_bitstring_for_creg(cr)
+            if bitstring_for_cr in counts_for_cr.keys():
+                counts_for_cr[bitstring_for_cr] += val
+            else:
+                counts_for_cr[bitstring_for_cr] = val
+            
+        return counts_for_cr
+        
+    def get_bitstring_for_creg(self, cr: ClassicalRegister) -> str:
+        """Slices into the whole bitstring to get the wanted classical register bits"""
+        
+        # Remove spaces in qiskit bitstring
+        self.measured_bitstring = self.measured_bitstring.replace(' ', '')
+        
+        cr_index = self.classical_registers.index(cr)
+        if cr_index == 0:
+            wanted_bits = self.measured_bitstring[::-1][:cr.size][::-1]  # Ugly as hell but for a few bits it's fine
+            return wanted_bits
+        
+        num_of_previous_bits = sum([cr.size for cr in self.classical_registers[:cr_index]])
+        wanted_bits = self.measured_bitstring[::-1][num_of_previous_bits:num_of_previous_bits + cr.size][::-1]
+        
+        self.bitstring_of_creg[cr] = wanted_bits
+        
+        return wanted_bits
+
+
 
 
 if __name__ == '__main__':
@@ -294,9 +340,13 @@ if __name__ == '__main__':
     # rand_state = random_statevector(2**np.sum([qr.size for qr in circ.qregs]))
     # circ.initialize(rand_state, range(np.sum([qr.size for qr in circ.qregs])))
     # rdm = reduced_density_matrix(circ, [1, 2, 3, 4], qr_indices=[1, 3])
-    # rdm_qiskit = partial_trace(Statevector(circ), [0, 3, 4, 5])  #FIXME: QIskit and my reduced density matrix doesnt match up 
+    # rdm_qiskit = partial_trace(Statevector(circ), [0, 3, 4, 5])  
+    # #FIXME: QIskit and my reduced density matrix doesnt match up 
     # print(rdm)
     # rdm_qiskit = rdm_qiskit.data.reshape(rdm.shape)
     # print(np.isclose(rdm, rdm_qiskit))
     
-    measurement_result = {'1010': 79, '0111': 63, '0110': 44, '1000': 45, '0000': 58, '1100': 59, '0100': 65, '0001': 69, '0011': 58, '1111': 69, '1101': 75, '0010': 57, '1110': 59, '1011': 65, '1001': 65, '0101': 70}
+    measurement_result = {'1010': 79, '0111': 63, '0110': 44, '1000': 45, 
+                          '0000': 58, '1100': 59, '0100': 65, '0001': 69, 
+                          '0011': 58, '1111': 69, '1101': 75, '0010': 57, 
+                          '1110': 59, '1011': 65, '1001': 65, '0101': 70}

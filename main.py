@@ -14,13 +14,13 @@ from tools.quantum import *
 
 np.random.seed(666)
 num_qubits = 3
-num_energy_bits = 6
-bohr_bound = 2 ** (-num_energy_bits + 1) #!
-eps = 0.1
+num_energy_bits = 5
+bohr_bound = 2 ** (-num_energy_bits) #!
+eps = 0.02
 sigma = 10
 eig_index = 7
 
-hamiltonian = find_ideal_heisenberg(num_qubits, bohr_bound, eps, signed=True, for_oft=True)
+hamiltonian = find_ideal_heisenberg(num_qubits, bohr_bound, eps, signed=False, for_oft=True)
 rescaled_coeff = hamiltonian.rescaled_coeffs
 # Corresponding Trotter step circuit
 trotter_step_circ = trotter_step_heisenberg(num_qubits, coeffs=rescaled_coeff, symbreak=True)
@@ -37,6 +37,7 @@ qr_energy = QuantumRegister(num_energy_bits, name="w")
 cr_energy = ClassicalRegister(num_energy_bits, name="cr_w")
 cr_boltzmann = ClassicalRegister(1, name='cr_boltz')
 qr_sys  = QuantumRegister(num_qubits, name="sys")
+bithandler = BitHandler([cr_boltzmann, cr_energy])
 circ = QuantumCircuit(qr_boltzmann, qr_energy, qr_sys, cr_boltzmann, cr_energy)
 
 # Operator Fourier Transform of jump operator
@@ -51,20 +52,21 @@ print(boltzmann_circ)
 circ.compose(boltzmann_circ, [qr_boltzmann[0], *list(qr_energy)], inplace=True)
 
 circ.measure(qr_energy, cr_energy)
+circ.measure(qr_boltzmann, cr_boltzmann)
 print(circ)
 
 #* --- Results
 tr_circ = transpile(circ, basis_gates=['u', 'cx'], optimization_level=3)
 simulator = Aer.get_backend('statevector_simulator')
-shots = 1000
+shots = 10
 job = simulator.run(tr_circ, shots=shots)
 counts = job.result().get_counts()
 counts = dict(sorted(counts.items(), key=lambda item: item[1], reverse=True))
 
 print(counts)
-
-phase_bits = list(counts.keys())[0] # take the most often obtaned result
-phase_bits_shots = counts[phase_bits]
+energy_counts = bithandler.get_counts_for_creg(cr_energy)
+phase_bits = list(energy_counts.keys())[0] # take the most often obtaned result
+phase_bits_shots = energy_counts[phase_bits]
 # Main bitstring result
 # signed binary to decimal:
 if phase_bits[0] == '1':
@@ -74,13 +76,13 @@ else:
 
 # Combine phases
 combined_phase = 0.
-for i in range(len(counts.keys())):
-    if list(counts.keys())[i][0] == '1':
-        phase_part = (int(list(counts.keys())[i][1:], 2) - 2**(num_energy_bits - 1)) / 2**num_energy_bits
+for i in range(len(energy_counts.keys())):
+    if list(energy_counts.keys())[i][0] == '1':
+        phase_part = (int(list(energy_counts.keys())[i][1:], 2) - 2**(num_energy_bits - 1)) / 2**num_energy_bits
     else:
-        phase_part = int(list(counts.keys())[i][1:], 2) / 2**num_energy_bits
+        phase_part = int(list(energy_counts.keys())[i][1:], 2) / 2**num_energy_bits
         
-    combined_phase += phase_part * list(counts.values())[i] / shots
+    combined_phase += phase_part * list(energy_counts.values())[i] / shots
 T = 1
 estimated_energy = phase / T  # exp(i 2pi phase) = exp(i 2pi E T)
 estimated_combined_energy = combined_phase / T

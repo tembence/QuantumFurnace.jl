@@ -56,7 +56,7 @@ def operator_fourier_circuit(op: Operator, num_qubits: int, num_energy_bits: int
     
     # exp(-i 2pi H T) E_old
     for w in range(num_energy_bits):
-        circ.p(total_time * hamiltonian.shift * 2**w, qr_energy[w])  #! Shift, cancel?
+        # circ.p(total_time * hamiltonian.shift * 2**w, qr_energy[w])  #! Shift, cancel?
         if w != num_energy_bits - 1:
             for _ in range(2**w):
                 circ.compose(cU_neg, [w, *list(qr_sys)], inplace=True)
@@ -80,7 +80,7 @@ def operator_fourier_circuit(op: Operator, num_qubits: int, num_energy_bits: int
     
     # # exp(i 2pi H T)
     for w in range(num_energy_bits):
-        circ.p(total_time * hamiltonian.shift * 2**w, qr_energy[w])  #! Shift, cancel? #TODO: Try without shifts
+        # circ.p(total_time * hamiltonian.shift * 2**w, qr_energy[w])  #! Shift, cancel? #TODO: Try without shifts
         if w != num_energy_bits - 1:
             for _ in range(2**w):
                 circ.compose(cU_pos, [w, *list(qr_sys)], inplace=True)
@@ -95,8 +95,6 @@ def operator_fourier_circuit(op: Operator, num_qubits: int, num_energy_bits: int
 def brute_prepare_gaussian_state(num_energy_bits: int, sigma: float) -> QuantumCircuit:
     """An early implementation for low number of energy register qubits. 
     For more qubits we would use QSVT maybe."""
-    #FIXME: This is wrong. Maybe due to extra factors or the unit goes into the sigma, 
-    # and leads to unexpected form for the gaussian
     
     # Time labels in computational basis
     decimal_time_labels = list(range(2**(num_energy_bits - 1)))
