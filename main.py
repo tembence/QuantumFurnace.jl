@@ -43,12 +43,14 @@ circ = QuantumCircuit(qr_boltzmann, qr_energy, qr_sys, cr_boltzmann, cr_energy)
 jump_op = Operator(Pauli('X'))
 oft_circ = operator_fourier_circuit(jump_op, num_qubits, num_energy_bits, hamiltonian, 
                                     initial_state=initial_state, sigma=sigma)
-circ.compose(oft_circ, inplace=True)
-circ.measure(qr_energy, cr_energy)
+circ.compose(oft_circ, [*list(qr_energy), *list(qr_sys)], inplace=True)
 
 #* Act on Boltzmann coin
 boltzmann_circ = look_up_table_boltzmann(num_energy_bits)
+print(boltzmann_circ)
+circ.compose(boltzmann_circ, [qr_boltzmann[0], *list(qr_energy)], inplace=True)
 
+circ.measure(qr_energy, cr_energy)
 print(circ)
 
 #* --- Results
