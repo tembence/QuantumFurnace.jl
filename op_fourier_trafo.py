@@ -106,7 +106,7 @@ def brute_prepare_gaussian_state(num_energy_bits: int, sigma: float) -> QuantumC
     amplitudes = [gauss_amplitude(decimal_time) for decimal_time in decimal_time_labels]
     # Normalize 
     amplitudes = amplitudes / np.linalg.norm(amplitudes)
-    print(amplitudes)
+    # print(amplitudes)
     
     prep_circ = QuantumCircuit(num_energy_bits, name="gauss")
     prep_circ.initialize(amplitudes, range(num_energy_bits))

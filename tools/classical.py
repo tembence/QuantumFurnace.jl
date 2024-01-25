@@ -8,6 +8,83 @@ from time import time
 from scipy.linalg import expm
 
 # ----------------------------------------------- Matrix related functions ----------------------------------------------- #
+class HamHam:  #TODO: Write a qiskit trotter circuit generator for an input qt.Qobj Hamiltonian
+    def __init__(self, hamiltonian_qt: qt.Qobj, shift: float, rescaling_factor: float, 
+                 rescaled_coeffs: list[float] = None):
+        self.qt = hamiltonian_qt
+        self.shift: float = shift
+        self.rescaling_factor: float = rescaling_factor
+        self.spectrum, self.eigenstates = np.linalg.eigh(self.qt.full())
+        self.rescaled_coeffs = rescaled_coeffs
+        self.trotter_step_circ: QuantumCircuit = None
+
+#FIXME: A bit off sometimes
+def find_ideal_heisenberg(num_qubits: int, bohr_bound: float, eps: float, signed: bool = True, for_oft: bool = True) -> HamHam:
+    """Find a Heisenberg Hamiltonian with ideal spectrum for QPE, by which we mean
+    that the spectrum is not degenerate and the Bohr frequencies are not shorter than the `bohr_bound`.
+    And also that the spec(H) is in [-0.25 + eps/2, 0.25 - eps/2] for the QPE to work for OFT. 
+    For normal signed QPE it gives [-0.5 + eps, 0.5 - eps]
+    
+    Args:
+        num_qubits (int): Number of system qubits.
+        bohr_bound (float): Smallest Bohr frequency allowed for the spectrum.
+        eps (float): Distance from the spectrum bounds, to avoid overlap of the boundary eigenstates in measurements.
+    """
+    
+    if signed != for_oft:
+        raise ValueError('OFT has to be always with signed bitstrings.')
+    
+    X = qt.sigmax()
+    Y = qt.sigmay()
+    Z = qt.sigmaz()
+
+    # Find ideal spectrum
+    coeff_lower_bound = 0
+    coeff_xx = np.arange(1, coeff_lower_bound, -0.1)
+    coeff_yy = np.arange(1, coeff_lower_bound, -0.1)
+    coeff_zz = np.arange(1, coeff_lower_bound, -0.1)
+    coeff_z = np.arange(1, coeff_lower_bound, -0.1)
+    coeff_mesh = np.array(np.meshgrid(coeff_xx, coeff_yy, coeff_zz, coeff_z)).T.reshape(-1, 4)
+    
+    found_ideal_spectrum = False
+    for coeffs in coeff_mesh:
+        hamiltonian_qt = hamiltonian_matrix([X, X], [Y, Y], [Z, Z], coeffs=coeffs, num_qubits=num_qubits, symbreak_term=[Z])
+        rescaling_factor, shift = rescaling_and_shift_factors(hamiltonian_qt, eps=eps, signed=signed)
+        if for_oft:
+            rescaling_factor *= 2 # [-0.25 + eps / 2, 0.25 - eps / 2] 
+            shift /= 2
+        
+        rescaled_hamiltonian_qt = hamiltonian_qt / rescaling_factor + shift * qt.qeye(hamiltonian_qt.shape[0])
+        rescaled_spectrum = np.linalg.eigvalsh(rescaled_hamiltonian_qt)
+        
+        # Accept coeff only if all bohr freuquencies are not shorter than the bohr_bound
+        for eigval_i in rescaled_spectrum:
+            spec_without_eigval_i = np.delete(rescaled_spectrum, np.where(rescaled_spectrum == eigval_i))
+            if np.any(np.abs(spec_without_eigval_i - eigval_i) < bohr_bound):
+                break
+        else:
+            found_ideal_spectrum = True
+            coeffs_ideal_spec = coeffs
+            break
+
+    if not found_ideal_spectrum:
+        print("No ideal spectrum found")
+        
+    exact_spec = np.linalg.eigvalsh(hamiltonian_qt)
+    print('Original spectrum: ', np.round(exact_spec, 4))
+    print("Ideal spectrum: ", np.round(rescaled_spectrum, 4))
+    print("Nonrescaled coefficients: ", coeffs_ideal_spec)
+    rescaled_coeffs = coeffs_ideal_spec / rescaling_factor
+    print('Rescaled coefficients: ', rescaled_coeffs)
+    # print(f'Rescaling factor {rescaling_factor}, shift {shift}')
+
+    #* Hamiltonian
+    hamiltonian = HamHam(rescaled_hamiltonian_qt, shift=shift, rescaling_factor=rescaling_factor, 
+                        rescaled_coeffs=rescaled_coeffs)
+    
+    return hamiltonian
+
+        
 def hamiltonian_matrix(*terms: list[qt.Qobj], coeffs: list[float], num_qubits: int, 
                        symbreak_term: list[qt.Qobj] = []) -> np.ndarray:
     """Gets the Hamiltonian as a Qobj. Assumes periodic boundaries.
@@ -105,16 +182,18 @@ def shift_spectrum(hamiltonian: qt.Qobj) -> qt.Qobj:
         
     return shifted_hamiltonian
 
-def rescaling_and_shift_factors(hamiltonian: qt.Qobj, signed: bool=False) -> tuple[float, float]:
+def rescaling_and_shift_factors(hamiltonian: qt.Qobj, eps: float = 0, signed: bool=False) -> tuple[float, float]:
     """Rescale and shift to get spectrum in [0, 1]
     """
     eigenenergies = np.linalg.eigvalsh(hamiltonian)
-    smallest_eigval = np.round(eigenenergies[0], 5)
-    largest_eigval = np.round(eigenenergies[-1], 5)
+    smallest_eigval = np.round(eigenenergies[0])
+    largest_eigval = np.round(eigenenergies[-1])
     
-    # Rescale and shift spectrum [-0.5, 0.5]
+# Rescaling factor and shift for [-0.5, 0.5]
     rescaling_factor = largest_eigval - smallest_eigval
-    # To centre spectrum around 0:
+    if eps != 0:
+        rescaling_factor /= (1 - 2 * eps) # [-0.5 + eps, 0.5 - eps]
+    # Centre spectrum around 0:
     shift = -(largest_eigval + smallest_eigval) / (2 * rescaling_factor)
     
     if signed == False:  # shift to [0, 1]

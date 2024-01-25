@@ -12,80 +12,22 @@ from tools.classical import *
 from tools.quantum import *
 
 #TODO: incorporate the smallest bohr freq -> time unit, instead of T = 1
-#TODO: make Gaussian work 
+#TODO: Understand Gaussian and sigma - N, bohr more.
 
 # (q, w) = (3, 4) or (4, 6) are simpler but all of them could work.
 np.random.seed(666)
 num_qubits = 3
 num_energy_bits = 6
-qpe_precision = 2 ** (-num_energy_bits + 1) #!
-eps = 0.15
+bohr_bound = 2 ** (-num_energy_bits + 1) #!
+eps = 0.1
 sigma = 10
 eig_index = 7
 
-X = qt.sigmax()
-Y = qt.sigmay()
-Z = qt.sigmaz()
-
-#TODO: Write a function that gives ideal HamHam, i.e. has the lines below
-#* Find ideal spectrum
-coeff_lower_bound = 0
-coeff_xx = np.arange(1, coeff_lower_bound, -0.1)
-coeff_yy = np.arange(1, coeff_lower_bound, -0.1)
-coeff_zz = np.arange(1, coeff_lower_bound, -0.1)
-coeff_z = np.arange(1, coeff_lower_bound, -0.1)
-
-coeffs = np.array(np.meshgrid(coeff_xx, coeff_yy, coeff_zz, coeff_z)).T.reshape(-1, 4)
-hamiltonian_ideal_qt = None
-coeffs_ideal_spec = []
-found_ideal_spectrum = False
-for coeff in coeffs:
-    hamiltonian_qt = hamiltonian_matrix([X, X], [Y, Y], [Z, Z], coeffs=coeff, num_qubits=num_qubits, symbreak_term=[Z])
-    rescaling_factor, shift = rescaling_and_shift_factors(hamiltonian_qt, signed=True)
-    rescaling_factor /= (1 - eps)  # [0, 1 - eps]
-    rescaling_factor *= 2 #! [-0.25, 0.25]
-    shift *= (1 - eps)
-    shift /= 2 #!
-    
-    rescaled_hamiltonian_qt = hamiltonian_qt / rescaling_factor + shift * qt.qeye(hamiltonian_qt.shape[0])
-    
-    rescaled_exact_spec = np.linalg.eigvalsh(rescaled_hamiltonian_qt)
-    
-    # Accept coeff only if all spectrum elements are not closer than qpe_precision
-    for eigval_i in rescaled_exact_spec:
-        spec_without_eigval_i = np.delete(rescaled_exact_spec, np.where(rescaled_exact_spec == eigval_i))
-        if np.any(np.abs(spec_without_eigval_i - eigval_i) < qpe_precision):
-            break
-    else:
-        found_ideal_spectrum = True
-        hamiltonian_ideal_qt = hamiltonian_qt
-        coeffs_ideal_spec = coeff
-        exact_spec = np.linalg.eigvalsh(hamiltonian_qt)
-        print('Original spectrum: ', np.round(exact_spec, 4))
-        print("Ideal spectrum found: ", np.round(rescaled_exact_spec, 4))
-        print("Nonrescaled coefficients: ", coeffs_ideal_spec)
-        break
-
-if not found_ideal_spectrum:
-    print("No ideal spectrum found")
-    
-rescaling_factor, shift = rescaling_and_shift_factors(hamiltonian_ideal_qt, signed=True)
-rescaling_factor /= (1 - eps)  # [min * (1 - eps) / gamma , max * (1 - eps) / gamma] ~ [-4.7, 4.7]
-rescaling_factor *= 2 #! [-0.25, 0.25]
-shift *= (1 - eps)
-shift /= 2 #!
-print(f'Rescaling factor {rescaling_factor}, shift {shift}')
-
-rescaled_hamiltonian_qt = hamiltonian_qt / rescaling_factor + shift * qt.qeye(hamiltonian_qt.shape[0])  #* Shift / No Shift
-rescaled_coeff = coeffs_ideal_spec / rescaling_factor
-print('Rescaled coefficients: ', rescaled_coeff)
-
-
+hamiltonian = find_ideal_heisenberg(num_qubits, bohr_bound, eps, signed=True, for_oft=True)
+rescaled_coeff = hamiltonian.rescaled_coeffs
+# Corresponding Trotter step circuit
 trotter_step_circ = trotter_step_heisenberg(num_qubits, coeffs=rescaled_coeff, symbreak=True)
-
-#* Hamiltonian
-hamiltonian = HamHam(rescaled_hamiltonian_qt, shift=shift, rescaling_factor=rescaling_factor, 
-                     trotter_step_circ=trotter_step_circ)
+hamiltonian.trotter_step_circ = trotter_step_circ
 
 #* Initial state = eigenstate
 initial_state = hamiltonian.eigenstates[:, eig_index]
@@ -143,8 +85,4 @@ print(f'Estimated energy: {estimated_energy}')  # I guess it peaks at the two mo
                                                 # not the energy in between them.
 print(f'Combined estimated energy: {estimated_combined_energy}')  
 
-
-      
-#FIXME: With gaussian it doesnt work yet
-#TODO: Do it with and without gauss and look at the distributions!
 
