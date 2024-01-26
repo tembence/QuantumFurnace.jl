@@ -13,6 +13,7 @@ from typing import Optional
 from tools.quantum import *
 from tools.classical import *
 
+#TODO: I think new Metro has 1-f on state 1, so the opposite convention to what old Metro used.
 def look_up_table_boltzmann(num_energy_bits: int, beta: float = 1) -> QuantumCircuit:
     """2^(k - 1) many (k - 1)-Toffolis"""
     # If sign bit is negative then we accept the step by an X gate
@@ -23,13 +24,13 @@ def look_up_table_boltzmann(num_energy_bits: int, beta: float = 1) -> QuantumCir
     circ.x(qr_boltzmann[0])  # If 1, omega <=0, accept otherwise reject
     circ.x(qr_energy[-1])
     
-    boltzmann_weight = lambda omega: np.exp(-beta * omega)
+    boltzmann_weight = lambda omega: np.exp(-beta * omega / 2)
     # Without MSB (sign):
     bitstrings = [bin(i)[2:].zfill(num_energy_bits - 1) for i in range(2**(num_energy_bits - 1))]
     bitstrings = bitstrings[1:]  # All 0 state is already default accepting
     for bitstring in bitstrings:
-        omega = int(bitstring, 2) / 2**(num_energy_bits - 1) #! No oder prefactors, right?
-        boltzmann_angle = - 2 * np.arccos(np.sqrt(boltzmann_weight(omega))) #* Angle!
+        omega = int(bitstring, 2) / 2**(num_energy_bits - 1) #! No other prefactors, right?
+        boltzmann_angle = - 2 * np.arccos(np.sqrt(boltzmann_weight(omega))) #* Angle!  #! 2 omega
 
         # Create W_{bitstring}
         W = QuantumCircuit(qr_boltzmann, name="W")
