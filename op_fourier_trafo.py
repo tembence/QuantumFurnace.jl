@@ -13,37 +13,25 @@ from typing import Optional
 from tools.quantum import *
 from tools.classical import *
 
-#TODO: With a fixed step size we are not doing the exact amount of time evolution needed... but sometimes more
-#TODO: Do it for 1-2 qubits, and ES as initial state with a jump that brings it to an ES exactly
-
 #TODO: Check if qiskit transpiles many T = 1 controlled evolutions the same as just having T = 1, 2, 4, 8 one controlled ev.
 #! Careful with different random seeds in main and here.
-#TODO: Is 1 eps distance enough from 1, now that the spectrum is shifted correctly?
 
 def operator_fourier_circuit(op: Operator, num_qubits: int, num_energy_bits: int, hamiltonian: HamHam,
-                             initial_state: QuantumCircuit = None, sigma: float = 0.) -> QuantumCircuit:
+                             initial_state: np.ndarray = None, sigma: float = 0.) -> QuantumCircuit:
 
     trotter_step_circ = hamiltonian.trotter_step_circ
     qr_energy = QuantumRegister(num_energy_bits, name='w')
     qr_sys = QuantumRegister(num_qubits, name='sys')
     circ = QuantumCircuit(qr_energy, qr_sys, name="OFT")
-    circ.initialize(initial_state, qr_sys)
     
-    # Could rewrtie this function to a simpler numpy one later:
-    # energy_prejump = energy_from_full_state(circ, hamiltonian, [num_energy_bits, num_sys_qubits], qr_index=1)
+    circ_to_analyze = QuantumCircuit(qr_energy, qr_sys, name="OFT/")
+    circ_to_analyze.initialize(initial_state, qr_sys)
     
     # Energy before jump
-    statevector = Statevector(circ).data
+    initial_statevector = Statevector(circ_to_analyze).data
     padded_rescaled_hamiltonian = np.kron(hamiltonian.qt.full(), np.eye(2**num_energy_bits))  # top-bottom = right-left
-    energy_before_jump = statevector.conj().T @ padded_rescaled_hamiltonian @ statevector
+    energy_before_jump = initial_statevector.conj().T @ padded_rescaled_hamiltonian @ initial_statevector
     print(f'Energy before jump: {energy_before_jump.real}')
-    
-    # Gaussian prep
-    if sigma != 0.:
-        prep_circ = brute_prepare_gaussian_state(num_energy_bits, sigma)
-        circ.compose(prep_circ, qr_energy, inplace=True)
-    else:  # Conventional QPE
-        circ.h(qr_energy)
     
     # Time evolutions for unit time, T = 1 (in H's units and scale)
     num_trotter_steps = 10
@@ -56,7 +44,7 @@ def operator_fourier_circuit(op: Operator, num_qubits: int, num_energy_bits: int
     
     # exp(-i 2pi H T) E_old
     for w in range(num_energy_bits):
-        # circ.p(total_time * hamiltonian.shift * 2**w, qr_energy[w])  #! Shift, cancel?
+        # circ.p(total_time * hamiltonian.shift * 2**w, qr_energy[w])  #!
         if w != num_energy_bits - 1:
             for _ in range(2**w):
                 circ.compose(cU_neg, [w, *list(qr_sys)], inplace=True)
@@ -65,14 +53,15 @@ def operator_fourier_circuit(op: Operator, num_qubits: int, num_energy_bits: int
                 circ.compose(cU_pos, [w, *list(qr_sys)], inplace=True)
     
     # Jump A
-    random.seed(666)
-    random_sys_qubit = random.randint(0, num_qubits - 1)
+    random_sys_qubit = np.random.randint(0, num_qubits - 1)
     op_circ = QuantumCircuit(1, name="A")
     op_circ.append(op, [0])
     circ.compose(op_circ, qr_sys[random_sys_qubit], inplace=True)
     print(f'Jump applied to {random_sys_qubit}th qubit')
     
-    statevector = Statevector(circ).data
+    # For analysis
+    circ_to_analyze.compose(circ, [*list(qr_energy), *list(qr_sys)], inplace=True)
+    statevector = Statevector(circ_to_analyze).data
     energy_after_jump = statevector.conj().T @ padded_rescaled_hamiltonian @ statevector
     print(f'Energy after jump: {energy_after_jump.real}')
     omega = energy_after_jump - energy_before_jump
@@ -80,7 +69,7 @@ def operator_fourier_circuit(op: Operator, num_qubits: int, num_energy_bits: int
     
     # # exp(i 2pi H T)
     for w in range(num_energy_bits):
-        # circ.p(total_time * hamiltonian.shift * 2**w, qr_energy[w])  #! Shift, cancel? #TODO: Try without shifts
+        # circ.p(total_time * hamiltonian.shift * 2**w, qr_energy[w])  #! Shift cancel
         if w != num_energy_bits - 1:
             for _ in range(2**w):
                 circ.compose(cU_pos, [w, *list(qr_sys)], inplace=True)
@@ -107,7 +96,7 @@ def brute_prepare_gaussian_state(num_energy_bits: int, sigma: float) -> QuantumC
     # print(amplitudes)
     
     prep_circ = QuantumCircuit(num_energy_bits, name="gauss")
-    prep_circ.initialize(amplitudes, range(num_energy_bits))
+    # prep_circ.initialize(amplitudes, range(num_energy_bits))
     
     return prep_circ
     
