@@ -68,6 +68,7 @@ print('OFT')
 
 # --- Act on Boltzmann coin
 boltzmann_circ = lookup_table_boltzmann(num_energy_bits)
+inverse_boltzmann_circ = boltzmann_circ.inverse()  # As fast as by hand
 U_circ.compose(boltzmann_circ, [qr_boltzmann[0], *list(qr_energy)], inplace=True)
 print('Boltzmann')
 

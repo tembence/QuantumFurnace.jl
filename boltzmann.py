@@ -57,17 +57,47 @@ def lookup_table_boltzmann(num_energy_bits: int, beta: float = 1) -> QuantumCirc
             if bit == '0':
                 circ.x(qr_energy[i])
         #?Do we need RY dagger like in old Metro? And why?
-        
     circ.x(qr_energy[-1])
     
-                
     return circ
 
-
+# This seems to be just as fast as Qiskit's .inverse()
 def reverse_lookup_table_boltzmann(num_energy_bits: int, beta: float = 1) -> QuantumCircuit:
     qr_energy = QuantumRegister(num_energy_bits, name='w')
     qr_boltzmann = QuantumRegister(1, name='boltz')
     circ = QuantumCircuit(qr_boltzmann, qr_energy, name="boltz")
+    circ.x(qr_energy[-1])
     
+    def Y_angle(omega: float) -> float:
+        boltzmann_weight = np.exp(-beta * omega)
+        return 2 * np.arcsin(np.sqrt(1 - boltzmann_weight))
 
+    bitstrings = [bin(i)[2:].zfill(num_energy_bits - 1) for i in range(2**(num_energy_bits - 1))]
+    bitstrings = bitstrings[1:]
+    bitstrings.reverse()  # Reverse order of bitstrings for dagger
+    
+    for bitstring in bitstrings:
+        omega = int(bitstring, 2) / 2**(num_energy_bits)
+        boltzmann_angle = Y_angle(omega)
+
+        # Create W_{bitstring}
+        W = QuantumCircuit(qr_boltzmann, name="W")
+        W.ry(-boltzmann_angle, qr_boltzmann[0])  # Negative angle
+    
+        cW = W.control(num_energy_bits, label='0'+bitstring)
+
+        bitstring_qiskit_ordered = bitstring[::-1]  # Reverse bitstring to match with qubit order in Qiskit
+        for i, bit in enumerate(bitstring_qiskit_ordered):
+            if bit == '0':
+                circ.x(qr_energy[i])
+                
+        circ.compose(cW, [*list(qr_energy), qr_boltzmann[0]], inplace=True)
+
+        for i, bit in enumerate(bitstring_qiskit_ordered):  # Undo it before next Toffoli
+            if bit == '0':
+                circ.x(qr_energy[i])
+                
+    circ.x(qr_energy[-1])
+    
+    return circ
     
