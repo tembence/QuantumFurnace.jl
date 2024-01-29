@@ -49,7 +49,7 @@ oft_circ = operator_fourier_circuit(jump_op, num_qubits, num_energy_bits, hamilt
 circ.compose(oft_circ, [*list(qr_energy), *list(qr_sys)], inplace=True)
 
 #* Act on Boltzmann coin
-boltzmann_circ = look_up_table_boltzmann(num_energy_bits)
+boltzmann_circ = lookup_table_boltzmann(num_energy_bits)
 circ.compose(boltzmann_circ, [qr_boltzmann[0], *list(qr_energy)], inplace=True)
 
 circ.measure(qr_energy, cr_energy)

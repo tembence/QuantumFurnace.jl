@@ -67,7 +67,7 @@ U_circ.compose(oft_circ, [*list(qr_energy), *list(qr_sys)], inplace=True)
 print('OFT')
 
 # --- Act on Boltzmann coin
-boltzmann_circ = look_up_table_boltzmann(num_energy_bits)
+boltzmann_circ = lookup_table_boltzmann(num_energy_bits)
 U_circ.compose(boltzmann_circ, [qr_boltzmann[0], *list(qr_energy)], inplace=True)
 print('Boltzmann')
 

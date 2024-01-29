@@ -14,7 +14,7 @@ from tools.quantum import *
 from tools.classical import *
 
 #TODO: Change boltzmann weight to 1-boltzmann weight to make it compatible with QTSP paper
-def look_up_table_boltzmann(num_energy_bits: int, beta: float = 1) -> QuantumCircuit:
+def lookup_table_boltzmann(num_energy_bits: int, beta: float = 1) -> QuantumCircuit:
     """2^(k - 1) many (k - 1)-Toffolis"""
     # If sign bit is negative then we accept the step by an X gate
     # else: we need the value in the rest of the qr and based on that apply the appropriate rotation
@@ -25,6 +25,7 @@ def look_up_table_boltzmann(num_energy_bits: int, beta: float = 1) -> QuantumCir
     circ.x(qr_energy[-1])
     
     boltzmann_weight = lambda omega: np.exp(-beta * omega / 2)  #! /2 made it work.
+    
     # Without MSB (sign):
     bitstrings = [bin(i)[2:].zfill(num_energy_bits - 1) for i in range(2**(num_energy_bits - 1))]
     bitstrings = bitstrings[1:]  # All 0 state is already default accepting
@@ -56,6 +57,12 @@ def look_up_table_boltzmann(num_energy_bits: int, beta: float = 1) -> QuantumCir
     
                 
     return circ
+
+
+def reverse_lookup_table_boltzmann(num_energy_bits: int, beta: float = 1) -> QuantumCircuit:
+    qr_energy = QuantumRegister(num_energy_bits, name='w')
+    qr_boltzmann = QuantumRegister(1, name='boltz')
+    circ = QuantumCircuit(qr_boltzmann, qr_energy, name="boltz")
     
 
     
