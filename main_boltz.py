@@ -12,15 +12,15 @@ from boltzmann import *
 from tools.classical import *
 from tools.quantum import *
 
-np.random.seed(666)
+np.random.seed(667)
 num_qubits = 3
 num_energy_bits = 6
 bohr_bound = 2 ** (-num_energy_bits + 1) #!
-eps = 0.05
+eps = 0.1
 sigma = 10
-eig_index = 2
+eig_index = 0
 T = 1
-shots = 1000
+shots = 100
 
 hamiltonian = find_ideal_heisenberg(num_qubits, bohr_bound, eps, signed=False, for_oft=True)
 rescaled_coeff = hamiltonian.rescaled_coeffs
@@ -28,36 +28,56 @@ rescaled_coeff = hamiltonian.rescaled_coeffs
 trotter_step_circ = trotter_step_heisenberg(num_qubits, coeffs=rescaled_coeff, symbreak=True)
 hamiltonian.trotter_step_circ = trotter_step_circ
 
-#* Initial state = eigenstate
-initial_state = hamiltonian.eigenstates[:, eig_index]
-print(f'Initial energy: {hamiltonian.spectrum[eig_index]}')
-
 #* --- Circuit
-initial_state = Statevector(initial_state)
 qr_boltzmann = QuantumRegister(1, name='boltz')
 qr_energy = QuantumRegister(num_energy_bits, name="w")
-cr_energy = ClassicalRegister(num_energy_bits, name="cr_w")
-cr_boltzmann = ClassicalRegister(1, name='cr_boltz')
 qr_sys  = QuantumRegister(num_qubits, name="sys")
-bithandler = BitHandler([cr_boltzmann, cr_energy])
-circ = QuantumCircuit(qr_boltzmann, qr_energy, qr_sys, cr_boltzmann, cr_energy)
 
-# Operator Fourier Transform of jump operator
+cr_boltzmann = ClassicalRegister(1, name='cr_boltz')
+cr_energy = ClassicalRegister(num_energy_bits, name="cr_w")
+bithandler = BitHandler([cr_boltzmann, cr_energy])
+
+circ = QuantumCircuit(qr_boltzmann, qr_energy, qr_sys, cr_boltzmann, cr_energy)
+U_circ = QuantumCircuit(qr_boltzmann, qr_energy, qr_sys, name='U')
+
+# --- Initialize qregs
+# Gaussian prep on energy register
+if sigma != 0.:
+    prep_circ = brute_prepare_gaussian_state(num_energy_bits, sigma)
+    circ.compose(prep_circ, [*list(qr_energy)], inplace=True)
+else:  # Conventional QPE
+    circ.h(qr_energy)
+    
+# System prep, initial state = eigenstate
+initial_state = hamiltonian.eigenstates[:, eig_index]
+initial_state = Statevector(initial_state)
+print(f'Initial energy: {hamiltonian.spectrum[eig_index]}')
+
+circ.initialize(initial_state, qr_sys)
+    
+# --- Operator Fourier Transform of jump operator
 jump_op = Operator(Pauli('X'))
 oft_circ = operator_fourier_circuit(jump_op, num_qubits, num_energy_bits, hamiltonian, 
                                     initial_state=initial_state, sigma=sigma)
-circ.compose(oft_circ, [*list(qr_energy), *list(qr_sys)], inplace=True)
+U_circ.compose(oft_circ, [*list(qr_energy), *list(qr_sys)], inplace=True)
+print('OFT')
 
-#* Act on Boltzmann coin
+# --- Act on Boltzmann coin
 boltzmann_circ = lookup_table_boltzmann(num_energy_bits)
-circ.compose(boltzmann_circ, [qr_boltzmann[0], *list(qr_energy)], inplace=True)
+U_circ.compose(boltzmann_circ, [qr_boltzmann[0], *list(qr_energy)], inplace=True)
+print('Boltzmann')
 
+circ.compose(U_circ, [qr_boltzmann[0], *list(qr_energy), *list(qr_sys)], inplace=True)
+
+# --- Measure
 circ.measure(qr_energy, cr_energy)
 circ.measure(qr_boltzmann, cr_boltzmann)
 # print(circ)
 
+print('Circuit constructed.')
 #* --- Results
 tr_circ = transpile(circ, basis_gates=['u', 'cx'], optimization_level=3)
+print('Circuit transpiled.')
 simulator = Aer.get_backend('statevector_simulator')
 job = simulator.run(tr_circ, shots=shots)
 counts = job.result().get_counts()
@@ -88,7 +108,8 @@ estimated_energy = phase / T  # exp(i 2pi phase) = exp(i 2pi E T)
 estimated_combined_energy = combined_phase / T
 
 
-print(f'Estimated energy: {estimated_energy}')  # I guess it peaks at the two most probable eigenstates and it will give either one of them and
+print(f'Estimated energy: {estimated_energy}')  # I guess it peaks at the two most probable eigenstates 
+                                                # and it will give either one of them and
                                                 # not the energy in between them.
 print(f'Combined estimated energy: {estimated_combined_energy}')  
 

@@ -21,24 +21,29 @@ def lookup_table_boltzmann(num_energy_bits: int, beta: float = 1) -> QuantumCirc
     qr_energy = QuantumRegister(num_energy_bits, name='w')
     qr_boltzmann = QuantumRegister(1, name='boltz')
     circ = QuantumCircuit(qr_boltzmann, qr_energy, name="boltz")
-    circ.x(qr_boltzmann[0])  # If 1, omega <=0, accept otherwise reject
-    circ.x(qr_energy[-1])
+    circ.x(qr_energy[-1])  # Only use W if sign bit is 0
     
-    boltzmann_weight = lambda omega: np.exp(-beta * omega / 2)  #! /2 made it work.
+    def Y_angle(omega: float) -> float:
+        boltzmann_weight = np.exp(-beta * omega)
+        return 2 * np.arcsin(np.sqrt(1 - boltzmann_weight))
+    
+    # boltzmann_weight = lambda omega: np.exp(-beta * omega)
     
     # Without MSB (sign):
     bitstrings = [bin(i)[2:].zfill(num_energy_bits - 1) for i in range(2**(num_energy_bits - 1))]
     bitstrings = bitstrings[1:]  # All 0 state is already default accepting
     for bitstring in bitstrings:
-        omega = int(bitstring, 2) / 2**(num_energy_bits - 1)
-        boltzmann_angle = - 2 * np.arccos(np.sqrt(boltzmann_weight(omega))) #* Angle!
+        omega = int(bitstring, 2) / 2**(num_energy_bits)
+        boltzmann_angle = Y_angle(omega)
+        
+        # boltzmann_angle = - 2 * np.arccos(np.sqrt(boltzmann_weight(omega))) #* Angle!
 
         # Create W_{bitstring}
         W = QuantumCircuit(qr_boltzmann, name="W")
         # W.x(qr_boltzmann[0])  # Normally W = X RY, but we need to undo the default X: X X RY = RY     
         # W.ry(boltzmann_angle, qr_boltzmann[0])
-        # W.x(qr_boltzmann[0]) 
         W.ry(boltzmann_angle, qr_boltzmann[0])  # After commuting X thorugh, angle changes to negative, XX = I
+        
         cW = W.control(num_energy_bits, label='0'+bitstring)
 
         bitstring_qiskit_ordered = bitstring[::-1]  # Reverse bitstring to match with qubit order in Qiskit

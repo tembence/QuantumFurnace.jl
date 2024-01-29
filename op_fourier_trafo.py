@@ -44,7 +44,7 @@ def operator_fourier_circuit(op: Operator, num_qubits: int, num_energy_bits: int
     
     # exp(-i 2pi H T) E_old
     for w in range(num_energy_bits):
-        # circ.p(total_time * hamiltonian.shift * 2**w, qr_energy[w])  #!
+        # circ.p(- total_time * hamiltonian.shift * 2**w, qr_energy[w])  #!
         if w != num_energy_bits - 1:
             for _ in range(2**w):
                 circ.compose(cU_neg, [w, *list(qr_sys)], inplace=True)
@@ -96,7 +96,7 @@ def brute_prepare_gaussian_state(num_energy_bits: int, sigma: float) -> QuantumC
     # print(amplitudes)
     
     prep_circ = QuantumCircuit(num_energy_bits, name="gauss")
-    # prep_circ.initialize(amplitudes, range(num_energy_bits))
+    prep_circ.initialize(amplitudes, range(num_energy_bits))
     
     return prep_circ
     
