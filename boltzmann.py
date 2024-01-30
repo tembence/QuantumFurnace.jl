@@ -62,7 +62,7 @@ def lookup_table_boltzmann(num_energy_bits: int, beta: float = 1) -> QuantumCirc
     return circ
 
 # This seems to be just as fast as Qiskit's .inverse()
-def reverse_lookup_table_boltzmann(num_energy_bits: int, beta: float = 1) -> QuantumCircuit:
+def inverse_lookup_table_boltzmann(num_energy_bits: int, beta: float = 1) -> QuantumCircuit:
     qr_energy = QuantumRegister(num_energy_bits, name='w')
     qr_boltzmann = QuantumRegister(1, name='boltz')
     circ = QuantumCircuit(qr_boltzmann, qr_energy, name="boltz")

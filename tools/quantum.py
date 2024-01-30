@@ -35,6 +35,28 @@ def trotter_step_heisenberg(num_qubits: int, coeffs: list[float], symbreak: bool
             
     return trotter_step_circ
 
+def inverse_trotter_step_heisenberg(num_qubits: int, coeffs: list[float], symbreak: bool = False) -> QuantumCircuit:
+    if symbreak == True and len(coeffs) != 4:
+        raise ValueError("Symbreaking Heisenberg requires 4 coefficients")
+    
+    trotter_step_circ = QuantumCircuit(num_qubits, name="H")
+    symbreak_positions = list(range(1, num_qubits - 1))  # Bulk qubits
+      
+    step_size = Parameter('theta')
+    for i in reversed(range(num_qubits)):
+        if symbreak == True:
+            if i in symbreak_positions:
+                trotter_step_circ.rz(-2 * coeffs[3] * step_size, i)
+        if i != num_qubits - 1:
+            trotter_step_circ.rzz(-2 * coeffs[2] * step_size, i, i + 1)
+            trotter_step_circ.ryy(-2 * coeffs[1] * step_size, i, i + 1)
+            trotter_step_circ.rxx(-2 * coeffs[0] * step_size, i, i + 1)   #! Qiskit convention, rxx(-2x) = exp(x)
+        if (i == num_qubits - 1):  # Periodic boundary conditions
+            trotter_step_circ.rzz(-2 * coeffs[2] * step_size, i, 0)
+            trotter_step_circ.ryy(-2 * coeffs[1] * step_size, i, 0)
+            trotter_step_circ.rxx(-2 * coeffs[0] * step_size, i, 0)
+            
+    return trotter_step_circ
 
 def second_order_trotter_step_circ(num_qubits: int, coeffs = [1, 1, 1]):
     qr = QuantumRegister(num_qubits, name="q")

@@ -17,6 +17,7 @@ class HamHam:  #TODO: Write a qiskit trotter circuit generator for an input qt.Q
         self.spectrum, self.eigenstates = np.linalg.eigh(self.qt.full())
         self.rescaled_coeffs = rescaled_coeffs
         self.trotter_step_circ: QuantumCircuit = None
+        self.inverse_trotter_step_circ: QuantumCircuit = None
 
 #FIXME: A bit off sometimes, the centering of the spectrum
 def find_ideal_heisenberg(num_qubits: int, bohr_bound: float, eps: float,

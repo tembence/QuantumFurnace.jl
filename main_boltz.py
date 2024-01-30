@@ -16,7 +16,7 @@ np.random.seed(667)
 num_qubits = 3
 num_energy_bits = 6
 bohr_bound = 2 ** (-num_energy_bits + 1) #!
-eps = 0.1
+eps = 0.05
 sigma = 10
 eig_index = 0
 T = 1
@@ -58,7 +58,7 @@ circ.initialize(initial_state, qr_sys)
 # --- Operator Fourier Transform of jump operator
 jump_op = Operator(Pauli('X'))
 oft_circ = operator_fourier_circuit(jump_op, num_qubits, num_energy_bits, hamiltonian, 
-                                    initial_state=initial_state, sigma=sigma)
+                                    initial_state=initial_state)
 U_circ.compose(oft_circ, [*list(qr_energy), *list(qr_sys)], inplace=True)
 print('OFT')
 
@@ -71,7 +71,8 @@ circ.compose(U_circ, [qr_boltzmann[0], *list(qr_energy), *list(qr_sys)], inplace
 
 # --- Measure
 circ.measure(qr_energy, cr_energy)
-circ.measure(qr_boltzmann, cr_boltzmann)
+# Measure this after energy register, then the boltzmann sees the projected states energy
+circ.measure(qr_boltzmann, cr_boltzmann)  
 # print(circ)
 
 print('Circuit constructed.')

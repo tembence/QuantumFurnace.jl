@@ -17,7 +17,7 @@ from tools.classical import *
 #! Careful with different random seeds in main and here.
 
 def operator_fourier_circuit(op: Operator, num_qubits: int, num_energy_bits: int, hamiltonian: HamHam,
-                             initial_state: np.ndarray = None, sigma: float = 0.) -> QuantumCircuit:
+                             initial_state: np.ndarray = None) -> QuantumCircuit:
 
     trotter_step_circ = hamiltonian.trotter_step_circ
     qr_energy = QuantumRegister(num_energy_bits, name='w')
@@ -100,9 +100,10 @@ def brute_prepare_gaussian_state(num_energy_bits: int, sigma: float) -> QuantumC
     
     return prep_circ
 
-def inverse_operator_fourier_transform(op: Operator, num_qubits: int, num_energy_bits: int, hamiltonian: HamHam,
-                             sigma: float = 0.) -> QuantumCircuit:
-    trotter_step_circ = hamiltonian.trotter_step_circ
+def inverse_operator_fourier_transform(op: Operator, num_qubits: int, 
+                                       num_energy_bits: int, hamiltonian: HamHam) -> QuantumCircuit:
+    
+    trotter_step_circ = hamiltonian.inverse_trotter_step_circ  # Inverse!
     qr_energy = QuantumRegister(num_energy_bits, name='w')
     qr_sys = QuantumRegister(num_qubits, name='sys')
     circ = QuantumCircuit(qr_energy, qr_sys, name="OFT")
@@ -111,32 +112,14 @@ def inverse_operator_fourier_transform(op: Operator, num_qubits: int, num_energy
     
     num_trotter_steps = 10
     T = 1
-    total_time = 2 * np.pi * T
+    total_time = - 2 * np.pi * T  #! Minus for inverse
     U_pos = ham_evol(num_qubits, trotter_step=trotter_step_circ, num_trotter_steps=num_trotter_steps, time=total_time)
     U_neg = ham_evol(num_qubits, trotter_step=trotter_step_circ, num_trotter_steps=num_trotter_steps, time=(-1)*total_time)
     cU_pos = U_pos.control(1, label='+')
     cU_neg = U_neg.control(1, label='-')
     
-    # exp(-i 2pi H T) E_old
-    for w in range(num_energy_bits):
-        # circ.p(- total_time * hamiltonian.shift * 2**w, qr_energy[w])  #!
-        if w != num_energy_bits - 1:
-            for _ in range(2**w):
-                circ.compose(cU_neg, [w, *list(qr_sys)], inplace=True)
-        else:  # q = last qubit (MSB) has opposite sign
-            for _ in range(2**w):
-                circ.compose(cU_pos, [w, *list(qr_sys)], inplace=True)
-                
-    # Jump A
-    random_sys_qubit = np.random.randint(0, num_qubits - 1)
-    op_circ = QuantumCircuit(1, name="A")
-    op_circ.append(op, [0])
-    inverse_op_circ = op_circ.inverse()
-    circ.compose(inverse_op_circ, qr_sys[random_sys_qubit], inplace=True)
-    print(f'Jump applied to {random_sys_qubit}th qubit')       
-    
     # # exp(i 2pi H T)
-    for w in range(num_energy_bits):
+    for w in reversed(range(num_energy_bits)):
         # circ.p(total_time * hamiltonian.shift * 2**w, qr_energy[w])  #! Shift cancel
         if w != num_energy_bits - 1:
             for _ in range(2**w):
@@ -144,5 +127,23 @@ def inverse_operator_fourier_transform(op: Operator, num_qubits: int, num_energy
         else:  # q = last qubit (MSB) has opposite sign
             for _ in range(2**w):
                 circ.compose(cU_neg, [w, *list(qr_sys)], inplace=True)
+                
+    # Jump A
+    random_sys_qubit = np.random.randint(0, num_qubits - 1)
+    op_circ = QuantumCircuit(1, name="A")
+    op_circ.append(op, [0])
+    inverse_op_circ = op_circ.inverse()
+    circ.compose(inverse_op_circ, qr_sys[random_sys_qubit], inplace=True)
+    print(f'Inverse jump applied to {random_sys_qubit}th qubit')       
+    
+    # exp(-i 2pi H T) E_old
+    for w in reversed(range(num_energy_bits)):
+        # circ.p(- total_time * hamiltonian.shift * 2**w, qr_energy[w])  #!
+        if w != num_energy_bits - 1:
+            for _ in range(2**w):
+                circ.compose(cU_neg, [w, *list(qr_sys)], inplace=True)
+        else:  # q = last qubit (MSB) has opposite sign
+            for _ in range(2**w):
+                circ.compose(cU_pos, [w, *list(qr_sys)], inplace=True)
                 
     return circ
