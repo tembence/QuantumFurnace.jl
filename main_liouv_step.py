@@ -126,58 +126,58 @@ with open(f'data/one_liouv_step_circ_n{num_qubits}k{num_energy_bits}.pkl', 'wb')
     pickle.dump(circ, f)
 
 print(f'Circuit constructed in {t1 - t0} s.')
-# #* --- Results
-# t2 = time()
-# tr_circ = transpile(circ, basis_gates=['u', 'cx'], optimization_level=0)
-# t3 = time()
-# print(f'Circuit transpiled in {t3 - t2} s.')
+#* --- Results
+t2 = time()
+tr_circ = transpile(circ, basis_gates=['u', 'cx'], optimization_level=0)
+t3 = time()
+print(f'Circuit transpiled in {t3 - t2} s.')
 
-# # Pickle transpiled circuit
-# with open(f'data/tr_one_liouv_step_n{num_qubits}k{num_energy_bits}.pkl', 'wb') as f:
-#     pickle.dump(tr_circ, f)
+# Pickle transpiled circuit
+with open(f'data/tr_one_liouv_step_n{num_qubits}k{num_energy_bits}.pkl', 'wb') as f:
+    pickle.dump(tr_circ, f)
 
-# simulator = Aer.get_backend('statevector_simulator')
-# job = simulator.run(tr_circ, shots=shots)
-# counts = job.result().get_counts()
-# counts = dict(sorted(counts.items(), key=lambda item: item[1], reverse=True))
-# t4 = time()
-# print(f'Circuit run in {t4 - t3} s for {shots} shots.')
+simulator = Aer.get_backend('statevector_simulator')
+job = simulator.run(tr_circ, shots=shots)
+counts = job.result().get_counts()
+counts = dict(sorted(counts.items(), key=lambda item: item[1], reverse=True))
+t4 = time()
+print(f'Circuit run in {t4 - t3} s for {shots} shots.')
 
-# print(counts)
-# bithandler.measured_counts = counts
-# energy_counts = bithandler.get_counts_for_creg(cr_energy)
-# phase_bits = list(energy_counts.keys())[0] # take the most often obtaned result
-# phase_bits_shots = energy_counts[phase_bits]
-# # Main bitstring result
-# # signed binary to decimal:
-# if phase_bits[0] == '1':
-#     phase = (int(phase_bits[1:], 2) - 2**(num_energy_bits - 1)) / 2**num_energy_bits  # exp(i 2pi phase)
-# else:
-#     phase = int(phase_bits[1:], 2) / 2**num_energy_bits
+print(counts)
+bithandler.measured_counts = counts
+energy_counts = bithandler.get_counts_for_creg(cr_energy)
+phase_bits = list(energy_counts.keys())[0] # take the most often obtaned result
+phase_bits_shots = energy_counts[phase_bits]
+# Main bitstring result
+# signed binary to decimal:
+if phase_bits[0] == '1':
+    phase = (int(phase_bits[1:], 2) - 2**(num_energy_bits - 1)) / 2**num_energy_bits  # exp(i 2pi phase)
+else:
+    phase = int(phase_bits[1:], 2) / 2**num_energy_bits
 
-# # Combine phases
-# combined_phase = 0.
-# for i in range(len(energy_counts.keys())):
-#     if list(energy_counts.keys())[i][0] == '1':
-#         phase_part = (int(list(energy_counts.keys())[i][1:], 2) - 2**(num_energy_bits - 1)) / 2**num_energy_bits
-#     else:
-#         phase_part = int(list(energy_counts.keys())[i][1:], 2) / 2**num_energy_bits
+# Combine phases
+combined_phase = 0.
+for i in range(len(energy_counts.keys())):
+    if list(energy_counts.keys())[i][0] == '1':
+        phase_part = (int(list(energy_counts.keys())[i][1:], 2) - 2**(num_energy_bits - 1)) / 2**num_energy_bits
+    else:
+        phase_part = int(list(energy_counts.keys())[i][1:], 2) / 2**num_energy_bits
         
-#     combined_phase += phase_part * list(energy_counts.values())[i] / shots
+    combined_phase += phase_part * list(energy_counts.values())[i] / shots
     
-# estimated_energy = phase / T  # exp(i 2pi phase) = exp(i 2pi E T)
-# estimated_combined_energy = combined_phase / T
+estimated_energy = phase / T  # exp(i 2pi phase) = exp(i 2pi E T)
+estimated_combined_energy = combined_phase / T
 
-# print(f'Estimated energy: {estimated_energy}')  # I guess it peaks at the two most probable eigenstates 
-#                                                 # and it will give either one of them and
-#                                                 # not the energy in between them.
-# print(f'Combined estimated energy: {estimated_combined_energy}')  
+print(f'Estimated energy: {estimated_energy}')  # I guess it peaks at the two most probable eigenstates 
+                                                # and it will give either one of them and
+                                                # not the energy in between them.
+print(f'Combined estimated energy: {estimated_combined_energy}')  
 
-# #* Boltzmann result
-# boltzmann_counts = bithandler.get_counts_for_creg(cr_boltzmann)
-# print(f'Boltzmann counts: {boltzmann_counts}')
+#* Boltzmann result
+boltzmann_counts = bithandler.get_counts_for_creg(cr_boltzmann)
+print(f'Boltzmann counts: {boltzmann_counts}')
 
-# #* Delta result
-# delta_counts = bithandler.get_counts_for_creg(cr_delta)
-# print(f'Delta counts: {delta_counts}')
+#* Delta result
+delta_counts = bithandler.get_counts_for_creg(cr_delta)
+print(f'Delta counts: {delta_counts}')
 
