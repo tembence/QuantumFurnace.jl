@@ -65,6 +65,7 @@ def operator_fourier_circuit(jump_op: QuantumCircuit, num_qubits: int, num_energ
     padded_zerozero = np.kron(np.eye(2**num_qubits), zerozero)
     padded_zerozero = np.kron(padded_zerozero, np.eye(2**num_energy_bits))
     statevector_with_block0 = padded_zerozero @ statevector  # sv with successful jump block encoding
+    #TODO: Compute this energy after jump outside of the algorithm, isolated, maybe subspace order is messed up
     energy_after_jump = statevector_with_block0.conj().T @ padded_rescaled_hamiltonian @ statevector_with_block0
     print(f'Energy after jump: {energy_after_jump.real}')
     omega = energy_after_jump - energy_before_jump

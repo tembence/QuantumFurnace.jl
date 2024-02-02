@@ -83,7 +83,17 @@ print(counts)
 
 
 bithandler.measured_counts = counts
+block_ancilla_counts = bithandler.get_counts_for_creg(cr_b)
+successful_shots = block_ancilla_counts['0']
+print('Successful shots:', successful_shots)
+print(f'Block encoding ancilla counts: {block_ancilla_counts}')
+
+counts_with_successful_jump = bithandler.get_counts_with_condition(cr_b, '0')
+print('Successful jump counts:')
+print(counts_with_successful_jump)
+bithandler.measured_counts = counts_with_successful_jump
 energy_counts = bithandler.get_counts_for_creg(cr_energy)
+
 phase_bits = list(energy_counts.keys())[0] # take the most often obtaned result
 phase_bits_shots = energy_counts[phase_bits]
 # Main bitstring result
@@ -102,7 +112,7 @@ for i in range(len(energy_counts.keys())):
     else:
         phase_part = int(list(energy_counts.keys())[i][1:], 2) / 2**num_energy_bits
         
-    combined_phase += phase_part * list(energy_counts.values())[i] / shots
+    combined_phase += phase_part * list(energy_counts.values())[i] / successful_shots
 T = 1
 estimated_energy = phase / T  # exp(i 2pi phase) = exp(i 2pi E T)
 estimated_combined_energy = combined_phase / T
@@ -112,6 +122,5 @@ print(f'Estimated energy: {estimated_energy}')  # I guess it peaks at the two mo
                                                 # not the energy in between them.
 print(f'Combined estimated energy: {estimated_combined_energy}')  
 
-block_ancilla_counts = bithandler.get_counts_for_creg(cr_b)
-print(f'Block encoding ancilla counts: {block_ancilla_counts}')
+
 

@@ -286,7 +286,6 @@ class BitHandler:
         self.bitstring_of_creg = {register: '' for register in classical_registers}
     
     def get_counts_for_creg(self, cr: ClassicalRegister) -> dict[str, int]:
-        #? Do we just add shots together for 1001 0 and 1001 1, or equiv for the boltzmann cases 0, 1?
         counts_for_cr = {}
         for bits in self.measured_counts.keys():
             self.measured_bitstring = bits
@@ -316,6 +315,21 @@ class BitHandler:
         self.bitstring_of_creg[cr] = wanted_bits
         
         return wanted_bits
+    
+    def get_counts_with_condition(self, cond_creg: ClassicalRegister, cond_val: str) -> dict[str, int]:
+        """E.g. successful jump means b ancilla is zero, and we wanna find the bitstrings in this case"""
+        
+        if cond_creg.size != len(cond_val):
+            raise ValueError("Condition register size and condition value length must match.")
+        
+        counts_with_condition = {}
+        for bitstring in self.measured_counts.keys():
+            self.measured_bitstring = bitstring
+            if self.get_bitstring_for_creg(cond_creg) == cond_val:
+                counts_with_condition[bitstring] = self.measured_counts[bitstring]
+        
+        return counts_with_condition
+        
 
 
 
