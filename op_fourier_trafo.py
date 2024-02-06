@@ -3,7 +3,7 @@ import qutip as qt
 from qiskit import QuantumCircuit, QuantumRegister, ClassicalRegister, transpile, Aer
 from qiskit_aer import StatevectorSimulator
 from qiskit.quantum_info.operators import Operator, Pauli
-from qiskit.quantum_info import Statevector, random_statevector, partial_trace
+from qiskit.quantum_info import Statevector, random_statevector, partial_trace, DensityMatrix
 from qiskit.circuit import Parameter
 from qiskit.circuit.library import QFT
 import random
@@ -61,6 +61,11 @@ def operator_fourier_circuit(jump_op: QuantumCircuit, num_qubits: int, num_energ
     # For analysis
     circ_to_analyze.compose(circ, [*list(qr_energy), qr_b[0], *list(qr_sys)], inplace=True)
     statevector = Statevector(circ_to_analyze).data
+    dm = DensityMatrix(circ_to_analyze)
+    sys_dm = dm.partial_trace(list(range(num_energy_bits + 1)))
+    
+    actual_energy_on_sys = sys_dm.expectation_value(hamiltonian.qt.full())
+    print(f'Energy with DM: {actual_energy_on_sys}')
     zerozero = np.array([[1, 0], [0, 0]])
     padded_zerozero = np.kron(np.eye(2**num_qubits), zerozero)
     padded_zerozero = np.kron(padded_zerozero, np.eye(2**num_energy_bits))
