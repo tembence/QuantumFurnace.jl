@@ -3,7 +3,7 @@ import qutip as qt
 from qiskit import QuantumCircuit, QuantumRegister, ClassicalRegister, transpile, Aer
 from qiskit_aer import StatevectorSimulator
 from qiskit.quantum_info.operators import Operator, Pauli
-from qiskit.quantum_info import Statevector, random_statevector, partial_trace, DensityMatrix
+from qiskit.quantum_info import Statevector, random_statevector, partial_trace, DensityMatrix, state_fidelity
 from qiskit.circuit import Parameter
 from qiskit.circuit.library import QFT
 import random
@@ -34,6 +34,11 @@ def operator_fourier_circuit(jump_op: QuantumCircuit, num_qubits: int, num_energ
     energy_before_jump = initial_statevector.conj().T @ padded_rescaled_hamiltonian @ initial_statevector
     print(f'Energy before jump: {energy_before_jump.real}')
     
+    # dm_before = DensityMatrix(circ_to_analyze)
+    # sys_dm_before = partial_trace(dm_before, list(range(num_energy_bits + 1)))
+    # energy_before_jump_dm = sys_dm_before.expectation_value(hamiltonian.qt.full())
+    # print(f'Energy before jump with DM: {energy_before_jump_dm}')
+    
     # Time evolutions for unit time, T = 1 (in H's units and scale)
     num_trotter_steps = 10
     T = 1
@@ -61,17 +66,34 @@ def operator_fourier_circuit(jump_op: QuantumCircuit, num_qubits: int, num_energ
     # For analysis
     circ_to_analyze.compose(circ, [*list(qr_energy), qr_b[0], *list(qr_sys)], inplace=True)
     statevector = Statevector(circ_to_analyze).data
-    dm = DensityMatrix(circ_to_analyze)
-    sys_dm = dm.partial_trace(list(range(num_energy_bits + 1)))
-    
-    actual_energy_on_sys = sys_dm.expectation_value(hamiltonian.qt.full())
-    print(f'Energy with DM: {actual_energy_on_sys}')
+    # dm = DensityMatrix(circ_to_analyze)  #! Uncomment
+    # sys_dm = partial_trace(dm, list(range(num_energy_bits + 1)))
+    # actual_energy_on_sys = sys_dm.expectation_value(hamiltonian.qt.full())
+    # print(f'Energy after with DM: {actual_energy_on_sys}')
+    # print(f'Energy jump with DM: {actual_energy_on_sys - energy_before_jump_dm}')
     zerozero = np.array([[1, 0], [0, 0]])
     padded_zerozero = np.kron(np.eye(2**num_qubits), zerozero)
     padded_zerozero = np.kron(padded_zerozero, np.eye(2**num_energy_bits))
     statevector_with_block0 = padded_zerozero @ statevector  # sv with successful jump block encoding
-    #TODO: Compute this energy after jump outside of the algorithm, isolated, maybe subspace order is messed up
-    energy_after_jump = statevector_with_block0.conj().T @ padded_rescaled_hamiltonian @ statevector_with_block0
+    dm_0 = DensityMatrix(Statevector(statevector_with_block0).to_operator())
+    sys_dm_0 = partial_trace(dm_0, list(range(num_energy_bits + 1)))
+    
+    sigmam = np.array([[0, 0], [1, 0]])
+    padded_sigmam = np.kron(np.eye(2), sigmam)
+    padded_sigmam = np.kron(padded_sigmam, np.eye(2))
+    exact_statevector_after_jump = padded_sigmam @ initial_state.data
+    exact_statevector_after_jump /= np.linalg.norm(exact_statevector_after_jump)
+    exact_dm_after_jump = DensityMatrix(Statevector(exact_statevector_after_jump).to_operator())
+    
+    fidelity = state_fidelity(exact_dm_after_jump, sys_dm_0, validate=False)
+    print(f'Fidelity: {fidelity}')
+    
+    
+    energy_after_good_jump = statevector_with_block0.conj().T @ padded_rescaled_hamiltonian @ statevector_with_block0
+    print(f'Energy after good jump: {energy_after_good_jump.real}')
+    print(f'Energy of good jump: {(energy_after_good_jump - energy_before_jump).real}')
+    
+    energy_after_jump = statevector.conj().T @ padded_rescaled_hamiltonian @ statevector
     print(f'Energy after jump: {energy_after_jump.real}')
     omega = energy_after_jump - energy_before_jump
     print(f'Energy jump: {omega.real}')

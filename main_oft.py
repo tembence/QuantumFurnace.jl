@@ -17,13 +17,13 @@ from jump_ops import sigmam_LCU
 
 np.random.seed(667)
 num_qubits = 3
-num_energy_bits = 6
-bohr_bound = 2 ** (-num_energy_bits + 1) #!
+num_energy_bits = 3
+bohr_bound = 0 #2 ** (-num_energy_bits - 1) #!
 eps = 0.05
 sigma = 10
 eig_index = 2
 T = 1
-shots = 100
+shots = 1000
 
 hamiltonian = find_ideal_heisenberg(num_qubits, bohr_bound, eps, signed=False, for_oft=True)
 rescaled_coeff = hamiltonian.rescaled_coeffs
@@ -83,7 +83,7 @@ print(counts)
 
 
 bithandler.measured_counts = counts
-block_ancilla_counts = bithandler.get_counts_for_creg(cr_b)
+block_ancilla_counts = bithandler.get_counts_for_creg(cr_b)  #! Uncomment
 successful_shots = block_ancilla_counts['0']
 print('Successful shots:', successful_shots)
 print(f'Block encoding ancilla counts: {block_ancilla_counts}')
@@ -93,6 +93,8 @@ print('Successful jump counts:')
 print(counts_with_successful_jump)
 bithandler.measured_counts = counts_with_successful_jump
 energy_counts = bithandler.get_counts_for_creg(cr_energy)
+print(energy_counts)
+# successful_shots = shots
 
 phase_bits = list(energy_counts.keys())[0] # take the most often obtaned result
 phase_bits_shots = energy_counts[phase_bits]
@@ -113,14 +115,14 @@ for i in range(len(energy_counts.keys())):
         phase_part = int(list(energy_counts.keys())[i][1:], 2) / 2**num_energy_bits
         
     combined_phase += phase_part * list(energy_counts.values())[i] / successful_shots
-T = 1
+
 estimated_energy = phase / T  # exp(i 2pi phase) = exp(i 2pi E T)
 estimated_combined_energy = combined_phase / T
 
 
 print(f'Estimated energy: {estimated_energy}')  # I guess it peaks at the two most probable eigenstates and it will give either one of them and
                                                 # not the energy in between them.
-print(f'Combined estimated energy: {estimated_combined_energy}')  
+print(f'Combined estimated energy with successful block encoding: {estimated_combined_energy}')  
 
 
 
