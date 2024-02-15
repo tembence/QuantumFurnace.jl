@@ -19,7 +19,7 @@ from tools.quantum import *
 
 def sigmam_LCU() -> QuantumCircuit:
     """sigmam = 0.5 * (X - iY)
-    When you add it to the main circuit, compose it with [sys, b] order.
+    When you add it to the main circuit, compose it with [b, sys] order. But also the main circuit has to be in this order.
     """
     
     term_coeffs = np.array([0.5, -1j*0.5])

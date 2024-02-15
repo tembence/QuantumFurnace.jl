@@ -15,6 +15,9 @@ from jump_ops import sigmam_LCU
 #TODO: incorporate the smallest bohr freq -> time unit, instead of T = 1
 #TODO: Understand Gaussian and sigma - N, bohr more.
 
+#TODO: Rewrite circuit s.t. the block encoding ancilla is below the system
+#TODO: test how the block is still correct with other qregs
+
 np.random.seed(667)
 num_qubits = 3
 num_energy_bits = 3
