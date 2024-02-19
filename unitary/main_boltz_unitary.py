@@ -7,19 +7,21 @@ from qiskit_aer import StatevectorSimulator
 from qiskit import Aer
 from qiskit.circuit.library import QFT
 
-from op_fourier_trafo_unitary import operator_fourier_circuit, inverse_operator_fourier_circuit, \
-    brute_prepare_gaussian_state
-from boltzmann import lookup_table_boltzmann, inverse_lookup_table_boltzmann
+import sys
+sys.path.append('/Users/bence/code/liouvillian_metro/')
+
+from op_fourier_trafo_unitary import operator_fourier_circuit, brute_prepare_gaussian_state
+from boltzmann import lookup_table_boltzmann
 from tools.classical import *
 from tools.quantum import *
 
 np.random.seed(667)
 num_qubits = 3
 num_energy_bits = 6
-bohr_bound = 2 ** (-num_energy_bits + 1) #!
+bohr_bound = 2 ** (-num_energy_bits - 1)
 eps = 0.05
 sigma = 10
-eig_index = 0
+eig_index = 2
 T = 1
 shots = 100
 
@@ -78,7 +80,7 @@ circ.measure(qr_boltzmann, cr_boltzmann)
 
 print('Circuit constructed.')
 #* --- Results
-tr_circ = transpile(circ, basis_gates=['u', 'cx'], optimization_level=3)
+tr_circ = transpile(circ, basis_gates=['u', 'cx'], optimization_level=1)
 print('Circuit transpiled.')
 simulator = Aer.get_backend('statevector_simulator')
 job = simulator.run(tr_circ, shots=shots)
@@ -116,6 +118,7 @@ print(f'Estimated energy: {estimated_energy}')  # I guess it peaks at the two mo
 print(f'Combined estimated energy: {estimated_combined_energy}')  
 
 #* Boltzmann result
+print('Boltzmann result:')
 boltzmann_counts = bithandler.get_counts_for_creg(cr_boltzmann)
 print(boltzmann_counts)
 

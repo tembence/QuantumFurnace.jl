@@ -10,6 +10,8 @@ import random
 from time import time
 from typing import Optional
 
+import sys
+sys.path.append('/Users/bence/code/liouvillian_metro/')
 from tools.quantum import *
 from tools.classical import *
 

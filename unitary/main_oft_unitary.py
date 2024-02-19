@@ -7,6 +7,9 @@ from qiskit_aer import StatevectorSimulator
 from qiskit import Aer
 from qiskit.circuit.library import QFT
 
+import sys
+sys.path.append('/Users/bence/code/liouvillian_metro/')
+
 from op_fourier_trafo_unitary import operator_fourier_circuit, brute_prepare_gaussian_state
 from tools.classical import *
 from tools.quantum import *
@@ -16,13 +19,13 @@ from tools.quantum import *
 
 np.random.seed(667)
 num_qubits = 3
-num_energy_bits = 3
-bohr_bound = 0 #2 ** (-num_energy_bits - 1) #!
+num_energy_bits = 6
+bohr_bound = 2 ** (-num_energy_bits - 1)
 eps = 0.05
 sigma = 10
 eig_index = 2
 T = 1
-shots = 1000
+shots = 100
 
 hamiltonian = find_ideal_heisenberg(num_qubits, bohr_bound, eps, signed=False, for_oft=True)
 rescaled_coeff = hamiltonian.rescaled_coeffs
@@ -105,7 +108,7 @@ estimated_combined_energy = combined_phase / T
 
 print(f'Estimated energy: {estimated_energy}')  # I guess it peaks at the two most probable eigenstates and it will give either one of them and
                                                 # not the energy in between them.
-print(f'Combined estimated energy with successful block encoding: {estimated_combined_energy}')  
+print(f'Combined estimated energy: {estimated_combined_energy}')  
 
 
 

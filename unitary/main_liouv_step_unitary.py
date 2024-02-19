@@ -9,10 +9,16 @@ from qiskit.circuit.library import QFT
 import pickle
 from time import time
 
-from op_fourier_trafo_unitary import *
-from boltzmann import *
+import sys
+sys.path.append('/Users/bence/code/liouvillian_metro/')
+
+from op_fourier_trafo_unitary import operator_fourier_circuit, brute_prepare_gaussian_state, \
+    inverse_operator_fourier_circuit
+from boltzmann import lookup_table_boltzmann, inverse_lookup_table_boltzmann
 from tools.classical import *
 from tools.quantum import *
+
+we_pickle_questionmark = True  #!
 
 np.random.seed(667)
 num_qubits = 3
@@ -22,8 +28,8 @@ eps = 0.05
 sigma = 10
 eig_index = 2
 T = 1
-shots = 1000
-delta = 0.1
+shots = 1
+delta = 0.01
 
 hamiltonian = find_ideal_heisenberg(num_qubits, bohr_bound, eps, signed=False, for_oft=True)
 rescaled_coeff = hamiltonian.rescaled_coeffs
@@ -36,6 +42,11 @@ hamiltonian.inverse_trotter_step_circ = inverse_trotter_step_circ
 #* Initial state = eigenstate
 initial_state = hamiltonian.eigenstates[:, eig_index]
 initial_state = Statevector(initial_state)
+
+if we_pickle_questionmark:
+    with open(f'data/initial_state_n{num_qubits}k{num_energy_bits}d{delta}.pkl', 'wb') as f:
+        pickle.dump(initial_state, f)
+
 print(f'Initial energy: {hamiltonian.spectrum[eig_index]}')
 
 t0 = time()
@@ -108,22 +119,19 @@ circ.x(qr_delta[0])
 
 state_before_measure = Statevector(circ)
 
-with open(f'data/state_after_U_n{num_qubits}k{num_energy_bits}.pkl', 'wb') as f:
-    pickle.dump(state_after_U, f)
+if we_pickle_questionmark:
+    with open(f'data/state_after_U_n{num_qubits}k{num_energy_bits}d{delta}.pkl', 'wb') as f:
+        pickle.dump(state_after_U, f)
 
-with open(f'data/state_before_measure_n{num_qubits}k{num_energy_bits}.pkl', 'wb') as f:
-    pickle.dump(state_before_measure, f)
+    with open(f'data/state_before_measure_n{num_qubits}k{num_energy_bits}d{delta}.pkl', 'wb') as f:
+        pickle.dump(state_before_measure, f)
 
 # --- Measure
 circ.measure(qr_energy, cr_energy)
 circ.measure(qr_boltzmann, cr_boltzmann)
 circ.measure(qr_delta, cr_delta)
-# print(circ)
+print(circ)
 t1 = time()
-
-# Pickle circuit
-with open(f'data/one_liouv_step_circ_n{num_qubits}k{num_energy_bits}.pkl', 'wb') as f:
-    pickle.dump(circ, f)
 
 print(f'Circuit constructed in {t1 - t0} s.')
 #* --- Results
@@ -133,8 +141,9 @@ t3 = time()
 print(f'Circuit transpiled in {t3 - t2} s.')
 
 # Pickle transpiled circuit
-with open(f'data/tr_one_liouv_step_n{num_qubits}k{num_energy_bits}.pkl', 'wb') as f:
-    pickle.dump(tr_circ, f)
+if we_pickle_questionmark:
+    with open(f'data/tr_one_liouv_step_n{num_qubits}k{num_energy_bits}d{delta}.pkl', 'wb') as f:
+        pickle.dump(tr_circ, f)
 
 simulator = Aer.get_backend('statevector_simulator')
 job = simulator.run(tr_circ, shots=shots)
