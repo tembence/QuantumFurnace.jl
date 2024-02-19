@@ -9,8 +9,8 @@ from qiskit.circuit.library import QFT
 import pickle
 from time import time
 
-from op_fourier_trafo import *
-from boltzmann import *
+from op_fourier_trafo_unitary import operator_fourier_circuit, inverse_operator_fourier_circuit
+from boltzmann import lookup_table_boltzmann, inverse_lookup_table_boltzmann
 from tools.classical import *
 from tools.quantum import *
 
@@ -51,7 +51,7 @@ def liouv_step_circ(num_qubits: int, num_energy_bits: int, delta: float,
     inverse_boltzmann_circ = inverse_lookup_table_boltzmann(num_energy_bits)
     U_dag_circ.compose(inverse_boltzmann_circ, [qr_boltzmann[0], *list(qr_energy)], inplace=True)
 
-    inverse_oft_circ = inverse_operator_fourier_transform(jump_op, num_qubits, num_energy_bits, hamiltonian)
+    inverse_oft_circ = inverse_operator_fourier_circuit(jump_op, num_qubits, num_energy_bits, hamiltonian)
     U_dag_circ.compose(inverse_oft_circ, [*list(qr_energy), *list(qr_sys)], inplace=True)
 
     CU_dag_circ = U_dag_circ.control(1)

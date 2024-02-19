@@ -3,7 +3,7 @@ import qutip as qt
 from qiskit import QuantumCircuit, QuantumRegister, ClassicalRegister, transpile, Aer
 from qiskit_aer import StatevectorSimulator
 from qiskit.quantum_info.operators import Operator, Pauli
-from qiskit.quantum_info import Statevector, random_statevector, partial_trace
+from qiskit.quantum_info import Statevector, random_statevector, partial_trace, DensityMatrix, state_fidelity
 from qiskit.circuit import Parameter
 from qiskit.circuit.library import QFT
 import random
@@ -16,22 +16,28 @@ from tools.classical import *
 #TODO: Check if qiskit transpiles many T = 1 controlled evolutions the same as just having T = 1, 2, 4, 8 one controlled ev.
 #! Careful with different random seeds in main and here.
 
-def operator_fourier_circuit(op: Operator, num_qubits: int, num_energy_bits: int, hamiltonian: HamHam,
+def operator_fourier_circuit(jump_op: QuantumCircuit, num_qubits: int, num_energy_bits: int, hamiltonian: HamHam,
                              initial_state: np.ndarray = None) -> QuantumCircuit:
 
     trotter_step_circ = hamiltonian.trotter_step_circ
     qr_energy = QuantumRegister(num_energy_bits, name='w')
+    qr_b = QuantumRegister(1, name='b')  # Block-encoding ancilla for the 1-qubit nonunitary jump
     qr_sys = QuantumRegister(num_qubits, name='sys')
-    circ = QuantumCircuit(qr_energy, qr_sys, name="OFT")
+    circ = QuantumCircuit(qr_energy, qr_b, qr_sys, name="OFT")
     
-    circ_to_analyze = QuantumCircuit(qr_energy, qr_sys, name="OFT/")
+    circ_to_analyze = QuantumCircuit(qr_energy, qr_b, qr_sys, name="OFT/")
     circ_to_analyze.initialize(initial_state, qr_sys)
     
     # Energy before jump
     initial_statevector = Statevector(circ_to_analyze).data
-    padded_rescaled_hamiltonian = np.kron(hamiltonian.qt.full(), np.eye(2**num_energy_bits))  # top-bottom = right-left
+    padded_rescaled_hamiltonian = np.kron(hamiltonian.qt.full(), np.eye(2**(num_energy_bits + 1)))  # top-bottom = right-left
     energy_before_jump = initial_statevector.conj().T @ padded_rescaled_hamiltonian @ initial_statevector
     print(f'Energy before jump: {energy_before_jump.real}')
+    
+    # dm_before = DensityMatrix(circ_to_analyze)
+    # sys_dm_before = partial_trace(dm_before, list(range(num_energy_bits + 1)))
+    # energy_before_jump_dm = sys_dm_before.expectation_value(hamiltonian.qt.full())
+    # print(f'Energy before jump with DM: {energy_before_jump_dm}')
     
     # Time evolutions for unit time, T = 1 (in H's units and scale)
     num_trotter_steps = 10
@@ -54,14 +60,39 @@ def operator_fourier_circuit(op: Operator, num_qubits: int, num_energy_bits: int
     
     # Jump A
     random_sys_qubit = np.random.randint(0, num_qubits - 1)
-    op_circ = QuantumCircuit(1, name="A")
-    op_circ.append(op, [0])
-    circ.compose(op_circ, qr_sys[random_sys_qubit], inplace=True)
+    circ.compose(jump_op, [qr_sys[random_sys_qubit], qr_b[0]], inplace=True)
     print(f'Jump applied to {random_sys_qubit}th qubit')
     
     # For analysis
-    circ_to_analyze.compose(circ, [*list(qr_energy), *list(qr_sys)], inplace=True)
+    circ_to_analyze.compose(circ, [*list(qr_energy), qr_b[0], *list(qr_sys)], inplace=True)
     statevector = Statevector(circ_to_analyze).data
+    # dm = DensityMatrix(circ_to_analyze)  #! Uncomment
+    # sys_dm = partial_trace(dm, list(range(num_energy_bits + 1)))
+    # actual_energy_on_sys = sys_dm.expectation_value(hamiltonian.qt.full())
+    # print(f'Energy after with DM: {actual_energy_on_sys}')
+    # print(f'Energy jump with DM: {actual_energy_on_sys - energy_before_jump_dm}')
+    zerozero = np.array([[1, 0], [0, 0]])
+    padded_zerozero = np.kron(np.eye(2**num_qubits), zerozero)
+    padded_zerozero = np.kron(padded_zerozero, np.eye(2**num_energy_bits))
+    statevector_with_block0 = padded_zerozero @ statevector  # sv with successful jump block encoding
+    dm_0 = DensityMatrix(Statevector(statevector_with_block0).to_operator())
+    sys_dm_0 = partial_trace(dm_0, list(range(num_energy_bits + 1)))
+    
+    sigmam = np.array([[0, 0], [1, 0]])
+    padded_sigmam = np.kron(np.eye(2), sigmam)
+    padded_sigmam = np.kron(padded_sigmam, np.eye(2))
+    exact_statevector_after_jump = padded_sigmam @ initial_state.data
+    exact_statevector_after_jump /= np.linalg.norm(exact_statevector_after_jump)
+    exact_dm_after_jump = DensityMatrix(Statevector(exact_statevector_after_jump).to_operator())
+    
+    fidelity = state_fidelity(exact_dm_after_jump, sys_dm_0, validate=False)
+    print(f'Fidelity: {fidelity}')
+    
+    
+    energy_after_good_jump = statevector_with_block0.conj().T @ padded_rescaled_hamiltonian @ statevector_with_block0
+    print(f'Energy after good jump: {energy_after_good_jump.real}')
+    print(f'Energy of good jump: {(energy_after_good_jump - energy_before_jump).real}')
+    
     energy_after_jump = statevector.conj().T @ padded_rescaled_hamiltonian @ statevector
     print(f'Energy after jump: {energy_after_jump.real}')
     omega = energy_after_jump - energy_before_jump
@@ -100,13 +131,14 @@ def brute_prepare_gaussian_state(num_energy_bits: int, sigma: float) -> QuantumC
     
     return prep_circ
 
-def inverse_operator_fourier_transform(op: Operator, num_qubits: int, 
+def inverse_operator_fourier_circuit(jump_op: QuantumCircuit, num_qubits: int, 
                                        num_energy_bits: int, hamiltonian: HamHam) -> QuantumCircuit:
     
     trotter_step_circ = hamiltonian.inverse_trotter_step_circ  # Inverse!
     qr_energy = QuantumRegister(num_energy_bits, name='w')
+    qr_b = QuantumRegister(1, name='b')  # Block-encoding ancilla for the 1-qubit nonunitary jump
     qr_sys = QuantumRegister(num_qubits, name='sys')
-    circ = QuantumCircuit(qr_energy, qr_sys, name="OFT")
+    circ = QuantumCircuit(qr_energy, qr_b, qr_sys, name="OFT")
     
     circ.compose(QFT(num_energy_bits, inverse=False), qubits=qr_energy, inplace=True)  # Normal QFT
     
@@ -130,10 +162,7 @@ def inverse_operator_fourier_transform(op: Operator, num_qubits: int,
                 
     # Jump A
     random_sys_qubit = np.random.randint(0, num_qubits - 1)
-    op_circ = QuantumCircuit(1, name="A")
-    op_circ.append(op, [0])
-    inverse_op_circ = op_circ.inverse()
-    circ.compose(inverse_op_circ, qr_sys[random_sys_qubit], inplace=True)
+    circ.compose(jump_op, [qr_sys[random_sys_qubit], qr_b[0]], inplace=True)
     print(f'Inverse jump applied to {random_sys_qubit}th qubit')       
     
     # exp(-i 2pi H T) E_old
