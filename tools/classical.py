@@ -19,7 +19,6 @@ class HamHam:  #TODO: Write a qiskit trotter circuit generator for an input qt.Q
         self.trotter_step_circ: QuantumCircuit = None
         self.inverse_trotter_step_circ: QuantumCircuit = None
 
-#FIXME: A bit off sometimes, the centering of the spectrum
 def find_ideal_heisenberg(num_qubits: int, bohr_bound: float, eps: float,
                           signed: bool = True, for_oft: bool = True) -> HamHam:
     """Find a Heisenberg Hamiltonian with ideal spectrum for QPE, by which we mean
@@ -51,10 +50,7 @@ def find_ideal_heisenberg(num_qubits: int, bohr_bound: float, eps: float,
     found_ideal_spectrum = False
     for coeffs in coeff_mesh:
         hamiltonian_qt = hamiltonian_matrix([X, X], [Y, Y], [Z, Z], coeffs=coeffs, num_qubits=num_qubits, symbreak_term=[Z])
-        rescaling_factor, shift = rescaling_and_shift_factors(hamiltonian_qt, eps=eps, signed=signed)
-        if for_oft:
-            rescaling_factor *= 2 # [0.5 - eps / 2] 
-            shift /= 2
+        rescaling_factor, shift = rescaling_and_shift_factors(hamiltonian_qt, eps=eps, signed=signed, for_oft=for_oft)
         
         rescaled_hamiltonian_qt = hamiltonian_qt / rescaling_factor + shift * qt.qeye(hamiltonian_qt.shape[0])
         rescaled_spectrum = np.linalg.eigvalsh(rescaled_hamiltonian_qt)
@@ -185,24 +181,38 @@ def shift_spectrum(hamiltonian: qt.Qobj) -> qt.Qobj:
         
     return shifted_hamiltonian
 
-def rescaling_and_shift_factors(hamiltonian: qt.Qobj, eps: float = 0, signed: bool=False) -> tuple[float, float]:
+def rescaling_and_shift_factors(hamiltonian: qt.Qobj, eps: float = 0, 
+                                signed: bool=False, for_oft: bool = True) -> tuple[float, float]:
     """Rescale and shift to get spectrum in [0, 1]
     """
     eigenenergies = np.linalg.eigvalsh(hamiltonian)
-    smallest_eigval = np.round(eigenenergies[0])
-    largest_eigval = np.round(eigenenergies[-1])
+    smallest_eigval = np.round(eigenenergies[0], 5)
+    largest_eigval = np.round(eigenenergies[-1], 5)
     
 # Rescaling factor and shift for [-0.5, 0.5]
     rescaling_factor = largest_eigval - smallest_eigval
-    if eps != 0:
-        rescaling_factor /= (1 - 2 * eps) # [-0.5 + eps, 0.5 - eps]
-    # Centre spectrum around 0:
-    shift = -(largest_eigval + smallest_eigval) / (2 * rescaling_factor)
+    if eps == 0:
+        shift = -(largest_eigval + smallest_eigval) / (2 * rescaling_factor)
+        if signed == False:
+            shift += 0.5
+        return rescaling_factor, shift
     
-    if signed == False:  # shift to [0, 1]
-        shift += 0.5
+    if (eps != 0) and (for_oft == False):
+        rescaling_factor /= (1 - eps) # [-0.5, 0.5 - eps]
+        shift = - (largest_eigval + smallest_eigval - 2 * smallest_eigval * eps) / (2 * (largest_eigval - smallest_eigval))
+    
+        if (signed == False and (for_oft == False)):  # shift to [0, 1]
+            shift += 0.5
+        return rescaling_factor, shift
         
-    return rescaling_factor, shift
+    if (eps != 0) and (for_oft == True):
+        rescaling_factor *= (2 / (1 - eps)) # [0.5 - eps / 2] 
+        shift = - (largest_eigval - smallest_eigval * eps) / (2 * (largest_eigval - smallest_eigval))
+        
+        if signed == False:
+            shift += 0.5
+            
+        return rescaling_factor, shift
 
 # ----------------------------------------------- Energy related functions ----------------------------------------------- #
 def smallest_bohr_freq(hamiltonian_matrix) -> float:
@@ -356,7 +366,6 @@ if __name__ == '__main__':
     # circ.initialize(rand_state, range(np.sum([qr.size for qr in circ.qregs])))
     # rdm = reduced_density_matrix(circ, [1, 2, 3, 4], qr_indices=[1, 3])
     # rdm_qiskit = partial_trace(Statevector(circ), [0, 3, 4, 5])  
-    # #FIXME: QIskit and my reduced density matrix doesnt match up 
     # print(rdm)
     # rdm_qiskit = rdm_qiskit.data.reshape(rdm.shape)
     # print(np.isclose(rdm, rdm_qiskit))

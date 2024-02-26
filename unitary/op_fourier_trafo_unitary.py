@@ -36,8 +36,8 @@ def operator_fourier_circuit(op: Operator, num_qubits: int, num_energy_bits: int
     
     # Time evolutions for unit time, T = 1 (in H's units and scale)
     num_trotter_steps = 10
-    T = 1
-    total_time = 2 * np.pi * T
+    T = 1 
+    total_time = T #! * 2 * np.pi
     U_pos = ham_evol(num_qubits, trotter_step=trotter_step_circ, num_trotter_steps=num_trotter_steps, time=total_time)
     U_neg = ham_evol(num_qubits, trotter_step=trotter_step_circ, num_trotter_steps=num_trotter_steps, time=(-1)*total_time)
     cU_pos = U_pos.control(1, label='+')
@@ -113,7 +113,7 @@ def inverse_operator_fourier_circuit(op: Operator, num_qubits: int,
     
     num_trotter_steps = 10
     T = 1
-    total_time = - 2 * np.pi * T  #! Minus for inverse
+    total_time = - T #! * 2 * np.pi * #! Minus for inverse
     U_pos = ham_evol(num_qubits, trotter_step=trotter_step_circ, num_trotter_steps=num_trotter_steps, time=total_time)
     U_neg = ham_evol(num_qubits, trotter_step=trotter_step_circ, num_trotter_steps=num_trotter_steps, time=(-1)*total_time)
     cU_pos = U_pos.control(1, label='+')
