@@ -119,8 +119,8 @@ for i in range(len(energy_counts.keys())):
         
     combined_phase += phase_part * list(energy_counts.values())[i] / successful_shots
 
-estimated_energy = phase / T  # exp(i 2pi phase) = exp(i 2pi E T)
-estimated_combined_energy = combined_phase / T
+estimated_energy = 2 * np.pi * phase / T  # exp(i 2pi phase) = exp(i 2pi E T)
+estimated_combined_energy = 2 * np.pi * combined_phase / T
 
 
 print(f'Estimated energy: {estimated_energy}')  # I guess it peaks at the two most probable eigenstates and it will give either one of them and

@@ -16,8 +16,8 @@ np.random.seed(667)
 num_qubits = 3
 num_energy_bits = 6
 bohr_bound = 2 ** (-num_energy_bits + 1) #!
-eps = 0.05
-sigma = 10
+eps = 0.1
+sigma = 5
 eig_index = 0
 T = 1
 shots = 100
@@ -105,8 +105,8 @@ for i in range(len(energy_counts.keys())):
         
     combined_phase += phase_part * list(energy_counts.values())[i] / shots
     
-estimated_energy = phase / T  # exp(i 2pi phase) = exp(i 2pi E T)
-estimated_combined_energy = combined_phase / T
+estimated_energy = 2 * np.pi * phase / T  # exp(i 2pi phase) = exp(i 2pi E T)
+estimated_combined_energy = 2 * np.pi * combined_phase / T
 
 
 print(f'Estimated energy: {estimated_energy}')  # I guess it peaks at the two most probable eigenstates 

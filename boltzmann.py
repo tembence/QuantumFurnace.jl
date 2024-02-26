@@ -33,7 +33,7 @@ def lookup_table_boltzmann(num_energy_bits: int, beta: float = 1) -> QuantumCirc
     bitstrings = [bin(i)[2:].zfill(num_energy_bits - 1) for i in range(2**(num_energy_bits - 1))]
     bitstrings = bitstrings[1:]  # All 0 state is already default accepting
     for bitstring in bitstrings:
-        omega = int(bitstring, 2) / 2**(num_energy_bits)
+        omega = 2 * np.pi * int(bitstring, 2) / 2**(num_energy_bits)  #! Changed for 2pi
         boltzmann_angle = Y_angle(omega)
         
         # boltzmann_angle = - 2 * np.arccos(np.sqrt(boltzmann_weight(omega))) #* Angle!
@@ -77,7 +77,7 @@ def inverse_lookup_table_boltzmann(num_energy_bits: int, beta: float = 1) -> Qua
     bitstrings.reverse()  # Reverse order of bitstrings for dagger
     
     for bitstring in bitstrings:
-        omega = int(bitstring, 2) / 2**(num_energy_bits)
+        omega = 2 * np.pi * int(bitstring, 2) / 2**(num_energy_bits) #! Changed for 2pi
         boltzmann_angle = Y_angle(omega)
 
         # Create W_{bitstring}
