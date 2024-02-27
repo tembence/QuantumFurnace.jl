@@ -90,6 +90,10 @@ def brute_prepare_gaussian_state(num_energy_bits: int, sigma: float) -> QuantumC
     decimal_time_labels = list(range(2**(num_energy_bits - 1)))
     decimal_time_labels.extend(list(range(- 2**(num_energy_bits - 1), 0)))
     
+    #! Normally
+    # decimal_time_labels = list(range(- 2**(num_energy_bits - 1), 0))
+    # decimal_time_labels.extend(list(range(2**(num_energy_bits - 1))))
+    
     gauss_amplitude = lambda decimal_time: np.exp(-(decimal_time ** 2) / (4 * sigma ** 2))
     amplitudes = [gauss_amplitude(decimal_time) for decimal_time in decimal_time_labels]
     # Normalize 
@@ -119,7 +123,7 @@ def inverse_operator_fourier_circuit(op: Operator, num_qubits: int,
     cU_pos = U_pos.control(1, label='+')
     cU_neg = U_neg.control(1, label='-')
     
-    # # exp(i 2pi H T)
+    # # exp(i H T)
     for w in reversed(range(num_energy_bits)):
         # circ.p(total_time * hamiltonian.shift * 2**w, qr_energy[w])  #! Shift cancel
         if w != num_energy_bits - 1:
@@ -137,7 +141,7 @@ def inverse_operator_fourier_circuit(op: Operator, num_qubits: int,
     circ.compose(inverse_op_circ, qr_sys[random_sys_qubit], inplace=True)
     print(f'Inverse jump applied to {random_sys_qubit}th qubit')       
     
-    # exp(-i 2pi H T) E_old
+    # exp(-i H T) E_old
     for w in reversed(range(num_energy_bits)):
         # circ.p(- total_time * hamiltonian.shift * 2**w, qr_energy[w])  #!
         if w != num_energy_bits - 1:

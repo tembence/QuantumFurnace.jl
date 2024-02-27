@@ -23,7 +23,7 @@ num_energy_bits = 6
 bohr_bound = 2 ** (-num_energy_bits + 1)
 eps = 0.1
 sigma = 5
-eig_index = 0
+eig_index = 2
 T = 1
 shots = 200
 
