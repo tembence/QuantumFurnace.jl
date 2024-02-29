@@ -6,6 +6,7 @@ from qiskit import QuantumCircuit
 from qiskit_aer import StatevectorSimulator
 from qiskit import Aer
 from qiskit.circuit.library import QFT
+import pickle
 
 import sys
 sys.path.append('/Users/bence/code/liouvillian_metro/')
@@ -15,15 +16,17 @@ from boltzmann import lookup_table_boltzmann
 from tools.classical import *
 from tools.quantum import *
 
+we_pickle_questionmark = True  #!
+
 np.random.seed(667)
 num_qubits = 3
 num_energy_bits = 6
 bohr_bound = 2 ** (-num_energy_bits + 1)
 eps = 0.1
 sigma = 5
-eig_index = 0
+eig_index = 1
 T = 1
-shots = 100
+shots = 1
 
 hamiltonian = find_ideal_heisenberg(num_qubits, bohr_bound, eps, signed=False, for_oft=True)
 rescaled_coeff = hamiltonian.rescaled_coeffs
@@ -54,6 +57,11 @@ else:  # Conventional QPE
 # System prep, initial state = eigenstate
 initial_state = hamiltonian.eigenstates[:, eig_index]
 initial_state = Statevector(initial_state)
+
+if we_pickle_questionmark:
+    with open(f'data/block_initial_state_n{num_qubits}k{num_energy_bits}.pkl', 'wb') as f:
+        pickle.dump(initial_state, f)
+        
 print(f'Initial energy: {hamiltonian.spectrum[eig_index]}')
 
 circ.initialize(initial_state, qr_sys)
@@ -72,6 +80,12 @@ print('Boltzmann')
 
 circ.compose(U_circ, [qr_boltzmann[0], *list(qr_energy), *list(qr_sys)], inplace=True)
 
+state_before_measure = Statevector(circ)
+
+if we_pickle_questionmark:
+    with open(f'data/block_state_before_measure_n{num_qubits}k{num_energy_bits}.pkl', 'wb') as f:
+        pickle.dump(state_before_measure, f)
+
 # --- Measure
 circ.measure(qr_energy, cr_energy)
 # Measure this after energy register, then the boltzmann sees the projected states energy
@@ -81,6 +95,11 @@ circ.measure(qr_boltzmann, cr_boltzmann)
 print('Circuit constructed.')
 #* --- Results
 tr_circ = transpile(circ, basis_gates=['u', 'cx'], optimization_level=1)
+
+if we_pickle_questionmark:
+    with open(f'data/block_tr_n{num_qubits}k{num_energy_bits}.pkl', 'wb') as f:
+        pickle.dump(tr_circ, f)
+        
 print('Circuit transpiled.')
 simulator = Aer.get_backend('statevector_simulator')
 job = simulator.run(tr_circ, shots=shots)
@@ -108,7 +127,7 @@ for i in range(len(energy_counts.keys())):
         
     combined_phase += phase_part * list(energy_counts.values())[i] / shots
     
-estimated_energy = 2 * np.pi * phase / T  # exp(i 2pi phase) = exp(i 2pi E T)
+estimated_energy = 2 * np.pi * phase / T  # exp(i 2pi phase) = exp(i E T)
 estimated_combined_energy = 2 * np.pi * combined_phase / T
 
 

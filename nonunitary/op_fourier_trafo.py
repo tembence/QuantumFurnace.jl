@@ -59,7 +59,8 @@ def operator_fourier_circuit(jump_op: QuantumCircuit, num_qubits: int, num_energ
                 circ.compose(cU_pos, [w, *list(qr_sys)], inplace=True)
     
     # Jump A
-    random_sys_qubit = np.random.randint(0, num_qubits - 1)
+    global random_sys_qubit
+    random_sys_qubit = np.random.randint(0, num_qubits)
     circ.compose(jump_op, [qr_sys[random_sys_qubit], qr_b[0]], inplace=True)
     print(f'Jump applied to {random_sys_qubit}th qubit')
     
@@ -161,7 +162,6 @@ def inverse_operator_fourier_circuit(jump_op: QuantumCircuit, num_qubits: int,
                 circ.compose(cU_neg, [w, *list(qr_sys)], inplace=True)
                 
     # Jump A
-    random_sys_qubit = np.random.randint(0, num_qubits - 1)
     circ.compose(jump_op, [qr_sys[random_sys_qubit], qr_b[0]], inplace=True)
     print(f'Inverse jump applied to {random_sys_qubit}th qubit')       
     

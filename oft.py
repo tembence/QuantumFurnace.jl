@@ -27,7 +27,7 @@ def oft(jump_op: np.ndarray, energy: float, num_labels: int, sigma: float,
     if hamiltonian is None and trotter is not None:  #* Trotterized
         time_evolution = lambda n: np.linalg.matrix_power(trotter, n)
         for n in N_labels:
-            # t = 2 * np.pi * n / num_labels
+            # t = 2 * np.pi * n / num_labels  #! If we say energies are [-0.5, 0.5] then the times have to be else
             t = n
             oft_op += (np.exp(-1j * energy * t)  # We already feed in energies of 2pi / N units
                        * gauss(t) * time_evolution(n) @ jump_op @ time_evolution(-n))

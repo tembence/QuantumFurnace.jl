@@ -43,7 +43,7 @@ def operator_fourier_circuit(op: Operator, num_qubits: int, num_energy_bits: int
     cU_pos = U_pos.control(1, label='+')
     cU_neg = U_neg.control(1, label='-')
     
-    # exp(-i 2pi H T) E_old
+    # exp(-i H T) E_old
     for w in range(num_energy_bits):
         # circ.p(- total_time * hamiltonian.shift * 2**w, qr_energy[w])  #!
         if w != num_energy_bits - 1:
@@ -54,7 +54,8 @@ def operator_fourier_circuit(op: Operator, num_qubits: int, num_energy_bits: int
                 circ.compose(cU_pos, [w, *list(qr_sys)], inplace=True)
     
     # Jump A
-    random_sys_qubit = np.random.randint(0, num_qubits - 1)
+    global random_sys_qubit
+    random_sys_qubit = np.random.randint(0, num_qubits)
     op_circ = QuantumCircuit(1, name="A")
     op_circ.append(op, [0])
     circ.compose(op_circ, qr_sys[random_sys_qubit], inplace=True)
@@ -68,7 +69,7 @@ def operator_fourier_circuit(op: Operator, num_qubits: int, num_energy_bits: int
     omega = energy_after_jump - energy_before_jump
     print(f'Energy jump: {omega.real}')
     
-    # # exp(i 2pi H T)
+    # # exp(i H T)
     for w in range(num_energy_bits):
         # circ.p(total_time * hamiltonian.shift * 2**w, qr_energy[w])  #! Shift cancel
         if w != num_energy_bits - 1:
@@ -89,10 +90,6 @@ def brute_prepare_gaussian_state(num_energy_bits: int, sigma: float) -> QuantumC
     # Time labels in computational basis
     decimal_time_labels = list(range(2**(num_energy_bits - 1)))
     decimal_time_labels.extend(list(range(- 2**(num_energy_bits - 1), 0)))
-    
-    #! Normally
-    # decimal_time_labels = list(range(- 2**(num_energy_bits - 1), 0))
-    # decimal_time_labels.extend(list(range(2**(num_energy_bits - 1))))
     
     gauss_amplitude = lambda decimal_time: np.exp(-(decimal_time ** 2) / (4 * sigma ** 2))
     amplitudes = [gauss_amplitude(decimal_time) for decimal_time in decimal_time_labels]
@@ -134,7 +131,6 @@ def inverse_operator_fourier_circuit(op: Operator, num_qubits: int,
                 circ.compose(cU_neg, [w, *list(qr_sys)], inplace=True)
                 
     # Jump A
-    random_sys_qubit = np.random.randint(0, num_qubits - 1)
     op_circ = QuantumCircuit(1, name="A")
     op_circ.append(op, [0])
     inverse_op_circ = op_circ.inverse()
