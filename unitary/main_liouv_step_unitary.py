@@ -28,7 +28,7 @@ eps = 0.1
 sigma = 5
 eig_index = 2
 T = 1
-shots = 1
+shots = 1000
 delta = 0.001
 
 hamiltonian = find_ideal_heisenberg(num_qubits, bohr_bound, eps, signed=False, for_oft=True)

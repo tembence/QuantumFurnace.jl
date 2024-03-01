@@ -19,7 +19,7 @@ def oft(jump_op: np.ndarray, energy: float, num_labels: int, sigma: float,
     N_labels = np.concatenate((N_labels, N_labels_neg))
     # time_labels = np.array(N_labels) / num_labels
 
-    gauss = lambda t: np.exp(-(t ** 2) / (4 * sigma ** 2))
+    gauss = lambda t: np.exp((-t ** 2) / (4 * sigma ** 2))
     gauss_normalization = np.sqrt(np.sum([np.sqrt(np.abs(gauss(n))**2) for n in N_labels]))
     # gauss_normalization = np.sqrt(np.sum([np.sqrt(np.abs(gauss(t))**2) for t in time_labels]))
     
@@ -27,15 +27,12 @@ def oft(jump_op: np.ndarray, energy: float, num_labels: int, sigma: float,
     if hamiltonian is None and trotter is not None:  #* Trotterized
         time_evolution = lambda n: np.linalg.matrix_power(trotter, n)
         for n in N_labels:
-            # t = 2 * np.pi * n / num_labels  #! If we say energies are [-0.5, 0.5] then the times have to be else
-            t = n
-            oft_op += (np.exp(-1j * energy * t)  # We already feed in energies of 2pi / N units
-                       * gauss(t) * time_evolution(n) @ jump_op @ time_evolution(-n))
+            oft_op += (np.exp(-1j * 2 * np.pi * energy * n)  #!
+                       * gauss(n) * time_evolution(n) @ jump_op @ time_evolution(-n))
+            
     elif hamiltonian is not None and trotter is None:  #* Exact
         time_evolution = lambda t: expm(1j * t * hamiltonian)
         for n in N_labels:
-            # t = 2 * np.pi * n / num_labels
-            t = n
-            oft_op += np.exp(-1j * energy * t) * gauss(t) * time_evolution(t) @ jump_op @ time_evolution(-t)
+            oft_op += np.exp(-1j * energy * 2 * np.pi * n) * gauss(n) * time_evolution(2 * np.pi * n) @ jump_op @ time_evolution(-2 * np.pi * n)
         
     return oft_op / (np.sqrt(num_labels) * gauss_normalization)  #? Maybe energy unit prefactor too
