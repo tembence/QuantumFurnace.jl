@@ -27,8 +27,6 @@ def lookup_table_boltzmann(num_energy_bits: int, beta: float = 1.) -> QuantumCir
         boltzmann_weight = np.exp(-beta * omega)
         return 2 * np.arcsin(np.sqrt(1 - boltzmann_weight))
     
-    # boltzmann_weight = lambda omega: np.exp(-beta * omega)
-    
     # Without MSB (sign):
     bitstrings = [bin(i)[2:].zfill(num_energy_bits - 1) for i in range(2**(num_energy_bits - 1))]
     bitstrings = bitstrings[1:]  # All 0 state is already default accepting
