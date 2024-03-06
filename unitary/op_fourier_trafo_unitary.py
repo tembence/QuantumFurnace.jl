@@ -35,9 +35,9 @@ def operator_fourier_circuit(op: Operator, num_qubits: int, num_energy_bits: int
     print(f'Energy before jump: {energy_before_jump.real}')
     
     # Time evolutions for unit time, T = 1 (in H's units and scale)
-    num_trotter_steps = 10
+    num_trotter_steps = 100
     T = 1 
-    total_time = T #! * 2 * np.pi
+    total_time = T
     U_pos = ham_evol(num_qubits, trotter_step=trotter_step_circ, num_trotter_steps=num_trotter_steps, time=total_time)
     U_neg = ham_evol(num_qubits, trotter_step=trotter_step_circ, num_trotter_steps=num_trotter_steps, time=(-1)*total_time)
     cU_pos = U_pos.control(1, label='+')

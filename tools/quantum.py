@@ -80,8 +80,6 @@ def second_order_trotter_step_circ(num_qubits: int, coeffs = [1, 1, 1]):
 
 def ham_evol(num_qubits: int, trotter_step: QuantumCircuit, num_trotter_steps: int, time: float) -> QuantumCircuit:
     """Time parametrized Hamiltonian evolution
-    For QPE feed in 2pi * time amount of time
-    For rescaled Hamitlonian in QPE feed in 2pi * time / rescaling_factor amount of time
     """
     
     circ = QuantumCircuit(num_qubits, name="H")

@@ -13,7 +13,6 @@ from typing import Optional
 from tools.quantum import *
 from tools.classical import *
 
-#TODO: Change boltzmann weight to 1-boltzmann weight to make it compatible with QTSP paper
 def lookup_table_boltzmann(num_energy_bits: int, beta: float = 1.) -> QuantumCircuit:
     """2^(k - 1) many (k - 1)-Toffolis"""
     # If sign bit is negative then we accept the step by an X gate

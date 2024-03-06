@@ -145,7 +145,6 @@ def trotter_heisenberg_qutip(num_qubits: int, step_size: float, num_trotter_step
     
     # End of a product is the beginning of the operator chain applied.
     for i in range(num_qubits):
-        print(f'eXX, eYY, eZZ for qubit {i, (i+1)%num_qubits}')
         XX = pad_term([qt.sigmax(), qt.sigmax()], num_qubits, i)
         YY = pad_term([qt.sigmay(), qt.sigmay()], num_qubits, i)
         ZZ = pad_term([qt.sigmaz(), qt.sigmaz()], num_qubits, i)
