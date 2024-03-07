@@ -28,8 +28,8 @@ eps = 0.1
 sigma = 5
 eig_index = 2
 T = 1
-shots = 1000
-delta = 0.001
+shots = 1
+delta = 0.1
 
 hamiltonian = find_ideal_heisenberg(num_qubits, bohr_bound, eps, signed=False, for_oft=True)
 rescaled_coeff = hamiltonian.rescaled_coeffs
@@ -160,22 +160,23 @@ phase_bits_shots = energy_counts[phase_bits]
 # Main bitstring result
 # signed binary to decimal:
 if phase_bits[0] == '1':
-    phase = (int(phase_bits[1:], 2) - 2**(num_energy_bits - 1)) / 2**num_energy_bits  # exp(i 2pi phase)
+    phase = (int(phase_bits[1:], 2) - 2**(num_energy_bits - 1))  # exp(i 2pi phase)
 else:
-    phase = int(phase_bits[1:], 2) / 2**num_energy_bits
-
+    phase = int(phase_bits[1:], 2)
+    
 # Combine phases
 combined_phase = 0.
 for i in range(len(energy_counts.keys())):
     if list(energy_counts.keys())[i][0] == '1':
-        phase_part = (int(list(energy_counts.keys())[i][1:], 2) - 2**(num_energy_bits - 1)) / 2**num_energy_bits
+        phase_part = (int(list(energy_counts.keys())[i][1:], 2) - 2**(num_energy_bits - 1))
     else:
-        phase_part = int(list(energy_counts.keys())[i][1:], 2) / 2**num_energy_bits
+        phase_part = int(list(energy_counts.keys())[i][1:], 2)
         
     combined_phase += phase_part * list(energy_counts.values())[i] / shots
-    
-estimated_energy = 2 * np.pi * phase / T  # exp(i 2pi phase) = exp(i E T)
-estimated_combined_energy = 2 * np.pi * combined_phase / T
+
+
+estimated_energy = 2 * np.pi * phase / (T * 2**num_energy_bits)  # exp(i 2pi phase / N ) = exp(i E T)
+estimated_combined_energy = 2 * np.pi * combined_phase / (T * 2**num_energy_bits)
 
 print(f'Estimated energy: {estimated_energy}')  # I guess it peaks at the two most probable eigenstates 
                                                 # and it will give either one of them and

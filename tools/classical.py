@@ -131,18 +131,17 @@ def pad_term(terms: list[qt.Qobj], num_qubits: int, position: int) -> qt.Qobj:
     
     return qt.tensor(padded_tensor_list)
 
-def trotter_heisenberg_qutip(num_qubits: int, step_size: float, num_trotter_steps: int, coeffs: list[float],
-                             shift: float = 0, symbreak: bool = True) -> qt.Qobj:
+#! Shift taken out
+# if shift != 0:
+#     trott_hamiltonian_qt = trott_hamiltonian_qt * qt.Qobj(expm(1j * shift * np.eye(2**num_qubits)))
+def trotter_step_heisenberg_qt(num_qubits: int, step_size: float, coeffs: list[float],
+                               symbreak: bool = True) -> qt.Qobj:
     
     if symbreak == True and len(coeffs) != 4:
         raise ValueError("If symbreak is True, then 3+1 coefficients are needed.")
         
-    trott_hamiltonian_qt = qt.qeye(2**num_qubits)
     trott_step_qt = qt.qeye(2**num_qubits)
-    
-    if shift != 0:
-        trott_hamiltonian_qt = trott_hamiltonian_qt * qt.Qobj(expm(1j * shift * np.eye(2**num_qubits)))
-    
+  
     # End of a product is the beginning of the operator chain applied.
     for i in range(num_qubits):
         XX = pad_term([qt.sigmax(), qt.sigmax()], num_qubits, i)
@@ -158,12 +157,17 @@ def trotter_heisenberg_qutip(num_qubits: int, step_size: float, num_trotter_step
             trott_step_qt = qt.Qobj(eZ) * qt.Qobj(eZZ) * qt.Qobj(eYY) * qt.Qobj(eXX) * trott_step_qt
         else:
             trott_step_qt = qt.Qobj(eZZ) * qt.Qobj(eYY) * qt.Qobj(eXX) * trott_step_qt
-        
-    for _ in range(num_trotter_steps):
-        # print(f'Applied Trotter step {_}')
-        trott_hamiltonian_qt =  trott_step_qt * trott_hamiltonian_qt
     
+    return trott_step_qt
+
+def ham_evol_qt(num_qubits: int, trotter_step_qt: qt.Qobj, num_trotter_steps: int) -> qt.Qobj:
+    
+    trott_hamiltonian_qt = qt.qeye(2**num_qubits)
+    for _ in range(num_trotter_steps):
+        trott_hamiltonian_qt =  trotter_step_qt * trott_hamiltonian_qt
+        
     return trott_hamiltonian_qt
+
 
 def shift_spectrum(hamiltonian: qt.Qobj) -> qt.Qobj:
 

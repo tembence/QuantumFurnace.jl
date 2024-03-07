@@ -22,7 +22,7 @@ def trotter_step_heisenberg(num_qubits: int, coeffs: list[float], symbreak: bool
     step_size = Parameter('theta')
     for i in range(num_qubits):
         if i != num_qubits - 1:
-            trotter_step_circ.rxx(-2 * coeffs[0] * step_size, i, i + 1)   #! Qiskit convention, rxx(-2x) = exp(x)
+            trotter_step_circ.rxx(-2 * coeffs[0] * step_size, i, i + 1)   # Qiskit convention, rxx(-2x) = exp(x)
             trotter_step_circ.ryy(-2 * coeffs[1] * step_size, i, i + 1)
             trotter_step_circ.rzz(-2 * coeffs[2] * step_size, i, i + 1)
         if (i == num_qubits - 1):  # Periodic boundary conditions

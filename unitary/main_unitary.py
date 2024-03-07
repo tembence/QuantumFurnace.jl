@@ -14,8 +14,8 @@ from boltzmann import *
 from liouv_step_unitary import *
 from tools.classical import *
 from tools.quantum import *
-# 
-#TODO: Use min bohr frequency for time and energy units
+
+
 #TODO: Truncated Gaussian?
 #TODO: figure out delta value, and also could be adaptive later
 #TODO: How can we get some information out for the energy in mid run?
@@ -24,8 +24,8 @@ np.random.seed(667)
 num_qubits = 3
 num_energy_bits = 6
 bohr_bound = 2 ** (-num_energy_bits + 1) #!
-eps = 0.05
-sigma = 10
+eps = 0.1
+sigma = 5
 eig_index = 2
 T = 1
 shots = 1
