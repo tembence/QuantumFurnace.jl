@@ -149,7 +149,6 @@ with open(f'data/liouv_step_states_n{num_qubits}k{num_energy_bits}t{liouv_time}.
     pickle.dump(liouv_step_states, f)
     
 
-print(f'Circuit constructed in {t1 - t0} s.')
 #* --- Results
 t2 = time()
 tr_circ = transpile(circ, basis_gates=['u', 'cx'], optimization_level=0)
