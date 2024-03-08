@@ -1,24 +1,24 @@
 import numpy as np
 import qutip as qt
 from scipy.linalg import logm, expm
-from qiskit.quantum_info import Operator, state_fidelity
-from qiskit import QuantumCircuit
-from qiskit_aer import StatevectorSimulator
+from qiskit.quantum_info import Operator, state_fidelity, Statevector, Pauli, partial_trace
+from qiskit import QuantumCircuit, QuantumRegister, ClassicalRegister, transpile
 from qiskit import Aer
-from qiskit.circuit.library import QFT
 import pickle
 from time import time
+import tqdm
 
-from op_fourier_trafo_unitary import *
-from boltzmann import *
-from liouv_step_unitary import *
-from tools.classical import *
-from tools.quantum import *
-
+from op_fourier_trafo_unitary import brute_prepare_gaussian_state
+from liouv_step_unitary import liouv_step_circ
+from tools.classical import find_ideal_heisenberg, BitHandler
+from tools.quantum import trotter_step_heisenberg, inverse_trotter_step_heisenberg
 
 #TODO: Truncated Gaussian?
 #TODO: figure out delta value, and also could be adaptive later
 #TODO: How can we get some information out for the energy in mid run?
+#? See if pretranspiled subcircuits can be easily added to circuits, meaning no long retranspilation
+#TODO: Rewrite it with mid circuit measurements, but not sure if that's any good either for Statevector analysis
+
 
 np.random.seed(667)
 num_qubits = 3
@@ -27,24 +27,23 @@ bohr_bound = 2 ** (-num_energy_bits + 1) #!
 eps = 0.1
 sigma = 5
 eig_index = 2
+beta = 1
 T = 1
 shots = 1
 delta = 0.1
 liouv_time = 1
 liouv_steps = int(liouv_time / delta)
+jump_ops = [Operator(Pauli('X'))]
 
 # --- Hamiltonian
 hamiltonian = find_ideal_heisenberg(num_qubits, bohr_bound, eps, signed=False, for_oft=True)
 rescaled_coeff = hamiltonian.rescaled_coeffs
 # Corresponding Trotter step circuit
-trotter_step_circ = trotter_step_heisenberg(num_qubits, coeffs=rescaled_coeff, symbreak=True)
-inverse_trotter_step_circ = inverse_trotter_step_heisenberg(num_qubits, coeffs=rescaled_coeff, symbreak=True)
-hamiltonian.trotter_step_circ = trotter_step_circ
-hamiltonian.inverse_trotter_step_circ = inverse_trotter_step_circ
+hamiltonian.trotter_step_circ = trotter_step_heisenberg(num_qubits, coeffs=rescaled_coeff, symbreak=True)
+hamiltonian.inverse_trotter_step_circ = inverse_trotter_step_heisenberg(num_qubits, coeffs=rescaled_coeff, symbreak=True)
 
 # Initial state = eigenstate
 initial_state = hamiltonian.eigenstates[:, eig_index]
-initial_state = Statevector(initial_state)
 print(f'Initial energy: {hamiltonian.spectrum[eig_index]}')
 
 t0 = time()
@@ -70,26 +69,85 @@ else:  # Conventional QPE
     circ.h(qr_energy)
     
 # System prep
-circ.initialize(initial_state, qr_sys)
+circ.initialize(Statevector(initial_state), qr_sys)
 
-#* --- Liouvillian steps
-#TODO: See if pretranspiled subcircuits can be easily added to circuits, meaning no long retranspilation
-liouv_circ = liouv_step_circ(num_qubits, num_energy_bits, delta, initial_state)
-tr_liouv_circ = transpile(liouv_circ, basis_gates=['u', 'cx'], optimization_level=0)  #! Test it
-for _ in range(liouv_steps):
-    circ.compose(tr_liouv_circ, [qr_delta[0], qr_boltzmann[0], *list(qr_energy), *list(qr_sys)], inplace=True)
+gibbs = expm(-beta * hamiltonian.qt.full()) / np.trace(expm(-beta * hamiltonian.qt.full()))
+liouv_step_states = []
 
+#* --- Liouvillian step 0
+random_sys_qubit = np.random.randint(0, num_qubits)
+random_index = np.random.randint(0, len(jump_ops))
+jump = (jump_ops[random_index], random_sys_qubit)
+print(f'Jump with {jump_ops[random_index].data} on qubit {random_sys_qubit}')
+
+liouv_circ = liouv_step_circ(num_qubits, num_energy_bits, delta, hamiltonian, jump, Statevector(initial_state))
+print('Liouv circuit constructed.')
+circ.compose(liouv_circ, [qr_delta[0], qr_boltzmann[0], *list(qr_energy), *list(qr_sys)], inplace=True)
+
+liouv_step_state = Statevector(circ)
+liouv_step_sys_dm = partial_trace(liouv_step_state, list(range(2 + num_energy_bits))).data
+liouv_step_sys_dm /= np.trace(liouv_step_sys_dm)
+
+print(f'/////// RESULT FOR STEP 0///////')
+dist_to_gibbs = qt.tracedist(qt.Qobj(liouv_step_sys_dm), qt.Qobj(gibbs))
+print(f'Distance to Gibbs: {dist_to_gibbs}')
+fid_to_gibbs = qt.fidelity(qt.Qobj(liouv_step_sys_dm), qt.Qobj(gibbs))
+print(f'Fidelity to Gibbs: {fid_to_gibbs}')
+# --- Save state
+liouv_step_states.append(liouv_step_state)
+
+all_zero_ancillas_state = qt.tensor([qt.basis(2, 0)] * (2 + num_energy_bits))
+all_zero_ancillas_state = all_zero_ancillas_state * all_zero_ancillas_state.dag()
+
+full_initial_state = qt.tensor([qt.Qobj(liouv_step_sys_dm), all_zero_ancillas_state]).full()
+# initial_state = initial_state / np.trace(initial_state)  #? Is this correct
+
+# # --- Measure ancillas
+# circ.measure(qr_delta, cr_delta)
+# circ.measure(qr_energy, cr_energy)
+# circ.measure(qr_boltzmann, cr_boltzmann)
+
+for i in tqdm.tqdm(range(liouv_steps - 1)):
+    t0 = time()
+    print(f'Liouv step {i + 2}/{liouv_steps}')
+    
+    random_sys_qubit = np.random.randint(0, num_qubits)
+    random_index = np.random.randint(0, len(jump_ops))
+    jump = (jump_ops[random_index], random_sys_qubit)
+    print(f'Jump with {jump_ops[random_index].data} on qubit {random_sys_qubit}')
+    
+    #! Gauss is missing #TODO: Put it in liouv_step_circ()?
+    liouv_circ = liouv_step_circ(num_qubits, num_energy_bits, delta, hamiltonian, jump, Statevector(initial_state))
+    print('Liouv circuit constructed.')
+    liouv_step_circ_op = Operator(liouv_circ).data
+    
+    liouv_step_state = liouv_step_circ_op @ full_initial_state @ liouv_step_circ_op.conj().T
+    
+    #* --- Analysis
+    liouv_step_sys_dm = partial_trace(liouv_step_state, list(range(2 + num_energy_bits))).data
+    liouv_step_sys_dm /= np.trace(liouv_step_sys_dm)
+    
+    dist_to_gibbs = qt.tracedist(qt.Qobj(liouv_step_sys_dm), qt.Qobj(gibbs))
+    print(f'/////// RESULT FOR STEP {i}///////')
+    print(f'Distance to Gibbs: {dist_to_gibbs}')
+    fid_to_gibbs = qt.fidelity(qt.Qobj(liouv_step_sys_dm), qt.Qobj(gibbs))
+    print(f'Fidelity to Gibbs: {fid_to_gibbs}')
+    # --- Save state
+    liouv_step_states.append(liouv_step_state)
+    
     # --- Measure ancillas
     circ.measure(qr_delta, cr_delta)
     circ.measure(qr_energy, cr_energy)
     circ.measure(qr_boltzmann, cr_boltzmann)
     
+    print('Time for step:', time() - t0)
+    
 # print(circ)
-t1 = time()
 
-# Pickle circuit
-with open(f'data/one_liouv_step_n{num_qubits}k{num_energy_bits}.pkl', 'wb') as f:
-    pickle.dump(circ, f)
+# Pickle states
+with open(f'data/liouv_step_states_n{num_qubits}k{num_energy_bits}t{liouv_time}.pkl', 'wb') as f:
+    pickle.dump(liouv_step_states, f)
+    
 
 print(f'Circuit constructed in {t1 - t0} s.')
 #* --- Results
@@ -113,25 +171,25 @@ bithandler.measured_counts = counts
 energy_counts = bithandler.get_counts_for_creg(cr_energy)
 phase_bits = list(energy_counts.keys())[0] # take the most often obtaned result
 phase_bits_shots = energy_counts[phase_bits]
+
 # Main bitstring result
 # signed binary to decimal:
 if phase_bits[0] == '1':
-    phase = (int(phase_bits[1:], 2) - 2**(num_energy_bits - 1)) / 2**num_energy_bits  # exp(i 2pi phase)
+    phase = (int(phase_bits[1:], 2) - 2**(num_energy_bits - 1))  # exp(i 2pi phase)
 else:
-    phase = int(phase_bits[1:], 2) / 2**num_energy_bits
-
+    phase = int(phase_bits[1:], 2)
 # Combine phases
 combined_phase = 0.
 for i in range(len(energy_counts.keys())):
     if list(energy_counts.keys())[i][0] == '1':
-        phase_part = (int(list(energy_counts.keys())[i][1:], 2) - 2**(num_energy_bits - 1)) / 2**num_energy_bits
+        phase_part = (int(list(energy_counts.keys())[i][1:], 2) - 2**(num_energy_bits - 1)) 
     else:
-        phase_part = int(list(energy_counts.keys())[i][1:], 2) / 2**num_energy_bits
+        phase_part = int(list(energy_counts.keys())[i][1:], 2)
         
     combined_phase += phase_part * list(energy_counts.values())[i] / shots
     
-estimated_energy = phase / T  # exp(i 2pi phase) = exp(i 2pi E T)
-estimated_combined_energy = combined_phase / T
+estimated_energy = phase / (T * 2**num_energy_bits)  # exp(i 2pi phase) = exp(i 2pi E T)
+estimated_combined_energy = combined_phase / (T * 2**num_energy_bits)
 
 print(f'Estimated energy: {estimated_energy}')  # I guess it peaks at the two most probable eigenstates 
                                                 # and it will give either one of them and
