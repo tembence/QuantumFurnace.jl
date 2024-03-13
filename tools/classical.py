@@ -219,7 +219,7 @@ def rescaling_and_shift_factors(hamiltonian: qt.Qobj, eps: float = 0,
 
 # ----------------------------------------------- Energy related functions ----------------------------------------------- #
 def smallest_bohr_freq(hamiltonian_matrix) -> float:
-    """Get the smallest Bohr frequency \omega_0 for a given Hamiltonian.
+    """Get the smallest Bohr frequency $\omega_0$ for a given Hamiltonian.
     """
     eigvals = np.linalg.eigvalsh(hamiltonian_matrix)
     return np.min([eigvals[j] - eigvals[i] for i, j in combinations(range(len(eigvals)), 2)])
