@@ -1,6 +1,6 @@
 import numpy as np
 import qutip as qt
-from qiskit import QuantumCircuit, QuantumRegister, ClassicalRegister, transpile, Aer
+from qiskit import QuantumCircuit, QuantumRegister, ClassicalRegister, transpile
 from qiskit_aer import StatevectorSimulator
 from qiskit.quantum_info.operators import Operator, Pauli
 from qiskit.quantum_info import Statevector, random_statevector, partial_trace
