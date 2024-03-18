@@ -8,13 +8,13 @@ from time import time
 from scipy.linalg import expm
 
 # ----------------------------------------------- Matrix related functions ----------------------------------------------- #
-class HamHam:  #TODO: Write a qiskit trotter circuit generator for an input qt.Qobj Hamiltonian
+class HamHam: #! Changed it to just EV no ES, will lead to errors in all main() files
     def __init__(self, hamiltonian_qt: qt.Qobj, shift: float, rescaling_factor: float, 
                  rescaled_coeffs: list[float] = None):
         self.qt = hamiltonian_qt
         self.shift: float = shift
         self.rescaling_factor: float = rescaling_factor
-        self.spectrum, self.eigenstates = np.linalg.eigh(self.qt.full())
+        self.spectrum = np.linalg.eigvalsh(self.qt.full())
         self.rescaled_coeffs = rescaled_coeffs
         self.trotter_step_circ: QuantumCircuit = None
         self.inverse_trotter_step_circ: QuantumCircuit = None
@@ -40,11 +40,17 @@ def find_ideal_heisenberg(num_qubits: int, bohr_bound: float, eps: float,
     Z = qt.sigmaz()
 
     # Find ideal spectrum
-    coeff_lower_bound = 0
-    coeff_xx = np.arange(1, coeff_lower_bound, -0.1)
-    coeff_yy = np.arange(1, coeff_lower_bound, -0.1)
-    coeff_zz = np.arange(1, coeff_lower_bound, -0.1)
-    coeff_z = np.arange(1, coeff_lower_bound, -0.1)
+    coeff_lower_bound = 0.1
+    coeff_upper_bound = 1
+    num_points = 100  # Number of random points in each dimension
+
+    # Generate random values for each dimension
+    coeff_xx = np.random.uniform(coeff_lower_bound, coeff_upper_bound, num_points)
+    coeff_yy = np.random.uniform(coeff_lower_bound, coeff_upper_bound, num_points)
+    coeff_zz = np.random.uniform(coeff_lower_bound, coeff_upper_bound, num_points)
+    coeff_z = np.random.uniform(coeff_lower_bound, coeff_upper_bound, num_points)
+
+    # Create meshgrid
     coeff_mesh = np.array(np.meshgrid(coeff_xx, coeff_yy, coeff_zz, coeff_z)).T.reshape(-1, 4)
     
     found_ideal_spectrum = False
