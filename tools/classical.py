@@ -9,17 +9,19 @@ from scipy.linalg import expm
 
 # ----------------------------------------------- Matrix related functions ----------------------------------------------- #
 class HamHam: #! Changed it to just EV no ES, will lead to errors in all main() files
-    def __init__(self, hamiltonian_qt: qt.Qobj, shift: float, rescaling_factor: float, 
-                 rescaled_coeffs: list[float] = None):
+    def __init__(self, hamiltonian_qt: qt.Qobj, shift: float, rescaling_factor: float, spectrum: list[float],
+                 eigvecs: list[np.ndarray], rescaled_coeffs: list[float] = None):
+        
         self.qt = hamiltonian_qt
         self.shift: float = shift
         self.rescaling_factor: float = rescaling_factor
-        self.spectrum = np.linalg.eigvalsh(self.qt.full())
+        self.spectrum = spectrum
+        self.eigvecs = eigvecs
         self.rescaled_coeffs = rescaled_coeffs
         self.trotter_step_circ: QuantumCircuit = None
         self.inverse_trotter_step_circ: QuantumCircuit = None
 
-def find_ideal_heisenberg(num_qubits: int, bohr_bound: float, eps: float,
+def find_ideal_heisenberg(num_qubits: int, bohr_bound: float, eps: float, fix_coeffs: list[float] = None,
                           signed: bool = True, for_oft: bool = True) -> HamHam:
     """Find a Heisenberg Hamiltonian with ideal spectrum for QPE, by which we mean
     that the spectrum is not degenerate and the Bohr frequencies are not shorter than the `bohr_bound`.
@@ -34,24 +36,29 @@ def find_ideal_heisenberg(num_qubits: int, bohr_bound: float, eps: float,
     
     if for_oft == True and signed == True:
         raise ValueError("For OFT we want unsigned spectrum")
+    if fix_coeffs is not None and (len(fix_coeffs) != 4):
+        raise ValueError("Fix coefficients must be a list of 4 elements.")
     
     X = qt.sigmax()
     Y = qt.sigmay()
     Z = qt.sigmaz()
 
-    # Find ideal spectrum
-    coeff_lower_bound = 0.1
-    coeff_upper_bound = 1
-    num_points = 100  # Number of random points in each dimension
+    if fix_coeffs is None:
+        # Find ideal spectrum
+        coeff_lower_bound = 0.1
+        coeff_upper_bound = 1
+        num_points = 100  # Number of random points in each dimension
 
-    # Generate random values for each dimension
-    coeff_xx = np.random.uniform(coeff_lower_bound, coeff_upper_bound, num_points)
-    coeff_yy = np.random.uniform(coeff_lower_bound, coeff_upper_bound, num_points)
-    coeff_zz = np.random.uniform(coeff_lower_bound, coeff_upper_bound, num_points)
-    coeff_z = np.random.uniform(coeff_lower_bound, coeff_upper_bound, num_points)
+        # Generate random values for each dimension
+        coeff_xx = np.round(np.random.uniform(coeff_lower_bound, coeff_upper_bound, num_points), 3)
+        coeff_yy = np.round(np.random.uniform(coeff_lower_bound, coeff_upper_bound, num_points), 3)
+        coeff_zz = np.round(np.random.uniform(coeff_lower_bound, coeff_upper_bound, num_points), 3)
+        coeff_z = np.round(np.random.uniform(coeff_lower_bound, coeff_upper_bound, num_points), 3)
 
-    # Create meshgrid
-    coeff_mesh = np.array(np.meshgrid(coeff_xx, coeff_yy, coeff_zz, coeff_z)).T.reshape(-1, 4)
+        # Create meshgrid
+        coeff_mesh = np.array(np.meshgrid(coeff_xx, coeff_yy, coeff_zz, coeff_z)).T.reshape(-1, 4)
+    else:
+        coeff_mesh = [fix_coeffs]
     
     found_ideal_spectrum = False
     for coeffs in coeff_mesh:
@@ -60,6 +67,11 @@ def find_ideal_heisenberg(num_qubits: int, bohr_bound: float, eps: float,
         
         rescaled_hamiltonian_qt = hamiltonian_qt / rescaling_factor + shift * qt.qeye(hamiltonian_qt.shape[0])
         rescaled_spectrum = np.linalg.eigvalsh(rescaled_hamiltonian_qt)
+        
+        if bohr_bound == 0:   #TODO: If Bohr = 0, then just do one eigh, not two...
+            found_ideal_spectrum = True
+            coeffs_ideal_spec = coeffs
+            break
         
         # Accept coeff only if all bohr freuquencies are not shorter than the bohr_bound
         for eigval_i in rescaled_spectrum:
@@ -81,10 +93,12 @@ def find_ideal_heisenberg(num_qubits: int, bohr_bound: float, eps: float,
     rescaled_coeffs = coeffs_ideal_spec / rescaling_factor
     print('Rescaled coefficients: ', rescaled_coeffs)
     # print(f'Rescaling factor {rescaling_factor}, shift {shift}')
-
+    
+    _, eigvecs = np.linalg.eigh(hamiltonian_qt)
+    
     #* Hamiltonian
     hamiltonian = HamHam(rescaled_hamiltonian_qt, shift=shift, rescaling_factor=rescaling_factor, 
-                        rescaled_coeffs=rescaled_coeffs)
+                        spectrum=rescaled_spectrum, eigvecs=eigvecs , rescaled_coeffs=rescaled_coeffs)
     
     return hamiltonian
 
@@ -225,7 +239,7 @@ def rescaling_and_shift_factors(hamiltonian: qt.Qobj, eps: float = 0,
 
 # ----------------------------------------------- Energy related functions ----------------------------------------------- #
 def smallest_bohr_freq(hamiltonian_matrix) -> float:
-    """Get the smallest Bohr frequency $\omega_0$ for a given Hamiltonian.
+    """Get the smallest Bohr frequency omega_0 for a given Hamiltonian.
     """
     eigvals = np.linalg.eigvalsh(hamiltonian_matrix)
     return np.min([eigvals[j] - eigvals[i] for i, j in combinations(range(len(eigvals)), 2)])
