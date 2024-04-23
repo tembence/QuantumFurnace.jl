@@ -112,7 +112,7 @@ def liouvillian_step(initial_dm: np.ndarray, beta: float, delta: float, jump_op:
     N_labels_neg = np.arange(- N / 2, 0, dtype=int)
     N_labels = np.concatenate((N_labels, N_labels_neg))
     energy_labels = 2 * np.pi * N_labels / N
-    energy_diff_bounds = [-0.45, 0.45] #! Kinda confused about this 
+    energy_diff_bounds = [-0.45, 0.45]
     truncated_phase_indices = np.where((energy_labels >= energy_diff_bounds[0]) & (energy_labels <= energy_diff_bounds[1]))[0]
     
     boltzmann = lambda beta, energy: np.min([1, np.exp(-beta * energy)]) #! change it to new paper's way
