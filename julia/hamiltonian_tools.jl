@@ -23,7 +23,6 @@ function find_ideal_heisenberg(num_qubits::Int64; batch_size::Int64 = 100)
 
 end
 
-
 function find_ideal_heisenberg(num_qubits::Int64,
     fixed_base_coeffs::Vector{Float64}; batch_size::Int64 = 100)
     #? Could add bohr_bound option, to optimize until it gets above the bohr bound
@@ -32,7 +31,7 @@ function find_ideal_heisenberg(num_qubits::Int64,
     sigmay::Matrix{ComplexF64} = [0.0 -im; im 0.0]
     sigmaz::Matrix{ComplexF64} = [1 0; 0 -1]
     terms = [[sigmax, sigmax], [sigmay, sigmay], [sigmaz, sigmaz]]
-    symbreak_term = [sigmax]
+    symbreak_term = [sigmaz]
 
     base_hamiltonian = construct_base_ham(terms, fixed_base_coeffs, num_qubits)
 
@@ -40,10 +39,11 @@ function find_ideal_heisenberg(num_qubits::Int64,
     seeds = rand(1:batch_size, batch_size)
 
     # Find best config for smallest bohr frequency
-    best_smallest_bohr_freq = 0.
+    best_smallest_bohr_freq = -1
     # initialize undef HamHam object
     hamiltonian = HamHam(zeros(0, 0), zeros(0, 0), zeros(0), zeros(0), zeros(0), zeros(0, 0), 0.0, 0.0, 0.0)
 
+    p = Progress(length(seeds))
     @showprogress dt=1 desc="Finding ideal hamiltonian..." for seed in seeds
         Random.seed!(seed)
         # symbreak_coeffs = 2.0 .* rand(num_qubits) .- 1.0
@@ -62,7 +62,7 @@ function find_ideal_heisenberg(num_qubits::Int64,
         rescaled_symbreak_coeffs = symbreak_coeffs / rescaling_factor
         # Check all differences between consecutive eigenvalues
         smallest_bohr_freq = minimum(diff(rescaled_eigvals))
-        if smallest_bohr_freq > best_smallest_bohr_freq #! Doesn't deifne bohr_freqs yet
+        if smallest_bohr_freq > best_smallest_bohr_freq
             best_smallest_bohr_freq = smallest_bohr_freq
             hamiltonian.data = rescaled_hamiltonian
             hamiltonian.base_coeffs = rescaled_base_coeffs
@@ -72,13 +72,14 @@ function find_ideal_heisenberg(num_qubits::Int64,
             hamiltonian.w0 = smallest_bohr_freq
             hamiltonian.shift = shift
             hamiltonian.rescaling_factor = rescaling_factor
-            @printf("\nSmallest bohr frequency: %f\n", hamiltonian.w0)
+
+            next!(p, showvalues = [(:w0, hamiltonian.w0)])
         end
         symbroken_ham = nothing
     end
+    println("\nBest Bohr frequency:")
+    println(hamiltonian.w0)
 
-    # println("Spectrum is:")
-    # println(hamiltonian.eigvals)
     return hamiltonian
 end
 
@@ -166,15 +167,15 @@ function rescaling_and_shift_factors(hamiltonian::Hermitian{ComplexF64, Matrix{C
 
 end
 
-# --- Testing
-num_qubits = 4
+#* --- Testing
+# num_qubits = 11
 
-sigmax::Matrix{ComplexF64} = [0 1; 1 0]
-sigmay::Matrix{ComplexF64} = [0.0 -im; im 0.0]
-sigmaz::Matrix{ComplexF64} = [1 0; 0 -1]
-terms = [[sigmax, sigmax], [sigmay, sigmay], [sigmaz, sigmaz]]
+# sigmax::Matrix{ComplexF64} = [0 1; 1 0]
+# sigmay::Matrix{ComplexF64} = [0.0 -im; im 0.0]
+# sigmaz::Matrix{ComplexF64} = [1 0; 0 -1]
+# terms = [[sigmax, sigmax], [sigmay, sigmay], [sigmaz, sigmaz]]
 
-coeffs = [1.0, 1.0, 1.0]
+# coeffs = [1.0, 1.0, 1.0]
 
 # hamiltonian = construct_base_ham(terms, coeffs, num_qubits)
 
@@ -183,14 +184,14 @@ coeffs = [1.0, 1.0, 1.0]
 # symbroken_ham = hamiltonian + symbreak_ham
 
 # rescaling_factor, shift = rescaling_and_shift_factors(symbroken_ham)
-
-# ideal_ham::HamHam = find_ideal_heisenberg(num_qubits, coeffs, batch_size=100)
+# @time begin
+# ideal_ham::HamHam = find_ideal_heisenberg(num_qubits, coeffs, batch_size=1)
+# end
 # @save "/Users/bence/code/liouvillian_metro/julia/data/hamiltonian_n11.jld" ideal_ham
-# display(ideal_ham.w0)
 
 # load jld
-ideal_ham = load("/Users/bence/code/liouvillian_metro/julia/data/hamiltonian_n10.jld")["ideal_ham"]
-display(ideal_ham.w0)
+# ideal_ham = load("/Users/bence/code/liouvillian_metro/julia/data/hamiltonian_n11.jld")["ideal_ham"]
+# display(ideal_ham.w0)
 
-ideal_r = ceil(Int64, log2(1 / ideal_ham.w0))
-@printf("Ideal r: %d\n", ideal_r)
+# ideal_r = ceil(Int64, log2(1 / ideal_ham.w0))
+# @printf("Ideal r: %d\n", ideal_r)

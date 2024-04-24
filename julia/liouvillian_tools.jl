@@ -10,6 +10,7 @@ include("hamiltonian_tools.jl")
 function liouvillian_step(jump::JumpOp, hamiltonian::HamHam, initial_dm::Matrix{ComplexF64}, 
     delta::Float64, sigma::Float64, beta::Float64)
 
+    ideal_num_estimating_bits = ceil(Int64, log2(1 / hamiltonian.w0))
 
 
 end
@@ -67,6 +68,55 @@ function liouvillian_step(jump::JumpOp, hamiltonian::HamHam, initial_dm::Matrix{
     return evolved_dm / tr(evolved_dm)
 end
 
+function get_energy_labels(N::Int64, w0_by_hand::Float64)
+
+    N_labels = [0:1:Int(N/2)-1; -Int(N/2):1:-1]
+    energy_labels = w0_by_hand * N_labels
+    energy_bounds = [-0.45 0.45]
+    # Truncate all energies that our out of bound
+    energy_labels = energy_labels[energy_labels .> energy_bounds[1]]
+    energy_labels = energy_labels[energy_labels .< energy_bounds[2]]
+
+    #TODO: gaussian truncate possibly here
+
+    return energy_labels
+end
+
+function get_energy_labels(w0::Float64)
+    """Finds ideal number of energy labels based on w0"""
+    ideal_N = 2^ceil(Int64, log2(1 / w0))
+    N_labels = [0:1:Int(ideal_N/2)-1; -Int(ideal_N/2):1:-1]
+    energy_labels = w0 * N_labels
+    energy_bounds = [-0.45 0.45]
+    # Truncate all energies that our out of bound
+    energy_labels = energy_labels[energy_labels .> energy_bounds[1]]
+    energy_labels = energy_labels[energy_labels .< energy_bounds[2]]
+
+    #TODO: gaussian truncate possibly here
+
+    return energy_labels
+end
+
+function liouvillian_delta_trajectory(jump::JumpOp, hamiltonian::HamHam, initial_dm::Matrix{ComplexF64},
+     delta::Float64, sigma::Float64, beta::Float64)
+    """Evolves only by δ * L[rho_0]"""
+
+    # boltzmann_factors = exp.(-beta * energy_labels)
+    boltzmann_factor(w) = exp(-beta * w)
+    evolved_dm = zeros(ComplexF64, size(initial_dm))  # The difference compared to liouvillian_step
+
+    for w in energy_labels
+        oft_matrix = entry_wise_oft(jump, w, hamiltonian, sigma, beta)
+        oft_matrix_dag = oft_matrix'
+        
+        evolved_dm += delta * boltzmann_factor(w)*
+                    (oft_matrix * initial_dm * oft_matrix_dag
+                     - 0.5 * (oft_matrix_dag * oft_matrix * initial_dm
+                     + initial_dm * oft_matrix_dag * oft_matrix))
+    end
+    return evolved_dm / tr(evolved_dm)
+end
+
 function gaussian_truncate_fourier_labels(unique_freqs::Vector{Float64}, energy_labels::Vector{Float64}, 
     sigma::Float64, beta::Float64)
 
@@ -88,45 +138,45 @@ end
 
 
 #* ---------------------- TESTING ---------------------- *#
-#! 68s (q, r) = (8, 16)
-num_qubits = 8
-num_energy_bits = 16
-N = 2^num_energy_bits
-oft_precision = ceil(Int, abs(log10(N^(-1))))
-delta = 0.01
-sigma = 5.
-bohr_bound = 0.
-beta = 1.
-eig_index = 2
-jump_site_index = 1
+# #! 68s (q, r) = (8, 16)
+# num_qubits = 8
+# num_energy_bits = 16
+# N = 2^num_energy_bits
+# oft_precision = ceil(Int, abs(log10(N^(-1))))
+# delta = 0.01
+# sigma = 5.
+# bohr_bound = 0.
+# beta = 1.
+# eig_index = 2
+# jump_site_index = 1
 
-#* Hamiltonian
-coeffs = fill(1.0, 3)
-println("Finding ideal Heisenberg Hamiltonian...")
-@time hamiltonian = find_ideal_heisenberg(num_qubits, coeffs, batch_size=1)
-initial_state = hamiltonian.eigvecs[:, eig_index]
-initial_dm = initial_state * initial_state'
-hamiltonian.bohr_freqs = round.(hamiltonian.eigvals .- transpose(hamiltonian.eigvals), digits=oft_precision+3)
+# #* Hamiltonian
+# coeffs = fill(1.0, 3)
+# println("Finding ideal Heisenberg Hamiltonian...")
+# @time hamiltonian = find_ideal_heisenberg(num_qubits, coeffs, batch_size=1)
+# initial_state = hamiltonian.eigvecs[:, eig_index]
+# initial_dm = initial_state * initial_state'
+# hamiltonian.bohr_freqs = round.(hamiltonian.eigvals .- transpose(hamiltonian.eigvals), digits=oft_precision+3)
 
-#* Jump operators
-sigmax::Matrix{ComplexF64} = [0 1; 1 0]
-jump_op = Matrix(pad_term([sigmax], num_qubits, jump_site_index))
-jump_op_in_eigenbasis = hamiltonian.eigvecs' * jump_op * hamiltonian.eigvecs
-jump = JumpOp(jump_op,
-        jump_op_in_eigenbasis,
-        Dict{Float64, SparseMatrixCSC{ComplexF64, Int64}}(), 
-        zeros(0))
+# #* Jump operators
+# sigmax::Matrix{ComplexF64} = [0 1; 1 0]
+# jump_op = Matrix(pad_term([sigmax], num_qubits, jump_site_index))
+# jump_op_in_eigenbasis = hamiltonian.eigvecs' * jump_op * hamiltonian.eigvecs
+# jump = JumpOp(jump_op,
+#         jump_op_in_eigenbasis,
+#         Dict{Float64, SparseMatrixCSC{ComplexF64, Int64}}(), 
+#         zeros(0))
 
-find_unique_jump_freqs(jump, hamiltonian)
+# find_unique_jump_freqs(jump, hamiltonian)
     
-phase = -0.44 * N / (2 * pi)
-energy = 2 * pi * phase / N
-@printf("\nEnergy: %f\n", energy)
+# phase = -0.44 * N / (2 * pi)
+# energy = 2 * pi * phase / N
+# @printf("\nEnergy: %f\n", energy)
 
-# @printf("Number of unique freqs: %d\n", length(jump.unique_freqs))
-# truncated_energies = gaussian_truncate_fourier_labels(jump.unique_freqs, energy_labels, sigma, beta)
+# # @printf("Number of unique freqs: %d\n", length(jump.unique_freqs))
+# # truncated_energies = gaussian_truncate_fourier_labels(jump.unique_freqs, energy_labels, sigma, beta)
 
-#* w0 by hand
-w0 = 2 * pi / N
-@time evolved_dm = liouvillian_step(jump, hamiltonian, initial_dm, N, w0, delta, sigma, beta)
+# #* w0 by hand
+# w0 = 2 * pi / N
+# @time evolved_dm = liouvillian_step(jump, hamiltonian, initial_dm, N, w0, delta, sigma, beta)
 
