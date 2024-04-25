@@ -88,11 +88,12 @@ function entry_wise_oft(jump::JumpOp, energy::Float64, hamiltonian::HamHam, sigm
     return jump.in_eigenbasis .* exp.(-(energy .- hamiltonian.bohr_freqs).^2 * sigma^2)
 end
 
-function entry_wise_oft(jump::Tuple{JumpOp}, energies::Vector{Float64}, hamiltonian::Tuple{HamHam}, 
-    sigma::Float64, beta::Float64)
+# Unfinished parallel way, but for that would have to store a lot of matrices
+# function entry_wise_oft(jump::Tuple{JumpOp}, energies::Vector{Float64}, hamiltonian::Tuple{HamHam}, 
+#     sigma::Float64, beta::Float64)
 
-    return jump[1].in_eigenbasis .* exp.(-(energies .- hamiltonian[1].bohr_freqs).^2 * sigma^2)
-end
+#     return jump[1].in_eigenbasis .* exp.(-(energies .- hamiltonian[1].bohr_freqs).^2 * sigma^2)
+# end
 
 #* ---------- Test ----------
 
