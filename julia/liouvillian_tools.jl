@@ -8,16 +8,40 @@ using QuantumOptics
 include("jump_op_tools.jl")
 include("hamiltonian_tools.jl")
 
-function liouvillian_step(jump::JumpOp, hamiltonian::HamHam, initial_dm::Matrix{ComplexF64}, 
-    delta::Float64, sigma::Float64, beta::Float64)
 
-    ideal_num_estimating_bits = ceil(Int64, log2(1 / hamiltonian.w0))
+function liouvillian_delta_trajectory(jump::JumpOp, hamiltonian::HamHam, energy_labels::Vector{Float64},
+    initial_dm::Matrix{ComplexF64}, delta::Float64, sigma::Float64, beta::Float64)
+   """Computes δ * L[rho_0]"""
+
+   gaussian(energy) = exp(-sigma^2 * energy^2)
+   gaussian_normalization = sum(gaussian.(energy_labels).^2)
+   boltzmann_factor(energy) = min(1, exp(-beta * energy))
+
+   evolved_dm = zeros(ComplexF64, size(initial_dm))  # The difference compared to liouvillian_step
+   @printf("Length of energy labels: %d\n", length(energy_labels))
+   for w in energy_labels
+       oft_matrix = entry_wise_oft(jump, w, hamiltonian, sigma, beta)
+       oft_matrix_dag = oft_matrix'
+       
+       evolved_dm += delta * boltzmann_factor(w)*
+                   (oft_matrix * initial_dm * oft_matrix_dag
+                    - 0.5 * oft_matrix_dag * oft_matrix * initial_dm
+                    - 0.5 * initial_dm * oft_matrix_dag * oft_matrix)
+   end
+   evolved_dm = evolved_dm / (length(energy_labels) * gaussian_normalization)
+   return evolved_dm / tr(evolved_dm)
 end
 
 function exact_liouvillian_step(jump::JumpOp, hamiltonian::HamHam, initial_dm::Matrix{ComplexF64}, 
     energy_labels::Vector{Float64}, delta::Float64, sigma::Float64, beta::Float64)
     b = GenericBasis(size(hamiltonian.data, 1))
     #TODO: Finish this, and careful with computational and eigenbasis
+end
+
+function liouvillian_step(jump::JumpOp, hamiltonian::HamHam, initial_dm::Matrix{ComplexF64}, 
+    delta::Float64, sigma::Float64, beta::Float64)
+
+    ideal_num_estimating_bits = ceil(Int64, log2(1 / hamiltonian.w0))
 end
 
 #TODO: Probably a depricable function
@@ -87,36 +111,14 @@ function get_energy_labels(w0::Float64)
     N_labels = [0:1:Int(ideal_N/2)-1; -Int(ideal_N/2):1:-1]
     energy_labels = w0 * N_labels
     energy_bounds = [-0.45 0.45]
-    # Truncate all energies that our out of bound
-    energy_labels = energy_labels[energy_labels .> energy_bounds[1]]
-    energy_labels = energy_labels[energy_labels .< energy_bounds[2]]
+
+    # Truncate all energies that our out of bound  #! Uncomment later
+    # energy_labels = energy_labels[energy_labels .> energy_bounds[1]]
+    # energy_labels = energy_labels[energy_labels .< energy_bounds[2]]
 
     #TODO: gaussian truncate possibly here
 
     return energy_labels
-end
-
-function liouvillian_delta_trajectory(jump::JumpOp, hamiltonian::HamHam, energy_labels::Vector{Float64},
-     initial_dm::Matrix{ComplexF64}, delta::Float64, sigma::Float64, beta::Float64)
-    """Computes δ * L[rho_0]"""
-
-    gaussian(energy) = exp(-sigma^2 * energy^2)
-    gaussian_normalization = sum(gaussian.(energy_labels))
-    boltzmann_factor(energy) = min(1, exp(-beta * energy))
-
-    evolved_dm = zeros(ComplexF64, size(initial_dm))  # The difference compared to liouvillian_step
-    @printf("Length of energy labels: %d\n", length(energy_labels))
-    for w in energy_labels
-        oft_matrix = entry_wise_oft(jump, w, hamiltonian, sigma, beta)
-        oft_matrix_dag = oft_matrix'
-        
-        evolved_dm += delta * boltzmann_factor(w)*
-                    (oft_matrix * initial_dm * oft_matrix_dag
-                     - 0.5 * oft_matrix_dag * oft_matrix * initial_dm
-                     - 0.5 * initial_dm * oft_matrix_dag * oft_matrix)
-    end
-    evolved_dm = evolved_dm / (length(energy_labels) * gaussian_normalization)
-    return evolved_dm / tr(evolved_dm)
 end
 
 function gaussian_truncate_fourier_labels(unique_freqs::Vector{Float64}, energy_labels::Vector{Float64}, 

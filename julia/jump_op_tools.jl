@@ -5,6 +5,8 @@ using Printf
 using ProgressMeter
 using Distributed
 using TensorOperations
+using JLD
+
 include("hamiltonian_tools.jl")
 
 
@@ -13,6 +15,40 @@ mutable struct JumpOp
     in_eigenbasis::Matrix{ComplexF64}
     bohr_decomp::Dict{Float64, SparseMatrixCSC{ComplexF64, Int64}}
     unique_freqs::Vector{Float64}
+end
+
+function entry_wise_oft(jump::JumpOp, energy::Float64, hamiltonian::HamHam, sigma::Float64, beta::Float64)
+    """Uses the already Fourier transformed Gaussian filter fn."""
+    # The for loop version is the same but a bit slower than broadcasting
+    # for j in 1:ncols, i in 1:nrows
+    #     jump_oft[i, j] = jump_op_in_eigenbasis[i, j] * exp(-(energy - bohr_freqs[i, j])^2 * sigma^2)
+    # end
+    
+    return jump.in_eigenbasis .* exp.(-(energy .- hamiltonian.bohr_freqs).^2 * sigma^2)
+end
+
+function explicit_oft(jump::JumpOp, hamiltonian::HamHam, energy::Float64, time_labels::Vector{Float64},
+    sigma::Float64, beta::Float64)
+    """Fourier transforms by summing over the time labels. Both time_labels and the energy should be in t0, w0 units"""
+
+    # # Check if t_0 and w_0 satisfy the Fourier condition
+    # if t0 * hamiltonian.w0 != 2 * pi / length(time_labels)
+    #     error("t0 * w0 != 2 * pi / N")
+    # end
+
+    # time_gaussian_factors = exp.(- time_labels.^2 / (4 * sigma^2))
+    # normalized_time_gaussian_factors = time_gaussian_factors / sqrt(sum(time_gaussian_factors.^2))
+    # fourier_phase_factors = exp.(-1im * energy * time_labels)
+    # time_evo_phase_for_all_times = exp.(1im * transpose(hamiltonian.eigvals) .* time_labels)
+
+    # # Sum over all time labels, t
+    # @time @tensor begin
+    #     oft_op[j, n] := normalized_time_gaussian_factors[t] * fourier_phase_factors[t] *
+    #                 hamiltonian.eigvecs[j, a] * time_evo_phase_for_all_times[t, a] * adjoint(hamiltonian.eigvecs)[a, k] *
+    #                 jump.data[k, m] *
+    #                 view(hamiltonian.eigvecs)[m, b] * adjoint(view(time_evo_phase_for_all_times))[t, b] * adjoint(view(hamiltonian.eigvecs))[b, n]
+    # end
+    # return oft_op / sqrt(length(time_labels))
 end
 
 function oft(jump::JumpOp, energy::Float64, hamiltonian::HamHam, num_energy_bits::Int64, sigma::Float64, beta::Float64)
@@ -78,16 +114,6 @@ function add_gaussian_weight(freqs::Vector{Float64}, energy::Float64, sigma_t::F
     return exp.(-(energy .- freqs).^2 * sigma_t^2)
 end
 
-function entry_wise_oft(jump::JumpOp, energy::Float64, hamiltonian::HamHam, sigma::Float64, beta::Float64)
-
-    # The for loop version is the same but a bit slower than broadcasting
-    # for j in 1:ncols, i in 1:nrows
-    #     jump_oft[i, j] = jump_op_in_eigenbasis[i, j] * exp(-(energy - bohr_freqs[i, j])^2 * sigma^2)
-    # end
-    
-    return jump.in_eigenbasis .* exp.(-(energy .- hamiltonian.bohr_freqs).^2 * sigma^2)
-end
-
 # Unfinished parallel way, but for that would have to store a lot of matrices
 # function entry_wise_oft(jump::Tuple{JumpOp}, energies::Vector{Float64}, hamiltonian::Tuple{HamHam}, 
 #     sigma::Float64, beta::Float64)
@@ -98,50 +124,77 @@ end
 #* ---------- Test ----------
 
 #* Parameters
+num_qubits = 4
+delta = 0.01
+sigma = 5.
+beta = 1.
+eig_index = 8
+jump_site_index = 1
 
-# @printf("Number of threads: %d\n", Threads.nthreads())
-# num_qubits = 4
-# num_energy_bits = 6
-# N = 2^num_energy_bits
-# oft_precision = ceil(Int, abs(log10(N^(-1))))
-# delta = 0.01
-# sigma = 5.
-# bohr_bound = 0.
-# beta = 1.
-# eig_index = 2
-# jump_site_index = 1
+#* Hamiltonian
+hamiltonian = load("/Users/bence/code/liouvillian_metro/julia/data/hamiltonian_n4.jld")["ideal_ham"]
+initial_state = hamiltonian.eigvecs[:, eig_index]
 
-# #* Hamiltonian
-# coeffs = fill(1.0, 3)
-# hamiltonian = find_ideal_heisenberg(num_qubits, coeffs, batch_size=1)
-# initial_state = hamiltonian.eigvecs[:, eig_index]
-# hamiltonian.bohr_freqs = round.(hamiltonian.eigvals .- transpose(hamiltonian.eigvals), digits=oft_precision+3)
+#* Jump operators
+sigmax::Matrix{ComplexF64} = [0 1; 1 0]
+jump_op = Matrix(pad_term([sigmax], num_qubits, jump_site_index))
+jump_op_in_eigenbasis = hamiltonian.eigvecs' * jump_op * hamiltonian.eigvecs
+jump = JumpOp(jump_op,
+        jump_op_in_eigenbasis,
+        Dict{Float64, SparseMatrixCSC{ComplexF64, Int64}}(), 
+        zeros(0))
 
-# #* Jump operators
-# sigmax::Matrix{ComplexF64} = [0 1; 1 0]
-# jump_op = Matrix(pad_term([sigmax], num_qubits, jump_site_index))
-# jump_op_in_eigenbasis = hamiltonian.eigvecs' * jump_op * hamiltonian.eigvecs
+# For full Liouvillian dynamics:
+# all_x_jump_ops = []
+# for q in 1:num_qubits
+#     padded_x = pad_term([jump_op], q, num_qubits)
+#     push!(all_x_jump_ops, padded_x)
+# end
 
-# # For full Liouvillian dynamics:
-# # all_x_jump_ops = []
-# # for q in 1:num_qubits
-# #     padded_x = pad_term([jump_op], q, num_qubits)
-# #     push!(all_x_jump_ops, padded_x)
-# # end
+#* Fourier labels
+num_energy_bits = ceil(Int64, log2(1 / hamiltonian.w0))
+N = 2^num_energy_bits
+t0 = 2 * pi / (N * hamiltonian.w0)
+N_labels = [0:1:Int(N/2)-1; -Int(N/2):1:-1]
 
-# #* Fourier labels
-# N_labels = [0:1:Int(N/2)-1; -Int(N/2):1:-1]
-# time_labels = N_labels
-# energy_labels = 2 * pi * N_labels / N
+time_labels = t0 * N_labels
+energy_labels = hamiltonian.w0 * N_labels
 
-# phase = -0.44 * N / (2 * pi)
-# energy = 2 * pi * phase / N
-# @printf("\nEnergy: %f\n", energy)
+# This has always the same form independent of w0, since in the Fourier phase we always have w0t0 = 2pi / N
+phase = -0.44 * N / (2 * pi)
+energy = 2 * pi * phase / N
+@printf("\nEnergy: %f\n", energy)
 
-# jump = JumpOp(jump_op,
-#         jump_op_in_eigenbasis,
-#         Dict{Float64, SparseMatrixCSC{ComplexF64, Int64}}(), 
-#         zeros(0))
+oft_precision = ceil(Int, abs(log10(N^(-1))))
+hamiltonian.bohr_freqs = round.(hamiltonian.eigvals .- transpose(hamiltonian.eigvals), digits=oft_precision+3)
+
+#* -------------------------------------------- *#
+if t0 * hamiltonian.w0 != 2 * pi / length(time_labels)
+    error("t0 * w0 != 2 * pi / N")
+end
+
+time_gaussian_factors = exp.(- time_labels.^2 / (4 * sigma^2))
+normalized_time_gaussian_factors = time_gaussian_factors / sqrt(sum(time_gaussian_factors.^2))
+fourier_phase_factors = exp.(-1im * energy * time_labels)
+time_evo_phase_for_all_times = exp.(1im * transpose(hamiltonian.eigvals) .* time_labels)
+
+# Sum over all time labels, t
+@time @tensor oft_op[j, n] := normalized_time_gaussian_factors[t] * fourier_phase_factors[t] *
+                hamiltonian.eigvecs[j, a] * time_evo_phase_for_all_times[t, a] * 
+                jump.in_eigenbasis[a, b] * 
+                adjoint(time_evo_phase_for_all_times)[t, b] * adjoint(hamiltonian.eigvecs)[b, n]
+
+
+# @time @tensor begin
+#     oft_op[j, n] := normalized_time_gaussian_factors[t] * fourier_phase_factors[t] *
+#                 hamiltonian.eigvecs[j, a] * time_evo_phase_for_all_times[t, a] * adjoint(hamiltonian.eigvecs)[a, k] *
+#                 jump.data[k, m] *
+#                 view(hamiltonian.eigvecs)[m, b] * adjoint(view(time_evo_phase_for_all_times))[t, b] * adjoint(view(hamiltonian.eigvecs))[b, n]
+# end
+
+oft_op = oft_op / sqrt(length(time_labels))
+
+
 
 # find_unique_jump_freqs(jump, hamiltonian)
 
