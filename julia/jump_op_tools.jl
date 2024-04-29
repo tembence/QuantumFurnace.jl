@@ -31,24 +31,25 @@ function explicit_oft(jump::JumpOp, hamiltonian::HamHam, energy::Float64, time_l
     sigma::Float64, beta::Float64)
     """Fourier transforms by summing over the time labels. Both time_labels and the energy should be in t0, w0 units"""
 
-    # # Check if t_0 and w_0 satisfy the Fourier condition
-    # if t0 * hamiltonian.w0 != 2 * pi / length(time_labels)
-    #     error("t0 * w0 != 2 * pi / N")
-    # end
+    # Check if t_0 and w_0 satisfy the Fourier condition
+    if !isapprox(t0 * hamiltonian.w0, 2 * pi / length(time_labels))
+        error("t0 * w0 != 2 * pi / N")
+    end
 
-    # time_gaussian_factors = exp.(- time_labels.^2 / (4 * sigma^2))
-    # normalized_time_gaussian_factors = time_gaussian_factors / sqrt(sum(time_gaussian_factors.^2))
-    # fourier_phase_factors = exp.(-1im * energy * time_labels)
-    # time_evo_phase_for_all_times = exp.(1im * transpose(hamiltonian.eigvals) .* time_labels)
+    time_gaussian_factors = exp.(- time_labels.^2 / (4 * sigma^2))
+    normalized_time_gaussian_factors = time_gaussian_factors / sqrt(sum(time_gaussian_factors.^2))
+    fourier_phase_factors = exp.(-1im * energy * time_labels) / sqrt(length(time_labels))
+    diag_exponentiate(t) = Diagonal(exp.(1im * hamiltonian.eigvals * t))
 
-    # # Sum over all time labels, t
-    # @time @tensor begin
-    #     oft_op[j, n] := normalized_time_gaussian_factors[t] * fourier_phase_factors[t] *
-    #                 hamiltonian.eigvecs[j, a] * time_evo_phase_for_all_times[t, a] * adjoint(hamiltonian.eigvecs)[a, k] *
-    #                 jump.data[k, m] *
-    #                 view(hamiltonian.eigvecs)[m, b] * adjoint(view(time_evo_phase_for_all_times))[t, b] * adjoint(view(hamiltonian.eigvecs))[b, n]
-    # end
-    # return oft_op / sqrt(length(time_labels))
+    @time begin
+        oft_op = zeros(ComplexF64, size(jump.data))
+        @showprogress for t in 1:length(time_labels)
+            oft_op += fourier_phase_factors[t] * normalized_time_gaussian_factors[t] * 
+            diag_exponentiate(t) * jump.in_eigenbasis * diag_exponentiate(-t)
+        end
+    end
+
+    return oft_op
 end
 
 function oft(jump::JumpOp, energy::Float64, hamiltonian::HamHam, num_energy_bits::Int64, sigma::Float64, beta::Float64)
@@ -124,7 +125,7 @@ end
 #* ---------- Test ----------
 
 #* Parameters
-num_qubits = 4
+num_qubits = 8
 delta = 0.01
 sigma = 5.
 beta = 1.
@@ -132,7 +133,7 @@ eig_index = 8
 jump_site_index = 1
 
 #* Hamiltonian
-hamiltonian = load("/Users/bence/code/liouvillian_metro/julia/data/hamiltonian_n4.jld")["ideal_ham"]
+hamiltonian = load("/Users/bence/code/liouvillian_metro/julia/data/hamiltonian_n8.jld")["ideal_ham"]
 initial_state = hamiltonian.eigvecs[:, eig_index]
 
 #* Jump operators
@@ -153,15 +154,18 @@ jump = JumpOp(jump_op,
 
 #* Fourier labels
 num_energy_bits = ceil(Int64, log2(1 / hamiltonian.w0))
+@printf("Number of qubits: %d\n", num_qubits)
+@printf("Number of energy bits: %d\n", num_energy_bits)
 N = 2^num_energy_bits
 t0 = 2 * pi / (N * hamiltonian.w0)
 N_labels = [0:1:Int(N/2)-1; -Int(N/2):1:-1]
 
 time_labels = t0 * N_labels
 energy_labels = hamiltonian.w0 * N_labels
+normalization_gaussian_energy = sqrt(sum(exp.(- sigma^2 * energy_labels.^2).^2))
 
 # This has always the same form independent of w0, since in the Fourier phase we always have w0t0 = 2pi / N
-phase = -0.44 * N / (2 * pi)
+phase = -0.40 * N / (2 * pi)
 energy = 2 * pi * phase / N
 @printf("\nEnergy: %f\n", energy)
 
@@ -169,20 +173,41 @@ oft_precision = ceil(Int, abs(log10(N^(-1))))
 hamiltonian.bohr_freqs = round.(hamiltonian.eigvals .- transpose(hamiltonian.eigvals), digits=oft_precision+3)
 
 #* -------------------------------------------- *#
-if t0 * hamiltonian.w0 != 2 * pi / length(time_labels)
-    error("t0 * w0 != 2 * pi / N")
-end
+oft_expl = explicit_oft(jump, hamiltonian, energy, time_labels, sigma, beta)
+oft_entry = entry_wise_oft(jump, energy, hamiltonian, sigma, beta) / (normalization_gaussian_energy * sqrt(N))
 
-time_gaussian_factors = exp.(- time_labels.^2 / (4 * sigma^2))
-normalized_time_gaussian_factors = time_gaussian_factors / sqrt(sum(time_gaussian_factors.^2))
-fourier_phase_factors = exp.(-1im * energy * time_labels)
-time_evo_phase_for_all_times = exp.(1im * transpose(hamiltonian.eigvals) .* time_labels)
+@printf("Distance: %f\n", norm(oft_expl - oft_entry))
+
+
+
+
+# if !isapprox(t0 * hamiltonian.w0, 2 * pi / length(time_labels))
+#     error("t0 * w0 != 2 * pi / N")
+# end
+
+# time_gaussian_factors = exp.(- time_labels.^2 / (4 * sigma^2))
+# normalized_time_gaussian_factors = time_gaussian_factors / sqrt(sum(time_gaussian_factors.^2))
+# fourier_phase_factors = exp.(-1im * energy * time_labels) / sqrt(length(time_labels))
+# # time_evo_phasevector_t = exp.(1im * transpose(Diagonal(hamiltonian.eigvals)) .* time_labels)
+# diag_exponentiate(t) = exp(1im * Diagonal(hamiltonian.eigvals) * t)
+
+# prefactors = normalized_time_gaussian_factors .* fourier_phase_factors
+
+# @time begin
+#     oft_op = zeros(ComplexF64, size(jump.data))
+#     @showprogress for t in 1:length(time_labels)
+#         oft_op += fourier_phase_factors[t] * normalized_time_gaussian_factors[t] * 
+#         Diagonal(time_evo_phasevector_t[t, :]) * jump.in_eigenbasis * Diagonal(-(time_evo_phasevector_t[t, :]))
+#     end
+# end
+# time_evolutions = diag_exponentiate.(time_labels)
+# time_evolutions_dag = diag_exponentiate.(-time_labels)
 
 # Sum over all time labels, t
-@time @tensor oft_op[j, n] := normalized_time_gaussian_factors[t] * fourier_phase_factors[t] *
-                hamiltonian.eigvecs[j, a] * time_evo_phase_for_all_times[t, a] * 
-                jump.in_eigenbasis[a, b] * 
-                adjoint(time_evo_phase_for_all_times)[t, b] * adjoint(hamiltonian.eigvecs)[b, n]
+# @time @tensor oft_op[j, n] := prefactors[t] *
+#                 (hamiltonian.eigvecs[j, a] * time_evo_phasevector_t[t, a]) * 
+#                 jump.in_eigenbasis[a, b] * 
+#                 (adjoint(time_evo_phasevector_t)[t, b] * adjoint(hamiltonian.eigvecs)[b, n])
 
 
 # @time @tensor begin
@@ -191,9 +216,6 @@ time_evo_phase_for_all_times = exp.(1im * transpose(hamiltonian.eigvals) .* time
 #                 jump.data[k, m] *
 #                 view(hamiltonian.eigvecs)[m, b] * adjoint(view(time_evo_phase_for_all_times))[t, b] * adjoint(view(hamiltonian.eigvecs))[b, n]
 # end
-
-oft_op = oft_op / sqrt(length(time_labels))
-
 
 
 # find_unique_jump_freqs(jump, hamiltonian)
