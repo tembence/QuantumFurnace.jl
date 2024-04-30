@@ -8,6 +8,7 @@ using TensorOperations
 using JLD
 
 include("hamiltonian_tools.jl")
+include("qi_tools.jl")
 
 
 mutable struct JumpOp
@@ -20,14 +21,16 @@ end
 function entry_wise_oft(jump::JumpOp, energy::Float64, hamiltonian::HamHam, sigma::Float64, beta::Float64)
     """Uses the already Fourier transformed Gaussian filter fn."""
     # The for loop version is the same but a bit slower than broadcasting
+    # nrows, ncols = size(jump.data)
+    # jump_oft = zeros(ComplexF64, nrows, ncols)
     # for j in 1:ncols, i in 1:nrows
-    #     jump_oft[i, j] = jump_op_in_eigenbasis[i, j] * exp(-(energy - bohr_freqs[i, j])^2 * sigma^2)
+    #     jump_oft[i, j] = jump.in_eigenbasis[i, j] * exp(-(energy - hamiltonian.bohr_freqs[i, j])^2 * sigma^2)
     # end
-    
+
     return jump.in_eigenbasis .* exp.(-(energy .- hamiltonian.bohr_freqs).^2 * sigma^2)
 end
 
-function explicit_oft(jump::JumpOp, hamiltonian::HamHam, energy::Float64, time_labels::Vector{Float64},
+function explicit_oft(jump::JumpOp, hamiltonian::HamHam, energy::Float64, t0::Float64, time_labels::Vector{Float64},
     sigma::Float64, beta::Float64)
     """Fourier transforms by summing over the time labels. Both time_labels and the energy should be in t0, w0 units"""
 
@@ -38,18 +41,31 @@ function explicit_oft(jump::JumpOp, hamiltonian::HamHam, energy::Float64, time_l
 
     time_gaussian_factors = exp.(- time_labels.^2 / (4 * sigma^2))
     normalized_time_gaussian_factors = time_gaussian_factors / sqrt(sum(time_gaussian_factors.^2))
+    
     fourier_phase_factors = exp.(-1im * energy * time_labels) / sqrt(length(time_labels))
     diag_exponentiate(t) = Diagonal(exp.(1im * hamiltonian.eigvals * t))
 
-    @time begin
-        oft_op = zeros(ComplexF64, size(jump.data))
-        @showprogress for t in 1:length(time_labels)
-            oft_op += fourier_phase_factors[t] * normalized_time_gaussian_factors[t] * 
-            diag_exponentiate(t) * jump.in_eigenbasis * diag_exponentiate(-t)
-        end
+    
+    # With full Hamiltonians for debugging
+    time_gaussian(t) = exp(- t^2 / (4 * sigma^2))
+    normalization_gaussian = sqrt(sum(time_gaussian.(time_labels).^2))
+    oft_op = zeros(ComplexF64, size(jump.data))
+    @showprogress for t in time_labels
+        oft_op += time_gaussian(t) * exp(-1im * energy * t) * exp(1im * t * hamiltonian.data) * 
+        jump.data * exp(-1im * t * hamiltonian.data) / (normalization_gaussian * sqrt(length(time_labels)))
     end
 
-    return oft_op
+    return hamiltonian.eigvecs' * oft_op * hamiltonian.eigvecs
+
+    # @time begin
+    #     oft_op = zeros(ComplexF64, size(jump.data))
+    #     @showprogress for t in 1:length(time_labels)
+    #         oft_op += fourier_phase_factors[t] * normalized_time_gaussian_factors[t] * 
+    #         diag_exponentiate(time_labels[t]) * jump.in_eigenbasis * diag_exponentiate(-time_labels[t])
+    #     end
+    # end
+
+    # return oft_op
 end
 
 function oft(jump::JumpOp, energy::Float64, hamiltonian::HamHam, num_energy_bits::Int64, sigma::Float64, beta::Float64)
@@ -125,7 +141,7 @@ end
 #* ---------- Test ----------
 
 #* Parameters
-num_qubits = 8
+num_qubits = 4
 delta = 0.01
 sigma = 5.
 beta = 1.
@@ -133,7 +149,7 @@ eig_index = 8
 jump_site_index = 1
 
 #* Hamiltonian
-hamiltonian = load("/Users/bence/code/liouvillian_metro/julia/data/hamiltonian_n8.jld")["ideal_ham"]
+hamiltonian = load("/Users/bence/code/liouvillian_metro/julia/data/hamiltonian_n4.jld")["ideal_ham"]
 initial_state = hamiltonian.eigvecs[:, eig_index]
 
 #* Jump operators
@@ -153,11 +169,13 @@ jump = JumpOp(jump_op,
 # end
 
 #* Fourier labels
-num_energy_bits = ceil(Int64, log2(1 / hamiltonian.w0))
+num_energy_bits = ceil(Int64, log2((0.45 * 2) / hamiltonian.w0))  # paper (above 3.7.), later will be β dependent
 @printf("Number of qubits: %d\n", num_qubits)
 @printf("Number of energy bits: %d\n", num_energy_bits)
 N = 2^num_energy_bits
 t0 = 2 * pi / (N * hamiltonian.w0)
+@printf("Energy unit: %e\n", hamiltonian.w0)
+@printf("Time unit: %e\n", t0)
 N_labels = [0:1:Int(N/2)-1; -Int(N/2):1:-1]
 
 time_labels = t0 * N_labels
@@ -170,15 +188,16 @@ energy = 2 * pi * phase / N
 @printf("\nEnergy: %f\n", energy)
 
 oft_precision = ceil(Int, abs(log10(N^(-1))))
-hamiltonian.bohr_freqs = round.(hamiltonian.eigvals .- transpose(hamiltonian.eigvals), digits=oft_precision+3)
+# hamiltonian.bohr_freqs = round.(hamiltonian.eigvals .- transpose(hamiltonian.eigvals), digits=oft_precision+3)
+hamiltonian.bohr_freqs = hamiltonian.eigvals .- transpose(hamiltonian.eigvals)
+display(hamiltonian.bohr_freqs)
 
 #* -------------------------------------------- *#
-oft_expl = explicit_oft(jump, hamiltonian, energy, time_labels, sigma, beta)
-oft_entry = entry_wise_oft(jump, energy, hamiltonian, sigma, beta) / (normalization_gaussian_energy * sqrt(N))
+oft_expl = explicit_oft(jump, hamiltonian, energy, t0, time_labels, sigma, beta)
+oft_entry= entry_wise_oft(jump, energy, hamiltonian, sigma, beta) / (normalization_gaussian_energy * sqrt(N))
 
-@printf("Distance: %f\n", norm(oft_expl - oft_entry))
-
-
+@printf("Distance: %e\n", frobenius_norm(oft_expl - oft_entry))
+@printf("Are they the same?: %s\n", norm(oft_expl - oft_entry) < 1e-10)
 
 
 # if !isapprox(t0 * hamiltonian.w0, 2 * pi / length(time_labels))

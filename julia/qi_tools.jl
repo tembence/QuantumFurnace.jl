@@ -25,6 +25,11 @@ function fidelity(rho::Hermitian{ComplexF64, Matrix{ComplexF64}},
     return real(sum(sqrt.(eig_vals[eig_vals.>0])))^2
 end
 
+function frobenius_norm(A::Matrix{ComplexF64})
+    eig_vals = eigvals(A)
+    return sqrt(sum(abs.(eig_vals).^2))
+end
+
 function is_density_matrix(rho::Matrix{ComplexF64})
     if !isapprox(rho, rho')
         throw(ArgumentError("Input matrix is not Hermitian"))
