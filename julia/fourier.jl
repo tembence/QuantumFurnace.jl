@@ -21,11 +21,14 @@ f = f / sqrt(sum(f.^2))
 #* FFT
 F = fft(f)
 F = F / sqrt(sum(F.^2))
+println(fftfreq(N))
+println
 
 #* My Fourier form 
 F_mine = exp.(-energy_labels.^2 * sigma^2)
 F_mine = F_mine / sqrt(sum(F_mine.^2))
 
+#! THEY OVERLAP.
 #* Compare
 plot(fftfreq(N), abs.(F), label="FFT", xlabel="Energy", ylabel="|F(ω)|", title="FFT of Gaussian function")
-plot!(fftfreq(N), abs.(F_mine), label="My Fourier form")
+# plot!(fftfreq(N), abs.(F_mine), label="My Fourier form")

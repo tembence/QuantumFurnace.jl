@@ -36,7 +36,7 @@ def oft(jump_op: np.ndarray, phase: float, num_labels: int, sigma: float,
         
         oft_op = np.einsum('i, i, ja, ia, ak, km, mb, ib, bn  -> jn', 
                         normalized_gauss_values_bin_order, phase_factors, 
-                        hamiltonian.eigvecs, diag_elements_for_all_times, hamiltonian. eigvecs.conj().T, 
+                        hamiltonian.eigvecs, diag_elements_for_all_times, hamiltonian.eigvecs.conj().T, 
                         jump_op, 
                         hamiltonian.eigvecs, diag_elements_for_all_times.conj(), hamiltonian.eigvecs.conj().T, 
                         optimize=True) / np.sqrt(num_labels)

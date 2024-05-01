@@ -55,6 +55,7 @@ function explicit_oft(jump::JumpOp, hamiltonian::HamHam, energy::Float64, t0::Fl
         jump.data * exp(-1im * t * hamiltonian.data) / (normalization_gaussian * sqrt(length(time_labels)))
     end
 
+    # In eigenbasis
     return hamiltonian.eigvecs' * oft_op * hamiltonian.eigvecs
 
     # @time begin
@@ -68,16 +69,20 @@ function explicit_oft(jump::JumpOp, hamiltonian::HamHam, energy::Float64, t0::Fl
     # return oft_op
 end
 
-function oft(jump::JumpOp, energy::Float64, hamiltonian::HamHam, num_energy_bits::Int64, sigma::Float64, beta::Float64)
+function bohr_decomp_oft(jump::JumpOp, energy::Float64, hamiltonian::HamHam, num_energy_bits::Int64, sigma::Float64, beta::Float64)
 
     #! I have to do this for each energy, maybe it's faster if it's down somewhere higehr level with energy array
-    gaussian_weighted_freqs = add_gaussian_weight(jump.unique_freqs, energy, sigma)  
+    gaussian_weighed_freqs = add_gaussian_weight(jump.unique_freqs, energy, sigma)
+    # Normalize
+    gaussian_weighed_freqs = gaussian_weighed_freqs / sqrt(sum(gaussian_weighed_freqs.^2))
 
     #! This assumes that we can store all A_nus in a dict
-    #! If needed we can rewrite such that we take 1 nu, get A_nu, and add it to the OFT matrix, this way we store much less
-    jump_oft = Matrix(sum([gaussian_weighted_freqs[i] * jump.bohr_decomp[jump.unique_freqs[i]] for i in 1:length(jump.unique_freqs)]))
+    jump_oft = zeros(ComplexF64, size(jump.data))
+    for nu in 1:length(jump.unique_freqs)
+        jump_oft += gaussian_weighed_freqs[nu] * jump.bohr_decomp[jump.unique_freqs[nu]]
+    end
 
-    return jump_oft
+    return Matrix(jump_oft) / sqrt(2^num_energy_bits)
 end
 
 function find_unique_jump_freqs(jump::JumpOp, hamiltonian::HamHam)
@@ -88,47 +93,51 @@ function find_unique_jump_freqs(jump::JumpOp, hamiltonian::HamHam)
     jump.unique_freqs = unique(jump_freqs)
 end
 
-#TODO: Test this
 #TODO: Also there are multiple keys of the value 0... which is no bueno
-function construct_A_nus(jump::JumpOp, hamiltonian::HamHam, num_energy_bits::Int64)
+function construct_A_nus(jump::JumpOp, hamiltonian::HamHam)
 """Constructrs jump.bohr_decomp = Dict {bohr energy (nu): A_nu}"""
-
-    N = 2^num_energy_bits
-    oft_precision = ceil(Int, abs(log10(N^(-1))))
 
     # A'_ij is the entry for the jump between eigenenergies j -> i
     # jump.in_eigenbasis
 
     # Matrix of all energy jumps in Hamiltonian, B_ij = E_i - E_j and i,j are ordered from smallest to largest energy
-    jump.unique_freqs = unique(hamiltonian.bohr_freqs)  #! Not correct
 
-    jump_bohr_indices = get_jump_bohr_indices(hamiltonian.bohr_freqs)
-    for (bohr_freq, indices) in jump_bohr_indices
+    jump_bohr_indices_dict = get_jump_bohr_indices(hamiltonian.bohr_freqs)
+    for (bohr_freq, indices) in jump_bohr_indices_dict
         jump_op_nu = spzeros(ComplexF64, size(jump.data))
         for (i, j) in indices
             jump_op_nu[i, j] = jump.in_eigenbasis[i, j]
         end
         jump.bohr_decomp[bohr_freq] = jump_op_nu
     end
+
+    # Does all the A_nus add up to A?
+    reconstr_jump_op = zeros(ComplexF64, size(jump.data))
+    for (bohr_freq, jump_op_nu) in jump.bohr_decomp
+        reconstr_jump_op += jump_op_nu
+    end
+    @assert norm(reconstr_jump_op - jump.in_eigenbasis) < 1e-10
+    @printf("All A_nus add up to A\n")
 end
 
 function get_jump_bohr_indices(bohr_freqs::Matrix{Float64})
+    """Return: Dict {bohr energy (nu): [all contributing (i,j)]}"""
 
-    jump_bohr_indices = Dict{Float64, Vector{Tuple{Int64, Int64}}}()  # Dict {bohr energy (nu): [all contributing (i,j)]}
+    jump_bohr_indices_dict = Dict{Float64, Vector{Tuple{Int64, Int64}}}()
     nrows, ncols = size(bohr_freqs)
     for j in 1:ncols, i in 1:nrows
-        value = bohr_freqs[i, j]
-        if haskey(jump_bohr_indices, value)
-            push!(jump_bohr_indices[value], (i, j))
+        bohr_freq = bohr_freqs[i, j]
+        if haskey(jump_bohr_indices_dict, bohr_freq)
+            push!(jump_bohr_indices_dict[bohr_freq], (i, j))
         else
-            jump_bohr_indices[value] = [(i, j)]
+            jump_bohr_indices_dict[bohr_freq] = [(i, j)]
         end
     end
-    return jump_bohr_indices
+    return jump_bohr_indices_dict
 end
 
-function add_gaussian_weight(freqs::Vector{Float64}, energy::Float64, sigma_t::Float64)
-    return exp.(-(energy .- freqs).^2 * sigma_t^2)
+function add_gaussian_weight(unique_bohr_freqs::Vector{Float64}, energy::Float64, sigma_t::Float64)
+    return exp.(-(energy .- unique_bohr_freqs).^2 * sigma_t^2)
 end
 
 # Unfinished parallel way, but for that would have to store a lot of matrices
@@ -151,6 +160,9 @@ jump_site_index = 1
 #* Hamiltonian
 hamiltonian = load("/Users/bence/code/liouvillian_metro/julia/data/hamiltonian_n4.jld")["ideal_ham"]
 initial_state = hamiltonian.eigvecs[:, eig_index]
+hamiltonian.bohr_freqs = hamiltonian.eigvals .- transpose(hamiltonian.eigvals)
+display(hamiltonian.bohr_freqs)
+
 
 #* Jump operators
 sigmax::Matrix{ComplexF64} = [0 1; 1 0]
@@ -160,6 +172,14 @@ jump = JumpOp(jump_op,
         jump_op_in_eigenbasis,
         Dict{Float64, SparseMatrixCSC{ComplexF64, Int64}}(), 
         zeros(0))
+find_unique_jump_freqs(jump, hamiltonian)
+construct_A_nus(jump, hamiltonian)
+println(jump.unique_freqs[abs.(jump.unique_freqs) .< 0.1])
+println(jump.bohr_decomp)
+for (key, value) in jump.bohr_decomp
+    println(key)
+    println(value)
+end
 
 # For full Liouvillian dynamics:
 # all_x_jump_ops = []
@@ -187,16 +207,17 @@ phase = -0.40 * N / (2 * pi)
 energy = 2 * pi * phase / N
 @printf("\nEnergy: %f\n", energy)
 
-oft_precision = ceil(Int, abs(log10(N^(-1))))
+# oft_precision = ceil(Int, abs(log10(N^(-1))))
 # hamiltonian.bohr_freqs = round.(hamiltonian.eigvals .- transpose(hamiltonian.eigvals), digits=oft_precision+3)
-hamiltonian.bohr_freqs = hamiltonian.eigvals .- transpose(hamiltonian.eigvals)
-display(hamiltonian.bohr_freqs)
 
 #* -------------------------------------------- *#
 oft_expl = explicit_oft(jump, hamiltonian, energy, t0, time_labels, sigma, beta)
 oft_entry= entry_wise_oft(jump, energy, hamiltonian, sigma, beta) / (normalization_gaussian_energy * sqrt(N))
+oft_bohr = bohr_decomp_oft(jump, energy, hamiltonian, num_energy_bits, sigma, beta)
 
-@printf("Distance: %e\n", frobenius_norm(oft_expl - oft_entry))
+@printf("Distance Expl - Bohr: %e\n", frobenius_norm(oft_expl - oft_bohr))
+@printf("Distance Dream - Bohr: %e\n", frobenius_norm(oft_entry - oft_bohr))
+@printf("Distance Expl - Dream: %e\n", frobenius_norm(oft_expl - oft_entry))
 @printf("Are they the same?: %s\n", norm(oft_expl - oft_entry) < 1e-10)
 
 
