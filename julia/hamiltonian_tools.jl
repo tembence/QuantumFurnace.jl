@@ -25,7 +25,6 @@ end
 
 function find_ideal_heisenberg(num_qubits::Int64,
     fixed_base_coeffs::Vector{Float64}; batch_size::Int64 = 100)
-    #? Could add bohr_bound option, to optimize until it gets above the bohr bound
 
     sigmax::Matrix{ComplexF64} = [0 1; 1 0]
     sigmay::Matrix{ComplexF64} = [0.0 -im; im 0.0]
@@ -39,7 +38,7 @@ function find_ideal_heisenberg(num_qubits::Int64,
     seeds = rand(1:batch_size, batch_size)
 
     # Find best config for smallest bohr frequency
-    best_smallest_bohr_freq = -1
+    best_smallest_bohr_freq = -1.0
     # initialize undef HamHam object
     hamiltonian = HamHam(zeros(0, 0), zeros(0, 0), zeros(0), zeros(0), zeros(0), zeros(0, 0), 0.0, 0.0, 0.0)
 
@@ -89,7 +88,7 @@ function construct_base_ham(terms::Vector{Vector{Matrix{ComplexF64}}}, coeffs::V
     if length(terms) != length(coeffs)
         throw(ArgumentError("The number of terms and coefficients must be equal"))
     end
-
+    
     hamiltonian::SparseMatrixCSC{ComplexF64} = spzeros(2^num_qubits, 2^num_qubits)
     for (i, term) in enumerate(terms)
         for q in 1:num_qubits
@@ -138,6 +137,8 @@ function pad_term(terms::Vector{Matrix{ComplexF64}}, num_qubits::Int64, position
     #turn terms into sparse
     terms = [sparse(term) for term in terms]
     last_position = position + term_length - 1
+    # @printf("Position: %d\n", position)
+    # @printf("Last position: %d\n", last_position)
     if last_position <= num_qubits
         id_before = sparse(I, 2^(position - 1), 2^(position - 1))
         id_after = sparse(I, 2^(num_qubits - last_position), 2^(num_qubits - last_position))
@@ -168,7 +169,7 @@ function rescaling_and_shift_factors(hamiltonian::Hermitian{ComplexF64, Matrix{C
 end
 
 #* --- Testing
-# num_qubits = 11
+# num_qubits = 5
 
 # sigmax::Matrix{ComplexF64} = [0 1; 1 0]
 # sigmay::Matrix{ComplexF64} = [0.0 -im; im 0.0]
@@ -187,6 +188,7 @@ end
 # @time begin
 # ideal_ham::HamHam = find_ideal_heisenberg(num_qubits, coeffs, batch_size=1)
 # end
+
 # @save "/Users/bence/code/liouvillian_metro/julia/data/hamiltonian_n11.jld" ideal_ham
 
 # load jld

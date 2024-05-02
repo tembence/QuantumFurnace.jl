@@ -91,23 +91,9 @@ function liouvillian_step(jump::JumpOp, hamiltonian::HamHam, initial_dm::Matrix{
     return evolved_dm / tr(evolved_dm)
 end
 
-function get_energy_labels(N::Int64, w0_by_hand::Float64)
-
-    N_labels = [0:1:Int(N/2)-1; -Int(N/2):1:-1]
-    energy_labels = w0_by_hand * N_labels
-    energy_bounds = [-0.45 0.45]
-    # Truncate all energies that our out of bound
-    energy_labels = energy_labels[energy_labels .> energy_bounds[1]]
-    energy_labels = energy_labels[energy_labels .< energy_bounds[2]]
-
-    #TODO: gaussian truncate possibly here
-
-    return energy_labels
-end
-
-function get_energy_labels(w0::Float64)
+function truncate_energy_labels(energy_labels::Vector{Float64}, sigma::Float64)
     """Finds ideal number of energy labels based on w0"""
-    ideal_N = 2^ceil(Int64, log2(1 / w0))
+    ideal_N = 2^(ceil(Int64, log2(1 / w0)) + 1) #! Added one for needed precision
     N_labels = [0:1:Int(ideal_N/2)-1; -Int(ideal_N/2):1:-1]
     energy_labels = w0 * N_labels
     energy_bounds = [-0.45 0.45]
@@ -160,7 +146,7 @@ end
 # @time hamiltonian = find_ideal_heisenberg(num_qubits, coeffs, batch_size=1)
 # initial_state = hamiltonian.eigvecs[:, eig_index]
 # initial_dm = initial_state * initial_state'
-# hamiltonian.bohr_freqs = round.(hamiltonian.eigvals .- transpose(hamiltonian.eigvals), digits=oft_precision+3)
+# hamiltonian.bohr_freqs = round.(hamiltonian.eigvals .- transpose(hamiltonian.eigvals), digits=oft_precision+3) / hamiltonian.w0
 
 # #* Jump operators
 # sigmax::Matrix{ComplexF64} = [0 1; 1 0]

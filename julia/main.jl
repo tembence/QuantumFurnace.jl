@@ -19,8 +19,8 @@ eig_index = Int(2^num_qubits / 2)
 beta = 1.
 
 liouvillian_time = 0.2
-delta = 0.1
-num_liouvillian_steps = ceil(Int, liouvillian_time / delta)
+delta = 0.01
+num_liouvillian_steps = 1 #ceil(Int, liouvillian_time / delta)
 sigma = 5.
 
 sigmax::Matrix{ComplexF64} = [0 1; 1 0]
@@ -48,9 +48,9 @@ distance_to_gibbs = trace_distance(Hermitian(initial_dm), Hermitian(gibbs))
 #* Labels
 # Ideal - takes way more time evolution since t0 = 2pi instead of 1
 num_energy_bits = ceil(Int64, log2(1 / hamiltonian.w0))
-N = 2^num_energy_bits
+N = 2^(num_energy_bits + 2) #! Added one for needed precision
 @printf("Number of energy bits: %d, to w0: %f\n", num_energy_bits, hamiltonian.w0)
-energy_labels = get_energy_labels(hamiltonian.w0)
+energy_labels = hamiltonian.w0 * [0:1:Int(N/2)-1; -Int(N/2):1:-1]
 
 # - Or Not
 # num_energy_bits = 8
@@ -59,7 +59,8 @@ energy_labels = get_energy_labels(hamiltonian.w0)
 # energy_labels = get_energy_labels(N, w0_by_hand)
 
 oft_precision = ceil(Int64, abs(log10(N^(-1))))
-hamiltonian.bohr_freqs = round.(hamiltonian.eigvals .- transpose(hamiltonian.eigvals), digits=oft_precision+3)
+# hamiltonian.bohr_freqs = round.(hamiltonian.eigvals .- transpose(hamiltonian.eigvals), digits=oft_precision+3)
+hamiltonian.bohr_freqs = (hamiltonian.eigvals .- transpose(hamiltonian.eigvals)) / hamiltonian.w0
 
 #* Jump operators
 # Generate the set of random jumps on the sites
