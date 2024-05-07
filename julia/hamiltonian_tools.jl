@@ -96,7 +96,7 @@ function construct_base_ham(terms::Vector{Vector{Matrix{ComplexF64}}}, coeffs::V
             hamiltonian += coeffs[i] * padded_term
         end
     end
-    
+
     return Hermitian(Matrix(hamiltonian))
 end
 
@@ -137,8 +137,6 @@ function pad_term(terms::Vector{Matrix{ComplexF64}}, num_qubits::Int64, position
     #turn terms into sparse
     terms = [sparse(term) for term in terms]
     last_position = position + term_length - 1
-    # @printf("Position: %d\n", position)
-    # @printf("Last position: %d\n", last_position)
     if last_position <= num_qubits
         id_before = sparse(I, 2^(position - 1), 2^(position - 1))
         id_after = sparse(I, 2^(num_qubits - last_position), 2^(num_qubits - last_position))
