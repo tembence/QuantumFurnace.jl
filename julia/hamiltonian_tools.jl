@@ -29,6 +29,7 @@ function find_ideal_heisenberg(num_qubits::Int64,
     sigmax::Matrix{ComplexF64} = [0 1; 1 0]
     sigmay::Matrix{ComplexF64} = [0.0 -im; im 0.0]
     sigmaz::Matrix{ComplexF64} = [1 0; 0 -1]
+
     terms = [[sigmax, sigmax], [sigmay, sigmay], [sigmaz, sigmaz]]
     symbreak_term = [sigmaz]
 

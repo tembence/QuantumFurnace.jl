@@ -12,7 +12,12 @@ time_labels = t0 * N_labels
 energy_labels = w0 * N_labels
 
 sigma = 5
-f = exp.(- time_labels.^2 / (4 * sigma^2))
+nu = 0.4
+# f = exp.(- time_labels.^2 / (4 * sigma^2)) * exp.(1im * nu * time_labels)
+f = []
+for t in time_labels
+    f = push!(f, exp(-t^2 / (4 * sigma^2)) * exp(1im * nu * t))
+end
 f = f / sqrt(sum(f.^2))
 
 # plot f ove time labels
@@ -20,28 +25,28 @@ f = f / sqrt(sum(f.^2))
 
 
 #* My Fourier sum for the Gaussian from the algorithm
-F_mine = exp.(-energy_labels.^2 * sigma^2)
+F_mine = exp.(-(energy_labels .- nu).^2 * sigma^2)
+#find energy for which it has maximum
+max_index = argmax(abs.(F_mine))
 F_mine = F_mine / sqrt(sum(F_mine.^2))
 
 # Fourier sum
-F_computed = zeros(ComplexF64, N)
-for t in eachindex(time_labels)
-    F_computed += f[t] * exp.(-1im * energy_labels * time_labels[t])
-end
-F_computed = F_computed / sqrt(sum(F_computed.^2))
-# Check if any entry have imaginary part larger than 1e-10?
-F_computed[(imag(F_computed)) .> 1e-10]
+# F_computed = zeros(ComplexF64, N)
+# for t in eachindex(time_labels)
+#     F_computed += f[t] * exp.(-1im * energy_labels * time_labels[t])
+# end
+# F_computed = F_computed / sqrt(sum(F_computed.^2))
+# # Check if any entry have imaginary part larger than 1e-10?
+# F_computed[(imag(F_computed)) .> 1e-10]
 
-isapprox(imag(F_computed), zeros(ComplexF64, N))
+# isapprox(imag(F_computed), zeros(ComplexF64, N))
 
 # Compare
-@printf("Distance between my Fourier trafo and the Fourier sum one: %f\n", norm(F_mine - F_computed))
+# @printf("Distance between my Fourier trafo and the Fourier sum one: %f\n", norm(F_mine - F_computed))
 
 #* FFT
-# F = fft(f)
-# F = F / sqrt(sum(F.^2))
-# println(fftfreq(N))
-# println
+F = fft(f)
+F = F / sqrt(sum(F.^2))
 
 # #* My Fourier form 
 # F_mine = exp.(-energy_labels.^2 * sigma^2)
@@ -49,5 +54,5 @@ isapprox(imag(F_computed), zeros(ComplexF64, N))
 
 # #! THEY OVERLAP.
 # #* Compare
-# plot(fftfreq(N), abs.(F), label="FFT", xlabel="Energy", ylabel="|F(ω)|", title="FFT of Gaussian function")
-# plot!(fftfreq(N), abs.(F_mine), label="My Fourier form")
+plot(fftfreq(N), abs.(F), label="FFT", xlabel="Energy", ylabel="|F(ω)|", title="FFT of Gaussian function")
+plot!(fftfreq(N), abs.(F_mine), label="My Fourier form")
