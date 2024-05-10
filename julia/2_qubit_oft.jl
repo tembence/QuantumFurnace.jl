@@ -53,6 +53,7 @@ energy_labels = hamiltonian.w0 * N_labels
 
 some_integer = Int(floor(hamiltonian.bohr_freqs[2, 1] / hamiltonian.w0))
 an_energy = hamiltonian.w0 * some_integer
+an_energy = hamiltonian.w0 * energy_labels[10]
 phase = an_energy * N / (2 * pi)
 a_time = (N / 2 + 3) * t0
 
@@ -118,18 +119,50 @@ a_time = (N / 2 + 3) * t0
 # new_energy_eng = jumped_state_eng' * Diagonal(hamiltonian.eigvals) * jumped_state_eng
 
 #* Fourier sum and trafo check.
+nu = 0.4
 ft = exp.(-time_labels.^2 / (4 * sigma^2))
 ft_norm = sqrt(sum(ft.^2))
-Fw = exp.(- sigma^2 * energy_labels.^2)
+Fw = exp.(- sigma^2 * (energy_labels .- nu).^2)
 Fw_norm = sqrt(sum(Fw.^2))
 
-fourier_sum = 0.
-nu = 0.405
-for t in time_labels
-    fourier_sum += exp(-1im * t * (an_energy - nu)) * exp(-t^2 / (4 * sigma^2)) / sqrt(2*pi)
+Fw_computed = []
+for w in energy_labels
+    fourier_sum = 0.
+    for t in time_labels
+        fourier_sum += exp(-1im * t * (w - nu)) * exp(-t^2 / (4 * sigma^2))
+    end
+    push!(Fw_computed, fourier_sum)
 end
-fourier_sum /= ft_norm
+Fw_computed_normalized = Fw_computed / sqrt(sum(Fw_computed.^2))
+Fw_computed_normalized[10]
+# Plots
+plot(energy_labels, abs.(Fw) / Fw_norm, label="Analytical", xlabel="Energy", ylabel="|F(ω)|", title="Fourier transform of Gaussian function")
+plot!(energy_labels, abs.(Fw_computed_normalized), label="Computed")
 
+# fourier_sum = fourier_sum / (sqrt(sigma * sqrt(2*pi)))
+# fourier_sum = fourier_sum / ft_norm
+
+# For an energy
+fourier_sum = 0.
+for t in time_labels
+    fourier_sum += exp(-1im * t * (an_energy - nu)) * exp(-t^2 / (4 * sigma^2))
+end
+
+#! sqrt(sum(Fw_computed.^2)) = sqrt(N) * ft_norm
+fourier_sum = fourier_sum / (sqrt(N) * ft_norm)
+# fourier_trafod = exp(-(an_energy - nu)^2 * sigma^2) * sqrt(sigma * sqrt(2*pi))
 fourier_trafod = exp(-(an_energy - nu)^2 * sigma^2) / Fw_norm
 #diff
-norm(fourier_sum - fourier_trafod)
+@printf("Distance between my Fourier trafo and the Fourier sum one: %.3e\n", norm(fourier_sum - fourier_trafod))
+@printf("Distance between my Fourier trafo and the Fourier sum one: %.3e\n", norm(Fw_computed_normalized - Fw/Fw_norm))
+
+@time oft_expl = explicit_oft(jump, hamiltonian, an_energy, time_labels, sigma, beta)
+@time oft_entry= entry_wise_oft(jump, an_energy, hamiltonian, sigma, beta) / (Fw_norm)
+@time oft_bohr = bohr_decomp_oft(jump, an_energy, hamiltonian, num_energy_bits, sigma, beta) / (Fw_norm)
+
+# @printf("Distance Expl - Bohr: %e\n", frobenius_norm(oft_expl - oft_bohr))
+@printf("Distance Dream - Bohr: %e\n", frobenius_norm(oft_entry - oft_bohr))
+@printf("Distance Expl - Dream: %e\n", frobenius_norm(oft_expl - oft_entry))
+display(isapprox(oft_expl - oft_entry, zeros(ComplexF64, size(jump.data)), atol=1e-14))
+display(norm(oft_expl - oft_entry))
+@printf("Are they the same?: %s\n", norm(oft_expl - oft_entry) < 1e-10)
