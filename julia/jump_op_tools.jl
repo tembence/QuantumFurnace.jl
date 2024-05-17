@@ -19,6 +19,8 @@ mutable struct JumpOp
     unique_freqs::Vector{Float64}
 end
 
+#TODO: Write a parallelized function to compute OFT for all energies at once (if you can store them)
+
 function entry_wise_oft(jump::JumpOp, energy::Float64, hamiltonian::HamHam, sigma::Float64, beta::Float64)
     """Uses the already Fourier transformed Gaussian filter fn."""
     # The for loop version is the same but a bit slower than broadcasting
@@ -28,7 +30,7 @@ function entry_wise_oft(jump::JumpOp, energy::Float64, hamiltonian::HamHam, sigm
     #     jump_oft[i, j] = jump.in_eigenbasis[i, j] * exp(-(energy - hamiltonian.bohr_freqs[i, j])^2 * sigma^2)
     # end
 
-    return jump.in_eigenbasis .* exp.(-((energy .- hamiltonian.bohr_freqs)).^2 * sigma^2)
+    return hamiltonian.eigvecs * jump.in_eigenbasis .* exp.(-((energy .- hamiltonian.bohr_freqs)).^2 * sigma^2) * hamiltonian.eigvecs'
 end
 
 function explicit_oft(jump::JumpOp, hamiltonian::HamHam, energy::Float64, time_labels::Vector{Float64},
@@ -128,32 +130,32 @@ end
 
 #* ---------- Test ----------
 
-#* Parameters
-num_qubits = 7
-delta = 0.01
-sigma = 5.
-beta = 1.
-eig_index = 8
-jump_site_index = 1
+# #* Parameters
+# num_qubits = 7
+# delta = 0.01
+# sigma = 5.
+# beta = 1.
+# eig_index = 8
+# jump_site_index = 1
 
-#* Hamiltonian
-hamiltonian = load("/Users/bence/code/liouvillian_metro/julia/data/hamiltonian_n7.jld")["ideal_ham"]
-# hamiltonian = find_ideal_heisenberg(num_qubits, fill(1.0, 3), batch_size=1)
-initial_state = hamiltonian.eigvecs[:, eig_index]
-hamiltonian.bohr_freqs = hamiltonian.eigvals .- transpose(hamiltonian.eigvals)
-display(hamiltonian.bohr_freqs)
+# #* Hamiltonian
+# hamiltonian = load("/Users/bence/code/liouvillian_metro/julia/data/hamiltonian_n7.jld")["ideal_ham"]
+# # hamiltonian = find_ideal_heisenberg(num_qubits, fill(1.0, 3), batch_size=1)
+# initial_state = hamiltonian.eigvecs[:, eig_index]
+# hamiltonian.bohr_freqs = hamiltonian.eigvals .- transpose(hamiltonian.eigvals)
+# display(hamiltonian.bohr_freqs)
 
-#* Jump operators
-sigmax::Matrix{ComplexF64} = [0 1; 1 0]
-jump_op = Matrix(pad_term([sigmax], num_qubits, jump_site_index))
-jump_op_in_eigenbasis = hamiltonian.eigvecs' * jump_op * hamiltonian.eigvecs
-jump = JumpOp(jump_op,
-        jump_op_in_eigenbasis,
-        Dict{Float64, SparseMatrixCSC{ComplexF64, Int64}}(), 
-        zeros(0))
+# #* Jump operators
+# sigmax::Matrix{ComplexF64} = [0 1; 1 0]
+# jump_op = Matrix(pad_term([sigmax], num_qubits, jump_site_index))
+# jump_op_in_eigenbasis = hamiltonian.eigvecs' * jump_op * hamiltonian.eigvecs
+# jump = JumpOp(jump_op,
+#         jump_op_in_eigenbasis,
+#         Dict{Float64, SparseMatrixCSC{ComplexF64, Int64}}(), 
+#         zeros(0))
 
-#! Uncomment for bohr oft
-construct_A_nus(jump, hamiltonian)
+# #! Uncomment for bohr oft
+# construct_A_nus(jump, hamiltonian)
 # println(jump.unique_freqs[abs.(jump.unique_freqs) .< 0.1])
 # println(jump.bohr_decomp)
 # for (key, value) in jump.bohr_decomp
@@ -169,29 +171,34 @@ construct_A_nus(jump, hamiltonian)
 # end
 
 #* Fourier labels
-num_energy_bits = ceil(Int64, log2((0.45 * 2) / hamiltonian.w0)) + 2  # paper (above 3.7.), later will be β dependent
+# num_energy_bits = ceil(Int64, log2((0.45 * 2) / hamiltonian.w0)) + 1  # paper (above 3.7.), later will be β dependent
 
-N = 2^(num_energy_bits)
-t0 = 2 * pi / (N * hamiltonian.w0)
+# N = 2^(num_energy_bits)
+# t0 = 2 * pi / (N * hamiltonian.w0)
 
-N_labels = [0:1:Int(N/2)-1; -Int(N/2):1:-1]
+# N_labels = [0:1:Int(N/2)-1; -Int(N/2):1:-1]
 
-time_labels = t0 * N_labels
-energy_labels = hamiltonian.w0 * N_labels
-Fw = exp.(- sigma^2 * (energy_labels).^2)
-Fw_norm = sqrt(sum(Fw.^2))
+# time_labels = t0 * N_labels
+# energy_labels = hamiltonian.w0 * N_labels
+# ft = exp.(-time_labels.^2 / (4 * sigma^2))
+# ft_norm = sqrt(sum(ft.^2))
+# Fw = exp.(- sigma^2 * (energy_labels).^2)
+# Fw_norm = sqrt(sum(Fw.^2))
 
-# This has always the same form independent of w0, since in the Fourier phase we always have w0t0 = 2pi / N
-some_integer = 4
-energy = hamiltonian.w0 * some_integer
-energy = energy_labels[100]  #!
-phase = energy * N / (2 * pi)
+# isapprox(sqrt(length(time_labels)) * ft_norm, Fw_norm)
 
-@printf("Number of qubits: %d\n", num_qubits)
-@printf("Number of energy bits: %d\n", num_energy_bits)
-@printf("Energy unit: %e\n", hamiltonian.w0)
-@printf("Time unit: %e\n", t0)
-@printf("\nEnergy: %f\n", energy)
+
+# # This has always the same form independent of w0, since in the Fourier phase we always have w0t0 = 2pi / N
+# some_integer = 4
+# energy = hamiltonian.w0 * some_integer
+# energy = energy_labels[100]  #!
+# phase = energy * N / (2 * pi)
+
+# @printf("Number of qubits: %d\n", num_qubits)
+# @printf("Number of energy bits: %d\n", num_energy_bits)
+# @printf("Energy unit: %e\n", hamiltonian.w0)
+# @printf("Time unit: %e\n", t0)
+# @printf("\nEnergy: %f\n", energy)
 
 # # oft_precision = ceil(Int, abs(log10(N^(-1))))
 # # hamiltonian.bohr_freqs = round.(hamiltonian.eigvals .- transpose(hamiltonian.eigvals), digits=oft_precision+3)
@@ -207,35 +214,35 @@ phase = energy * N / (2 * pi)
 
 
 #* Heisenberg is weighted sum of A_nus
-t = 3 * t0
-heis_A = exp(1im * hamiltonian.data * t) * jump.data * exp(-1im * hamiltonian.data * t)
-heis_A_in_eigenbasis = hamiltonian.eigvecs' * heis_A * hamiltonian.eigvecs
-@printf("Num of unique freqs %d\n", length(jump.unique_freqs))
-A_nu_sum = zeros(ComplexF64, size(jump.data))
-for (nu, A_nu) in jump.bohr_decomp
-    A_nu_sum += exp(1im * nu * t) * A_nu
-end
-println("Distance between Heisenberg and A_nu sum:")
-display(frobenius_norm(heis_A_in_eigenbasis - A_nu_sum))
+# t = 3 * t0
+# heis_A = exp(1im * hamiltonian.data * t) * jump.data * exp(-1im * hamiltonian.data * t)
+# heis_A_in_eigenbasis = hamiltonian.eigvecs' * heis_A * hamiltonian.eigvecs
+# @printf("Num of unique freqs %d\n", length(jump.unique_freqs))
+# A_nu_sum = zeros(ComplexF64, size(jump.data))
+# for (nu, A_nu) in jump.bohr_decomp
+#     A_nu_sum += exp(1im * nu * t) * A_nu
+# end
+# println("Distance between Heisenberg and A_nu sum:")
+# display(frobenius_norm(heis_A_in_eigenbasis - A_nu_sum))
 
 
-# #* -------------------------------------------- *#
-@time oft_expl = explicit_oft(jump, hamiltonian, energy, time_labels, sigma, beta)
-# is it real?
-# display(isapprox(imag(oft_expl), zeros(ComplexF64, size(jump.data))))
-@time oft_entry= entry_wise_oft(jump, energy, hamiltonian, sigma, beta) / (Fw_norm)
-# display(isapprox(imag(oft_entry), zeros(ComplexF64, size(jump.data))))
-# expl_entries = collect(Iterators.flatten(oft_expl))
-# expl_entries[(imag(expl_entries)) .> 1e-18]
+# # #* -------------------------------------------- *#
+# @time oft_expl = explicit_oft(jump, hamiltonian, energy, time_labels, sigma, beta)
+# # is it real?
+# # display(isapprox(imag(oft_expl), zeros(ComplexF64, size(jump.data))))
+# @time oft_entry= entry_wise_oft(jump, energy, hamiltonian, sigma, beta) / (Fw_norm)
+# # display(isapprox(imag(oft_entry), zeros(ComplexF64, size(jump.data))))
+# # expl_entries = collect(Iterators.flatten(oft_expl))
+# # expl_entries[(imag(expl_entries)) .> 1e-18]
 
-@time oft_bohr = bohr_decomp_oft(jump, energy, hamiltonian, num_energy_bits, sigma, beta) / Fw_norm
+# @time oft_bohr = bohr_decomp_oft(jump, energy, hamiltonian, num_energy_bits, sigma, beta) / Fw_norm
 
-@printf("Distance Expl - Bohr: %e\n", frobenius_norm(oft_expl - oft_bohr))
-@printf("Distance Dream - Bohr: %e\n", frobenius_norm(oft_entry - oft_bohr))
-@printf("Distance Expl - Dream: %e\n", frobenius_norm(oft_expl - oft_entry))
-display(isapprox(oft_expl - oft_entry, zeros(ComplexF64, size(jump.data))))
-display(norm(oft_expl - oft_entry))
-@printf("Are they the same?: %s\n", norm(oft_expl - oft_entry) < 1e-10)
+# @printf("Distance Expl - Bohr: %e\n", frobenius_norm(oft_expl - oft_bohr))
+# @printf("Distance Dream - Bohr: %e\n", frobenius_norm(oft_entry - oft_bohr))
+# @printf("Distance Expl - Dream: %e\n", frobenius_norm(oft_expl - oft_entry))
+# display(isapprox(oft_expl - oft_entry, zeros(ComplexF64, size(jump.data))))
+# display(norm(oft_expl - oft_entry))
+# @printf("Are they the same?: %s\n", norm(oft_expl - oft_entry) < 1e-10)
 
 
 # if !isapprox(t0 * hamiltonian.w0, 2 * pi / length(time_labels))
