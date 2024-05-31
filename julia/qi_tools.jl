@@ -71,7 +71,7 @@ function gibbs_state(hamiltonian::HamHam, beta::Float64)
     Z = sum(exp.(-beta * hamiltonian.eigvals))
     rho = sum([exp(-beta * hamiltonian.eigvals[i]) * hamiltonian.eigvecs[:, i] * hamiltonian.eigvecs[:, i]' 
                                                                                     for i in 1:length(hamiltonian.eigvals)])
-    return Hermitian(Matrix{ComplexF64}(rho / Z))
+    return Matrix{ComplexF64}(rho / Z)
 end
 
 #* Compared with QuantumOptics implementations, my code is the same or faster and gives the same results

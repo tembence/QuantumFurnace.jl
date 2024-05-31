@@ -30,7 +30,8 @@ function entry_wise_oft(jump::JumpOp, energy::Float64, hamiltonian::HamHam, sigm
     #     jump_oft[i, j] = jump.in_eigenbasis[i, j] * exp(-(energy - hamiltonian.bohr_freqs[i, j])^2 * sigma^2)
     # end
 
-    return hamiltonian.eigvecs * jump.in_eigenbasis .* exp.(-((energy .- hamiltonian.bohr_freqs)).^2 * sigma^2) * hamiltonian.eigvecs'
+    # return hamiltonian.eigvecs * jump.in_eigenbasis .* exp.(-((energy .- hamiltonian.bohr_freqs)).^2 * sigma^2) * hamiltonian.eigvecs'
+    return jump.in_eigenbasis .* exp.(-((energy .- hamiltonian.bohr_freqs)).^2 * sigma^2)
 end
 
 function explicit_oft(jump::JumpOp, hamiltonian::HamHam, energy::Float64, time_labels::Vector{Float64},
