@@ -2,6 +2,7 @@ using LinearAlgebra
 using Random
 using Printf
 using QuantumOptics
+
 include("hamiltonian_tools.jl")
 
 function trace_distance(rho::Hermitian{ComplexF64, Matrix{ComplexF64}}, 

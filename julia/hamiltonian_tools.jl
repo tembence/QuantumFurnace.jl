@@ -89,7 +89,7 @@ function create_hamham(terms::Vector{Vector{String}}, coeffs::Vector{Float64},
 
     base_hamiltonian = construct_base_ham(terms_matrices, coeffs, num_qubits)
     symbreak_hamiltonian = construct_symbreak_terms(symbreak_terms_matrices, symbreak_coeffs, num_qubits)
-    symbroken_ham = base_hamiltonian + symbreak_ham
+    symbroken_ham = base_hamiltonian + symbreak_hamiltonian
 
     rescaling_factor, shift = rescaling_and_shift_factors(symbroken_ham)
     rescaled_hamiltonian::Hermitian{ComplexF64, Matrix{ComplexF64}} = symbroken_ham / rescaling_factor + 
@@ -118,7 +118,7 @@ function create_hamham(terms::Vector{Vector{String}}, coeffs::Vector{Float64},
 end
 
 function find_ideal_heisenberg(num_qubits::Int64,
-    coeffs::Vector{Float64}; batch_size::Int64 = 100)
+    coeffs::Vector{Float64}; batch_size::Int64 = 1)
     """Periodic Heisenberg 1D chain"""
 
     sigmax::Matrix{ComplexF64} = [0 1; 1 0]
@@ -237,8 +237,8 @@ function pad_term(terms::Vector{Matrix{ComplexF64}}, num_qubits::Int64, position
     #turn terms into sparse
     terms = [sparse(term) for term in terms]
     last_position = position + term_length - 1
-    @printf("Position: %d\n", position)
-    @printf("Last position: %d\n", last_position)
+    # @printf("Position: %d\n", position)
+    # @printf("Last position: %d\n", last_position)
 
     if last_position <= num_qubits
         id_before = sparse(I, 2^(position - 1), 2^(position - 1))
@@ -248,8 +248,8 @@ function pad_term(terms::Vector{Matrix{ComplexF64}}, num_qubits::Int64, position
         id_between = sparse(I, 2^(num_qubits - term_length), 2^(num_qubits - term_length))
         not_overflown_terms = terms[1:num_qubits - position + 1]
         overflown_terms = terms[num_qubits - position + 2:end]
-        println("Overflown terms:")
-        display(overflown_terms)
+        # println("Overflown terms:")
+        # display(overflown_terms)
         padded_tensor_list = [overflown_terms..., id_between, not_overflown_terms...]
     end
 
@@ -272,15 +272,14 @@ function rescaling_and_shift_factors(hamiltonian::Hermitian{ComplexF64, Matrix{C
 end
 
 #* --- Testing
-# num_qubits = 5
+# num_qubits = 11
 
 # sigmax::Matrix{ComplexF64} = [0 1; 1 0]
-# sigmay::Matrix{ComplexF64} = [0.0 -im; im 0.0]
+# sigmay::Matrix{ComplexF64} = [0 -im; im 0]
 # sigmaz::Matrix{ComplexF64} = [1 0; 0 -1]
+
 # terms = [[sigmax, sigmax], [sigmay, sigmay], [sigmaz, sigmaz]]
-
-# coeffs = [1.0, 1.0, 1.0]
-
+# coeffs = fill(1.0, 3)
 # hamiltonian = construct_base_ham(terms, coeffs, num_qubits)
 
 # symbreak_ham = construct_symbreak_terms([sigmaz], fill(1.0, num_qubits), num_qubits)
@@ -288,8 +287,9 @@ end
 # symbroken_ham = hamiltonian + symbreak_ham
 
 # rescaling_factor, shift = rescaling_and_shift_factors(symbroken_ham)
+
 # @time begin
-# ideal_ham::HamHam = find_ideal_heisenberg(num_qubits, coeffs, batch_size=1)
+# ideal_ham::HamHam = find_ideal_heisenberg(num_qubits, coeffs; batch_size=100)
 # end
 
 # @save "/Users/bence/code/liouvillian_metro/julia/data/hamiltonian_n11.jld" ideal_ham

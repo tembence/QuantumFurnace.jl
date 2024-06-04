@@ -6,7 +6,6 @@ using ProgressMeter
 using Distributed
 using QuantumOptics
 
-include("jump_op_tools.jl")
 include("hamiltonian_tools.jl")
 include("qi_tools.jl")
 
@@ -52,75 +51,122 @@ function pauli_string_to_matrix(paulistring::Vector{String})
     return pauli_matrices
 end
 
-function trotter(hamiltonian::HamHam, T::Float64, num_trotter_steps::Int64; order::Int64=1)
-    """Periodic Heisenberg 1D chain"""
+function trotter(hamiltonian::HamHam, T::Float64, num_trotter_steps::Int64)
+    """1st order Trotter, periodic"""
 
     timestep::Float64 = T / num_trotter_steps
     num_qubits::Int64 = Int(log2(size(hamiltonian.data)[1]))
 
-    if order == 1
-        U::Matrix{ComplexF64} = exp(im * T * hamiltonian.shift) * I(2^num_qubits)  # Shift
-        for step in 1:num_trotter_steps
-            println("---Step: ", step)
+    U::Matrix{ComplexF64} = exp(im * T * hamiltonian.shift) * I(2^num_qubits)  # Shift
+    p = Progress(num_trotter_steps)
+    @showprogress dt=1 desc="Trotterizing (1st order)..." for step in 1:num_trotter_steps
+        # println("---Step: ", step)
 
-            # Base Hamiltonian
-            for q in 1:num_qubits
-                println("Qubit: ", q)
-                for (i, term) in enumerate(hamiltonian.base_terms)
-                    println("Term:")
-                    display(term)
-                        expm_pauli_term = expm_pauli_padded(term, timestep * hamiltonian.base_coeffs[i], num_qubits, q)
-                        U *= expm_pauli_term
-                end
-
-            # Symbreak
-                if typeof(hamiltonian.symbreak_terms) != Nothing
-                    println("Symbreak term:")
-                    display(hamiltonian.symbreak_terms)
-                    println("Qubit: ", q)
-                    expm_symbreak_pauli_term = expm_pauli_padded(hamiltonian.symbreak_terms, 
-                                                                timestep * hamiltonian.symbreak_coeffs[q], 
-                                                                num_qubits, q)
-                    U *= expm_symbreak_pauli_term
-                end
+        # Base Hamiltonian
+        for q in 1:num_qubits
+            # println("Qubit: ", q)
+            for (i, term) in enumerate(hamiltonian.base_terms)
+                # println("Term:")
+                # display(term)
+                    expm_pauli_term = expm_pauli_padded(term, timestep * hamiltonian.base_coeffs[i], num_qubits, q)
+                    U *= expm_pauli_term
             end
-        end
 
-    #! WRONG, we have the there and back in one trotter step, here they are separated. Write it out I think.
-    elseif order == 2  # prefactors / 2, twice the gates
-        U = trotter(hamiltonian, T / 2, num_trotter_steps; order=1)
-        reversed_base_terms = reverse(hamiltonian.base_terms)
-        reversed_base_coeffs = reverse(hamiltonian.base_coeffs)
-
-        # Reversed other half
-        for step in num_trotter_steps:-1:1
-            println("---Step: ", step)
-
-            # Base Hamiltonian
-            for q in num_qubits:-1:1
-                println("Qubit: ", q)
-                for (i, term) in enumerate(reversed_base_terms)
-                    println("Term:")
-                    display(term)
-                        expm_pauli_term = expm_pauli_padded(term, timestep * reversed_base_coeffs[i] / 2, num_qubits, q)
-                        U *= expm_pauli_term
-                end
-
-            # Symbreak
-                if typeof(hamiltonian.symbreak_terms) != Nothing
-                    println("Symbreak term:")
-                    display(hamiltonian.symbreak_terms)
-                    println("Qubit: ", q)
-                    expm_symbreak_pauli_term = expm_pauli_padded(hamiltonian.symbreak_terms, 
-                                                                timestep * hamiltonian.symbreak_coeffs[q] / 2, 
-                                                                num_qubits, q)
-                    U *= expm_symbreak_pauli_term
-                end
+        # Symbreak
+            if typeof(hamiltonian.symbreak_terms) != Nothing
+                # println("Symbreak term:")
+                # display(hamiltonian.symbreak_terms)
+                # println("Qubit: ", q)
+                expm_symbreak_pauli_term = expm_pauli_padded(hamiltonian.symbreak_terms, 
+                                                            timestep * hamiltonian.symbreak_coeffs[q], 
+                                                            num_qubits, q)
+                U *= expm_symbreak_pauli_term
             end
         end
     end
-
     return U
+end
+
+function trotter2(hamiltonian::HamHam, T::Float64, num_trotter_steps::Int64)
+    """2nd order Trotter"""
+    timestep::Float64 = T / num_trotter_steps
+    num_qubits::Int64 = Int(log2(size(hamiltonian.data)[1]))
+
+    U::Matrix{ComplexF64} = exp(im * T * hamiltonian.shift) * I(2^num_qubits)  # Shift
+    p = Progress(num_trotter_steps)
+    @showprogress dt=1 desc="Trotterizing (2nd order)..." for step in 1:num_trotter_steps
+        # println("---Step: ", step)
+
+        ## 1st part
+        for q in 1:num_qubits
+            # println("Qubit: ", q)
+            # Base Hamiltonian
+            for (i, term) in enumerate(hamiltonian.base_terms)
+                # println("Term:")
+                # display(term)
+                    expm_pauli_term = expm_pauli_padded(term, timestep * hamiltonian.base_coeffs[i] / 2, num_qubits, q)
+                    U *= expm_pauli_term
+            end
+
+            # Symbreak
+            if typeof(hamiltonian.symbreak_terms) != Nothing
+                # println("Symbreak term:")
+                # display(hamiltonian.symbreak_terms)
+                # println("Qubit: ", q)
+                expm_symbreak_pauli_term = expm_pauli_padded(hamiltonian.symbreak_terms, 
+                                                            timestep * hamiltonian.symbreak_coeffs[q] / 2, 
+                                                            num_qubits, q)
+                U *= expm_symbreak_pauli_term
+            end
+        end
+
+        ## 2nd part
+        reversed_base_terms = reverse(hamiltonian.base_terms)
+        reversed_base_coeffs = reverse(hamiltonian.base_coeffs)
+
+        for q in num_qubits:-1:1
+            # println("Qubit: ", q)
+
+            # Symbreak, terms are not reversed as we just assume there is only 1 term
+            if typeof(hamiltonian.symbreak_terms) != Nothing
+                # println("Symbreak term:")
+                # display(hamiltonian.symbreak_terms)
+                # println("Qubit: ", q)
+                # println("Coeff reversed: ", hamiltonian.symbreak_coeffs[q])
+                expm_symbreak_pauli_term = expm_pauli_padded(hamiltonian.symbreak_terms, 
+                                                            timestep * hamiltonian.symbreak_coeffs[q] / 2, 
+                                                            num_qubits, q)
+                U *= expm_symbreak_pauli_term
+            end
+
+            # Base Hamiltonian
+            for (i, term) in enumerate(reversed_base_terms)
+                # println("Term:")
+                # display(term)
+                    expm_pauli_term = expm_pauli_padded(term, timestep * reversed_base_coeffs[i] / 2, num_qubits, q)
+                    U *= expm_pauli_term
+            end
+        end
+    end
+    return U
+end
+
+function trotter_diag(hamiltonian::HamHam, T::Float64, num_trotter_steps::Int64)
+    """1st order Trotter with diagonalization"""
+    timestep::Float64 = T / num_trotter_steps
+
+    trott_1step = trotter(hamiltonian, T/num_trotter_steps, 1)
+    eig_vals, eig_vecs = eigen(trott_1step)
+    return eig_vecs * Diagonal(eig_vals)^num_trotter_steps * eig_vecs'
+end
+
+function trotter2_diag(hamiltonian::HamHam, T::Float64, num_trotter_steps::Int64)
+    """2nd order Trotter with diagonalization"""
+    timestep::Float64 = T / num_trotter_steps
+
+    trott2_1step = trotter2(hamiltonian, T/num_trotter_steps, 1)
+    eig_vals, eig_vecs = eigen(trott2_1step)
+    return eig_vecs * Diagonal(eig_vals)^num_trotter_steps * eig_vecs'
 end
 
 #*#*#* TESTING *#*#*#
@@ -147,70 +193,76 @@ end
 
 
 #* Small Hamiltonian time evolution Test
-sigmax::Matrix{ComplexF64} = [0 1; 1 0]
-sigmay::Matrix{ComplexF64} = [0.0 -im; im 0.0]
-sigmaz::Matrix{ComplexF64} = [1 0; 0 -1]
+# sigmax::Matrix{ComplexF64} = [0 1; 1 0]
+# sigmay::Matrix{ComplexF64} = [0.0 -im; im 0.0]
+# sigmaz::Matrix{ComplexF64} = [1 0; 0 -1]
 
-num_qubits = 4
-T = 10.
-num_trotter_steps = 2
+# num_qubits = 5
+# T = 100.
+# num_trotter_steps = 20
 
-terms = [["X", "Y"], ["Z", "X"]]
-coeffs = [2.2, 3.9]
-hamiltonian = create_hamham(terms, coeffs, num_qubits)
+# terms = [["X", "Y"], ["Z", "X"]]
+# symbreak = ["Z"]
+# coeffs = [2.2, 3.9]
+# symbreak_coeffs = rand(num_qubits)
+# hamiltonian = create_hamham(terms, coeffs, symbreak, symbreak_coeffs, num_qubits)
 
-# Exact
-exact_U = exp(im * T * hamiltonian.data)
-# Trotter
-trotter_U = trotter(hamiltonian, T, num_trotter_steps; order=2)
+# # Exact
+# exact_U = exp(im * T * hamiltonian.data)
+# # Trotter
+# trotter2_U = trotter2(hamiltonian, T, num_trotter_steps)
+# trotter_U = trotter(hamiltonian, T, 2*num_trotter_steps)
 
-dist = norm(trotter_U - exact_U)
-@printf("Distance: %f\n", dist)
+# dist = norm(trotter_U - exact_U)
+# dist2 = norm(trotter2_U - exact_U)
 
+# @printf("Distance: %f\n", dist)
+# @printf("Distance 2nd order: %f\n", dist2)
 
-# #* Parameters
-# num_qubits = 8
-# mixing_time = 1
-# delta = 0.1
-# num_liouv_steps = Int(mixing_time / delta)
-# sigma = 5.
-# beta = 1.
-# eig_index = 8
-# num_trotter_steps = 1
+#* Parameters
+num_qubits = 5
+mixing_time = 1
+beta = 1.
+num_trotter_steps = 100
 
-# #* Hamiltonian
-# # hamiltonian = load("/Users/bence/code/liouvillian_metro/julia/data/hamiltonian_n4.jld")["ideal_ham"]
+#* Hamiltonian
+hamiltonian = load("/Users/bence/code/liouvillian_metro/julia/data/hamiltonian_n5.jld")["ideal_ham"]
 # hamiltonian = find_ideal_heisenberg(num_qubits, fill(1.0, 3), batch_size=1)
 
-# #* Fourier labels
-# num_energy_bits = ceil(Int64, log2((0.45 * 2) / hamiltonian.w0)) + 1  # paper (above 3.7.), later will be β dependent
-# N = 2^(num_energy_bits)
-# N_labels = [0:1:Int(N/2)-1; -Int(N/2):1:-1]
+#* Fourier labels
+num_energy_bits = ceil(Int64, log2((0.45 * 2) / hamiltonian.w0)) + 1  # paper (above 3.7.), later will be β dependent
+N = 2^(num_energy_bits)
+N_labels = [0:1:Int(N/2)-1; -Int(N/2):1:-1]
 
-# t0 = 2 * pi / (N * hamiltonian.w0)
-# time_labels = t0 * N_labels
-# T = time_labels[Int(2^(num_energy_bits - 2))]
-# energy_labels = hamiltonian.w0 * N_labels
+t0 = 2 * pi / (N * hamiltonian.w0)
+time_labels = t0 * N_labels
+T = minimum(time_labels)
+T = 1.
+# T = time_labels[Int(N/4 + 2)]
+# T = 100.
+@printf("T: %f\n", T)
+energy_labels = hamiltonian.w0 * N_labels
 
-# #* Trotter
+#* Trotter
+# @time trott = trotter(hamiltonian, T, num_trotter_steps)
+@printf("Trotterizing with diag...\n")
+@time begin
+    trott2_1step = trotter2(hamiltonian, T/num_trotter_steps, 1)
+    eig_vals, eig_vecs = eigen(trott2_1step)
+    diag_trott2 = Diagonal(eig_vals)
+    trott2_with_diag = eig_vecs * diag_trott2^num_trotter_steps * eig_vecs'
+end
+@printf("Trotterizing without diag...\n")
+# @time trott2 = trotter2(hamiltonian, T, num_trotter_steps)
 
-# @time trott = trotter(hamiltonian, T, num_trotter_steps; order=1)
+# dist_trotts = norm(trott2 - trott2_with_diag)
 
-# #* Exact time evolution 
-# @time U_exact = exp(-im * T * hamiltonian.data)
+#* Exact time evolution 
+@time U_exact = exp(im * T * hamiltonian.data)
 
 # dist = norm(trott - U_exact)
+# dist2 = norm(trott2 - U_exact)
+dist2_diag = norm(trott2_with_diag - U_exact)
 # @printf("Distance: %f\n", dist)
-# # Random Matrix
-# # Random.seed!(666)
-# # num_qubits = 6
-# # A = rand(ComplexF64, 2^num_qubits, 2^num_qubits)
-# # B = rand(ComplexF64, 2^num_qubits, 2^num_qubits)
-# # S_dense = kron(I(2^num_qubits), B)
-# # S = sparse(kron(I(2^num_qubits), B))
-# # Random sparse Matrix
-# # S = sparse(kron(B, I(2^6, 2^6)))
-
-# # Exponentiate
-# # T = 1.0
-# # @time U = exp(-im * T * S)
+# @printf("Distance 2nd order: %s\n", dist2)
+@printf("Distance 2nd order with diag: %s\n", dist2_diag)
