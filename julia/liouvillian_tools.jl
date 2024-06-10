@@ -140,7 +140,7 @@ eig_index = 8
 hamiltonian = load("/Users/bence/code/liouvillian_metro/julia/data/hamiltonian_n4.jld")["ideal_ham"]
 # hamiltonian = find_ideal_heisenberg(num_qubits, fill(1.0, 3), batch_size=1)
 # initial_state = hamiltonian.eigvecs[:, eig_index]
-# initial_dm = initial_state * initial_state'
+
 initial_dm = zeros(ComplexF64, size(hamiltonian.data))
 initial_dm[eig_index, eig_index] = 1.0  # In eigenbasis
 hamiltonian.bohr_freqs = hamiltonian.eigvals .- transpose(hamiltonian.eigvals)
@@ -185,41 +185,7 @@ trotter_error_t0 = compute_trotter_error(hamiltonian, trotter, t0)
 @printf("Trotter error T: %e\n", trotter_error_T)
 @printf("Trotter error t0: %e\n", trotter_error_t0)
 
-#* Exact Liouvillian evolution
-# gibbs = gibbs_state(hamiltonian, beta)
-
-# evolved_dm = copy(initial_dm)
-# Random.seed!(667)
-# random_site = rand(1:num_qubits)
-# random_pauli = rand(jump_paulis)
-
-# @printf("Random site: %d\n", random_site)
-# @printf("Random Pauli: %s\n", random_pauli)
-# jump_op = Matrix(pad_term([random_pauli], num_qubits, random_site))
-# jump_op_in_eigenbasis = hamiltonian.eigvecs' * jump_op * hamiltonian.eigvecs
-# jump = JumpOp(jump_op,
-#         jump_op_in_eigenbasis,
-#         Dict{Float64, SparseMatrixCSC{ComplexF64, Int64}}(), 
-#         zeros(0))
-
-# evolved_dm_exact = exact_liouvillian_step(jump, hamiltonian, initial_dm, energy_labels, delta, sigma, beta)
-# evolved_dm_alg = initial_dm + liouvillian_delta_trajectory(jump, hamiltonian, energy_labels, initial_dm, delta, sigma, beta)
-# evolved_dm_alg /= tr(evolved_dm_alg)
-
-# println("Eigvals of evolved dm alg")
-# println(eigvals(evolved_dm_alg))
-# # trace_distance(Hermitian(evolved_dm_alg), Hermitian(gibbs))
-# # Compare
-# b = SpinBasis(1//2)^num_qubits
-# @printf("Distance to each other: %s\n", tracedistance_nh(Operator(b, evolved_dm_exact), Operator(b, evolved_dm_alg)))
-# @printf("While delta^2 is: %s\n", delta^2)
-
-# @printf("Alg dist to gibbs: %s\n", tracedistance_nh(Operator(b, gibbs), Operator(b, evolved_dm_alg)))
-# @printf("Exact dist to gibbs: %s\n", tracedistance_nh(Operator(b, gibbs), Operator(b, evolved_dm_exact)))
-# printf("Trace distance: %f\n", trace_distance(Hermitian(evolved_dm_exact), Hermitian(evolved_dm_alg)))
-
-
-#* Many steps and convergence:
+#* Many steps convergence:
 b = SpinBasis(1//2)^num_qubits
 gibbs = gibbs_state(hamiltonian, beta)
 evolved_dm = copy(initial_dm)
@@ -311,40 +277,48 @@ for delta_step in 1:num_liouv_steps
     push!(fids, fid)
 end
 
-#* Plot
-# plot!(tspan, exact_distances_to_gibbs, ylims=(0, 1),
-#     label=" Exact Trace distance to Gibbs", xlabel="Time", ylabel="Distance", 
-#     title="Liouvillian dynamics")
-
 @printf("Final distance to Gibbs: %f\n", distances_to_gibbs[end])
 @printf("Final fidelity to Gibbs: %f\n", fids[end])
+
+#* Plot
+# Ribbon with 2 * delta^2 width around exact trace distance curve
+plot!(tspan, exact_distances_to_gibbs, ribbon=2*delta^2, fillalpha=0.2, fillcolor=:orange, label="Exact", color=:orange)
+# savefig("4-8_gibbs_conv")
+# annotate!(1, 0.5, text("Final distance to Gibbs: $round((distances_to_gibbs[end]), digits=3)", 10, :left))
 
 # plot!(tspan, fids, ylims=(0, 1),
 #     label="Exact Fidelity to Gibbs", xlabel="Time", ylabel="Fidelity", 
 #     title="Liouvillian dynamics")
 
-# Ribbon with 2 * delta^2 width around exact trace distance curve
-plot!(tspan, exact_distances_to_gibbs, ribbon=2*delta^2, fillalpha=0.2, fillcolor=:orange, label="Exact", color=:orange)
-savefig("4-8_gibbs_conv")
-# annotate!(1, 0.5, text("Final distance to Gibbs: $round((distances_to_gibbs[end]), digits=3)", 10, :left))
+#* Exact Liouvillian evolution at once
+# gibbs = gibbs_state(hamiltonian, beta)
 
+# evolved_dm = copy(initial_dm)
+# Random.seed!(667)
+# random_site = rand(1:num_qubits)
+# random_pauli = rand(jump_paulis)
+
+# @printf("Random site: %d\n", random_site)
+# @printf("Random Pauli: %s\n", random_pauli)
+# jump_op = Matrix(pad_term([random_pauli], num_qubits, random_site))
+# jump_op_in_eigenbasis = hamiltonian.eigvecs' * jump_op * hamiltonian.eigvecs
+# jump = JumpOp(jump_op,
+#         jump_op_in_eigenbasis,
+#         Dict{Float64, SparseMatrixCSC{ComplexF64, Int64}}(), 
+#         zeros(0))
+
+# evolved_dm_exact = exact_liouvillian_step(jump, hamiltonian, initial_dm, energy_labels, delta, sigma, beta)
+# evolved_dm_alg = initial_dm + liouvillian_delta_trajectory(jump, hamiltonian, energy_labels, initial_dm, delta, sigma, beta)
+# evolved_dm_alg /= tr(evolved_dm_alg)
+
+# println("Eigvals of evolved dm alg")
+# println(eigvals(evolved_dm_alg))
+# # trace_distance(Hermitian(evolved_dm_alg), Hermitian(gibbs))
+# # Compare
 # b = SpinBasis(1//2)^num_qubits
+# @printf("Distance to each other: %s\n", tracedistance_nh(Operator(b, evolved_dm_exact), Operator(b, evolved_dm_alg)))
+# @printf("While delta^2 is: %s\n", delta^2)
 
-# initial_dm = Operator(b, initial_dm)
-# evolution_hamiltonian = Operator(b, spzeros(ComplexF64, 2^num_qubits, 2^num_qubits))
-
-# # All jumps
-# Fw = exp.(- sigma^2 * (energy_labels).^2)
-# Fw_norm = sqrt(sum(Fw.^2))
-# all_jumps = [Operator(b, entry_wise_oft(jump, w, hamiltonian, sigma, beta) / Fw_norm) for w in energy_labels]
-
-# function fout(t, rho)
-#     return trace_distance(Hermitian(rho.data / tr(rho.data)), gibbs)
-# end
-
-# #! This uses only one jump at one site atm, and the above for loop somehow doesnt work yet.
-# tout, distances = timeevolution.master(tspan, initial_dm, evolution_hamiltonian, all_jumps; fout=fout)
-
-# plot(tout, distances, ylims=(0, 1),
-#     label="Trace distance to Gibbs", xlabel="Time", ylabel="Distance", 
-#     title="Liouvillian dynamics")
+# @printf("Alg dist to gibbs: %s\n", tracedistance_nh(Operator(b, gibbs), Operator(b, evolved_dm_alg)))
+# @printf("Exact dist to gibbs: %s\n", tracedistance_nh(Operator(b, gibbs), Operator(b, evolved_dm_exact)))
+# printf("Trace distance: %f\n", trace_distance(Hermitian(evolved_dm_exact), Hermitian(evolved_dm_alg)))
