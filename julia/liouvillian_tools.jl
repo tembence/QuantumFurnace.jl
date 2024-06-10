@@ -5,6 +5,7 @@ using Printf
 using ProgressMeter
 using Distributed
 using QuantumOptics
+using LaTeXStrings
 
 include("jump_op_tools.jl")
 include("hamiltonian_tools.jl")
@@ -127,8 +128,8 @@ end
 #! 68s (q, r) = (8, 16)
 
 #* Parameters
-num_qubits = 5
-mixing_time = 2
+num_qubits = 4
+mixing_time = 10
 delta = 0.1
 num_liouv_steps = Int(mixing_time / delta)
 sigma = 5.
@@ -136,7 +137,7 @@ beta = 1.
 eig_index = 8
 
 #* Hamiltonian
-hamiltonian = load("/Users/bence/code/liouvillian_metro/julia/data/hamiltonian_n5.jld")["ideal_ham"]
+hamiltonian = load("/Users/bence/code/liouvillian_metro/julia/data/hamiltonian_n4.jld")["ideal_ham"]
 # hamiltonian = find_ideal_heisenberg(num_qubits, fill(1.0, 3), batch_size=1)
 # initial_state = hamiltonian.eigvecs[:, eig_index]
 # initial_dm = initial_state * initial_state'
@@ -175,11 +176,14 @@ energy_labels = hamiltonian.w0 * N_labels
 #* Trotter
 num_trotter_steps_per_t0 = Int(1)
 trotter = create_trotter(hamiltonian, t0, num_trotter_steps_per_t0)
-@time trotter_error = compute_trotter_error(hamiltonian, trotter, N*t0)
+@time trotter_error_T = compute_trotter_error(hamiltonian, trotter, N*t0 / 2)
+trotter_error_t0 = compute_trotter_error(hamiltonian, trotter, t0)
+
 @printf("t0: %e\n", trotter.t0)
 @printf("Steps per t0: %d\n", trotter.num_trotter_steps_per_t0)
 @printf("Max time: %e\n", N*t0)
-@printf("Trotter error: %e\n", trotter_error)
+@printf("Trotter error T: %e\n", trotter_error_T)
+@printf("Trotter error t0: %e\n", trotter_error_t0)
 
 #* Exact Liouvillian evolution
 # gibbs = gibbs_state(hamiltonian, beta)
@@ -257,9 +261,9 @@ for delta_step in 1:num_liouv_steps
 end
 
 tspan =[0.0:delta:mixing_time;]
-plot(tspan, trott_distances_to_gibbs, ylims=(0, 1),
+plot(tspan, trott_distances_to_gibbs, ylims=(0, 1), color=:purple,
     label="Trotter", xlabel="Time", ylabel="Trace distance", 
-    title="Convergence to Gibbs state")
+    title="Convergence to Gibbs state, 4/8-Heisenberg-Z")
 
 @printf("Final distance to Gibbs (Trotter): %f\n", trott_distances_to_gibbs[end])
 
@@ -277,12 +281,16 @@ for delta_step in 1:num_liouv_steps
     push!(distances_to_gibbs, dist)
 end
 
-plot!(tspan, distances_to_gibbs, ylims=(0, 1),
-    label="Algorithm", xlabel="Time", ylabel="Trace distance", 
-    title="Convergence to Gibbs state")
+plot!(tspan, distances_to_gibbs, ylims=(0, 1), color=:maroon,
+    label="Algorithm")
 
 @printf("Final distance to Gibbs: %f\n", distances_to_gibbs[end])
 
+#* Deviations between Trotter and Exact time evolution
+deviations = norm(distances_to_gibbs - trott_distances_to_gibbs)
+@printf("Trotter error T: %e\n", trotter_error_T)
+@printf("Trotter error t0: %e\n", trotter_error_t0)
+@printf("Deviation between Trotter and Alg: %s\n", deviations)
 
 #* Exact
 evolved_dm = copy(initial_dm)
@@ -316,8 +324,8 @@ end
 #     title="Liouvillian dynamics")
 
 # Ribbon with 2 * delta^2 width around exact trace distance curve
-plot!(tspan, exact_distances_to_gibbs, ribbon=2*delta^2, fillalpha=0.2, fillcolor=:orange, label="Exact")
-
+plot!(tspan, exact_distances_to_gibbs, ribbon=2*delta^2, fillalpha=0.2, fillcolor=:orange, label="Exact", color=:orange)
+savefig("4-8_gibbs_conv")
 # annotate!(1, 0.5, text("Final distance to Gibbs: $round((distances_to_gibbs[end]), digits=3)", 10, :left))
 
 # b = SpinBasis(1//2)^num_qubits
