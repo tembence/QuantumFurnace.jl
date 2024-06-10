@@ -11,16 +11,22 @@ using Plots
 include("hamiltonian_tools.jl")
 include("trotter.jl")
 include("qi_tools.jl")
+include("trotter.jl")
 
 mutable struct JumpOp
     data::Matrix{ComplexF64}
     in_eigenbasis::Matrix{ComplexF64}
     bohr_decomp::Dict{Float64, SparseMatrixCSC{ComplexF64, Int64}}
     unique_freqs::Vector{Float64}
+    in_trotter_basis::Matrix{ComplexF64}
+end
+
+function add_jump_in_trotter_basis(jump::JumpOp, trotter::TrottTrott)
+    """Adds a jump operator in the Trotter basis"""
+    jump.in_trotter_basis = trotter.eigvecs' * jump.data * trotter.eigvecs
 end
 
 #TODO: Write a parallelized function to compute OFT for all energies at once (if you can store them)
-
 function entry_wise_oft(jump::JumpOp, energy::Float64, hamiltonian::HamHam, sigma::Float64, beta::Float64)
     """Uses the already Fourier transformed Gaussian filter fn."""
     # The for loop version is the same but a bit slower than broadcasting
@@ -66,30 +72,35 @@ function explicit_oft(jump::JumpOp, hamiltonian::HamHam, energy::Float64, time_l
     return oft_op
 end
 
-function explicit_oft_trotter(jump::JumpOp, hamiltonian::HamHam, energy::Float64, time_labels::Vector{Float64},
-    sigma::Float64, beta::Float64, num_trotter_steps_per_t0::Int64)
+function explicit_trotter_oft(jump::JumpOp, trotter::TrottTrott, 
+    energy::Float64, time_labels::Vector{Float64}, sigma::Float64, beta::Float64)
     """Fourier transforms by summing over the time labels. Both time_labels and the energy should be in t0, w0 units.
-    Time evolution is done with Trotterization."""
+    Time evolution is done with Trotterization. Computes stuff in the Trotter basis."""
 
     time_gaussian_factors = exp.(- time_labels.^2 / (4 * sigma^2))
     normalized_time_gaussian_factors = time_gaussian_factors / sqrt(sum(time_gaussian_factors.^2))
     
     fourier_phase_factors = exp.(-1im * energy * time_labels) / sqrt(length(time_labels))
 
-    t0 = time_labels[2] - time_labels[1]
-    trott2_1step = trotter2(hamiltonian, t0/num_trotter_steps_per_t0, 1)
-    eig_vals, eig_vecs = eigen(trott2_1step)
-    trott2_t0 = Diagonal(eig_vals)^num_trotter_steps_per_t0
-    #! FINISH THIS, SO THAT YOU DONT HAVE TO CALL TROTTER2_DIAG IN THE FOR LOOP  #TODO:
+    # Do a t0 Trotter with steps s.t. it is precise for the longest time evolution in the algorithm (N * t0 or N/2 * t0)
 
     oft_op = zeros(ComplexF64, size(jump.data))
-    @showprogress "Explicit Trotter OFT..." for t in eachindex(time_labels)
-        trott_U = trotter2_diag(hamiltonian, time_labels[t], num_trotter_steps)
-        oft_op += fourier_phase_factors[t] * normalized_time_gaussian_factors[t] * 
-        trott_U * jump.data * adjoint(trott_U)
+    @showprogress "Explicit Trotter OFT..." for i in eachindex(time_labels)
+        t = time_labels[i]
+        if t >= 0
+            trott_U = Diagonal(trotter.eigvals_t0)^(Int(round(t / trotter.t0, digits=0)))
+        else
+            trott_U = adjoint(Diagonal(trotter.eigvals_t0))^(Int(round(-t / trotter.t0, digits=0)))
+        end
+        oft_op += fourier_phase_factors[i] * normalized_time_gaussian_factors[i] * 
+                    trott_U * jump.in_trotter_basis * adjoint(trott_U)
     end
 
-    return hamiltonian.eigvecs' * oft_op * hamiltonian.eigvecs
+    # Return in energy basis
+    # hamiltonian.eigvecs' * trotter.eigvecs * oft_op * trotter.eigvecs' * hamiltonian.eigvecs
+
+    # Return in Trotter basis
+    return oft_op
 end
 
 # Sometimes gives Inf values in matrix...
@@ -158,27 +169,18 @@ end
 #* ---------- Test ----------
 
 #* Parameters
-num_qubits = 4
+num_qubits = 8
 sigma = 5.
 beta = 1.
 eig_index = 8
 jump_site_index = 1
 
 #* Hamiltonian
-hamiltonian = load("/Users/bence/code/liouvillian_metro/julia/data/hamiltonian_n4.jld")["ideal_ham"]
+hamiltonian = load("/Users/bence/code/liouvillian_metro/julia/data/hamiltonian_n8.jld")["ideal_ham"]
 # hamiltonian = find_ideal_heisenberg(num_qubits, fill(1.0, 3), batch_size=1)
 initial_state = hamiltonian.eigvecs[:, eig_index]
 hamiltonian.bohr_freqs = hamiltonian.eigvals .- transpose(hamiltonian.eigvals)
 display(hamiltonian.bohr_freqs)
-
-#* Jump operators
-sigmax::Matrix{ComplexF64} = [0 1; 1 0]
-jump_op = Matrix(pad_term([sigmax], num_qubits, jump_site_index))
-jump_op_in_eigenbasis = hamiltonian.eigvecs' * jump_op * hamiltonian.eigvecs
-jump = JumpOp(jump_op,
-        jump_op_in_eigenbasis,
-        Dict{Float64, SparseMatrixCSC{ComplexF64, Int64}}(), 
-        zeros(0))
 
 # #! Uncomment for bohr oft
 # construct_A_nus(jump, hamiltonian)
@@ -204,6 +206,7 @@ t0 = 2 * pi / (N * hamiltonian.w0)
 N_labels = [0:1:Int(N/2)-1; -Int(N/2):1:-1]
 time_labels = t0 * N_labels
 energy_labels = hamiltonian.w0 * N_labels
+truncated_energy_labels = energy_labels[abs.(energy_labels) .<= 0.45]
 
 ft = exp.(-time_labels.^2 / (4 * sigma^2))
 ft_norm = sqrt(sum(ft.^2))
@@ -225,6 +228,21 @@ phase = energy * N / (2 * pi)
 
 # oft_precision = ceil(Int, abs(log10(N^(-1))))
 # hamiltonian.bohr_freqs = round.(hamiltonian.eigvals .- transpose(hamiltonian.eigvals), digits=oft_precision+3)
+
+#* Trotter
+num_trotter_steps_per_t0 = Int(1)
+trotter = create_trotter(hamiltonian, t0, num_trotter_steps_per_t0)
+
+#* Jump operators
+sigmax::Matrix{ComplexF64} = [0 1; 1 0]
+jump_op = Matrix(pad_term([sigmax], num_qubits, jump_site_index))
+jump_op_in_eigenbasis = hamiltonian.eigvecs' * jump_op * hamiltonian.eigvecs
+jump_in_trotter_basis = trotter.eigvecs' * jump_op * trotter.eigvecs
+jump = JumpOp(jump_op,
+        jump_op_in_eigenbasis,
+        Dict{Float64, SparseMatrixCSC{ComplexF64, Int64}}(), 
+        zeros(0), 
+        jump_in_trotter_basis)
 
 #* Testin eigenbasis trafo
 # t = 2.1
@@ -251,17 +269,20 @@ phase = energy * N / (2 * pi)
 
 # # #* -------------------------------------------- *#
 
-num_trotter_steps = Int(5e3)
 @printf("Minimum time: %f\n", minimum(time_labels))
-@time oft_expl_trotter = explicit_oft_trotter(jump, hamiltonian, energy, time_labels, sigma, beta, num_trotter_steps)
+@printf("Number of labels %d\n", N)
+@printf("Number of truncated labels %d\n", length(truncated_energy_labels))
+@time oft_expl_trotter = explicit_trotter_oft(jump, trotter, energy, time_labels, sigma, beta)
+oft_expl_trotter_in_eigenbasis = hamiltonian.eigvecs' * trotter.eigvecs * oft_expl_trotter * trotter.eigvecs' * hamiltonian.eigvecs
 @time oft_expl = explicit_oft(jump, hamiltonian, energy, time_labels, sigma, beta)
-@printf("Distance Expl - Expl Trotter: %e\n", frobenius_norm(oft_expl - oft_expl_trotter))
-display(norm(oft_expl - oft_expl_trotter))
+@printf("Distance Expl - Expl Trotter: %e\n", frobenius_norm(oft_expl - oft_expl_trotter_in_eigenbasis))
+display(norm(oft_expl - oft_expl_trotter_in_eigenbasis))
 
 
 # # is it real?
 # # display(isapprox(imag(oft_expl), zeros(ComplexF64, size(jump.data))))
-# @time oft_entry= entry_wise_oft(jump, energy, hamiltonian, sigma, beta) / (Fw_norm)
+@time oft_entry = entry_wise_oft(jump, energy, hamiltonian, sigma, beta) / (Fw_norm)
+@printf("Distance Expl Trotter - Dream: %e\n", frobenius_norm(oft_expl_trotter_in_eigenbasis - oft_entry))
 # # display(isapprox(imag(oft_entry), zeros(ComplexF64, size(jump.data))))
 # # expl_entries = collect(Iterators.flatten(oft_expl))
 # # expl_entries[(imag(expl_entries)) .> 1e-18]
