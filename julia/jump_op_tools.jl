@@ -36,7 +36,7 @@ function entry_wise_oft(jump::JumpOp, energy::Float64, hamiltonian::HamHam, sigm
     #     jump_oft[i, j] = jump.in_eigenbasis[i, j] * exp(-(energy - hamiltonian.bohr_freqs[i, j])^2 * sigma^2)
     # end
 
-    # return hamiltonian.eigvecs * jump.in_eigenbasis .* exp.(-((energy .- hamiltonian.bohr_freqs)).^2 * sigma^2) * hamiltonian.eigvecs'
+    #! Write it such that it knows about energy precision
     return jump.in_eigenbasis .* exp.(-((energy .- hamiltonian.bohr_freqs)).^2 * sigma^2)
 end
 
