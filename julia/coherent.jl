@@ -27,14 +27,17 @@ end
 function coherent_bohr_explicit(hamiltonian::HamHam, jump::JumpOp, beta::Float64)
 
     dim = size(hamiltonian.bohr_freqs, 1)
-    B::Matrix{ComplexF64} = zeros(dim, dim)
+    B::SparseMatrixCSC{ComplexF64, Int64} = spzeros(dim, dim)
     for j in 1:dim
-        for k in 1:dim
-            for i in 1:dim
-                for l in 1:dim
-                    v = hamiltonian.bohr_freqs[i, j] - hamiltonian.bohr_freqs[i, k]
-                    B[k, j] = (tanh(-beta * v / 4) / (2*im)) * conj(jump.in_eigenbasis[k, i]) * jump.in_eigenbasis[i, j]
-                end
+        for i in 1:dim
+            for k in 1:dim
+                    v = hamiltonian.bohr_freqs[k, i]
+                    sp_v2 = spzeros(dim, dim)
+                    sp_v2[i, k] = jump.in_eigenbasis[i, k]
+                    sp_v1 = spzeros(dim, dim)
+                    sp_v1[i, j] = jump.in_eigenbasis[i, j]
+
+                    B += (tanh(-beta * v / 4) / (2*im)) * sp_v2' * sp_v1
             end
         end
     end
@@ -42,7 +45,11 @@ function coherent_bohr_explicit(hamiltonian::HamHam, jump::JumpOp, beta::Float64
 end
 
 # (3.1) and Proposition III.1
-function coherent_timedomain()
+function coherent_gaussian_timedomain(jump::JumpOp, hamiltonian::HamHam, time_labels::Vector{Float64},
+    sigma::Float64, beta::Float64)
+end
+
+function coherent_metropolis_timedomain()
 end
 
 #* Testing

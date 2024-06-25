@@ -143,7 +143,7 @@ hamiltonian = load("/Users/bence/code/liouvillian_metro/julia/data/hamiltonian_n
 
 initial_dm = zeros(ComplexF64, size(hamiltonian.data))
 initial_dm[eig_index, eig_index] = 1.0  # In eigenbasis
-# hamiltonian.bohr_freqs = hamiltonian.eigvals .- transpose(hamiltonian.eigvals)
+hamiltonian.bohr_freqs = hamiltonian.eigvals .- transpose(hamiltonian.eigvals)
 # display(hamiltonian.bohr_freqs)
 
 #* Jump operators
@@ -160,8 +160,8 @@ jump_paulis = [X, Y, Z]
 #         zeros(0))
 
 #* Fourier labels
-#! HOW MANY ESTIMATING QUBITS
-num_energy_bits = ceil(Int64, log2((0.45 * 2) / hamiltonian.w0)) - 4  # paper (above 3.7.), later will be β dependent
+num_energy_bits = ceil(Int64, log2((0.45 * 2) / hamiltonian.w0)) + 1 # paper (above 3.7.), later will be β dependent
+num_energy_bits = 9
 N = 2^(num_energy_bits)
 N_labels = [0:1:Int(N/2)-1; -Int(N/2):1:-1]
 
@@ -174,10 +174,9 @@ energy_labels = hamiltonian.w0 * N_labels
 @printf("Energy unit: %e\n", hamiltonian.w0)
 @printf("Time unit: %e\n", t0)
 
-#* Bohr freqs
-#! ROUNDING
-oft_precision = ceil(Int, abs(log10(N^(-1))))
-hamiltonian.bohr_freqs = round.(hamiltonian.eigvals .- transpose(hamiltonian.eigvals), digits=oft_precision)
+# Bohr freqs rounded
+# oft_precision = ceil(Int, abs(log10(N^(-1))))
+# hamiltonian.bohr_freqs = round.(hamiltonian.eigvals .- transpose(hamiltonian.eigvals), digits=oft_precision)
 
 #* Trotter
 num_trotter_steps_per_t0 = Int(1)
@@ -194,11 +193,11 @@ trotter_error_t0 = compute_trotter_error(hamiltonian, trotter, t0)
 #* Many steps convergence:
 b = SpinBasis(1//2)^num_qubits
 gibbs = gibbs_state(hamiltonian, beta)
+round.(abs.(gibbs), digits=4)
 evolved_dm = copy(initial_dm)
 distances_to_gibbs = [tracedistance_nh(Operator(b, evolved_dm), Operator(b, gibbs))]
 
 # Pregenerate all random jumps
-# NOTE: storing all_random_jumps_generated might not be viable at learger systems
 all_random_jumps_generated = []
 Random.seed!(666)
 for _ in 1:num_liouv_steps
@@ -224,7 +223,7 @@ tspan =[0.0:delta:mixing_time;]
 #     # Random jump
 #     jump_delta = all_random_jumps_generated[delta_step]
 
-#     # Evolve by delta time steps
+#     # Evolve by delta time steps in Trotter basis
 #     evolved_dm_trott += liouvillian_delta_trajectory_trotter(jump_delta, trotter, energy_labels, evolved_dm_trott, 
 #                     delta, sigma, beta)
 #     evolved_dm_trott /= tr(evolved_dm_trott)
@@ -234,13 +233,21 @@ tspan =[0.0:delta:mixing_time;]
 # end
 
 # plot(tspan, trott_distances_to_gibbs, ylims=(0, 1), color=:purple,
-#     label="Trotter", xlabel="Time", ylabel="Trace distance", 
-#     title="Convergence to Gibbs state, 4/8-Heisenberg-Z")
+#     label="time domain", xlabel="Time", ylabel="Trace distance", 
+#     title="Convergence to Gibbs state")
+
+# println(round.(abs.(diag(hamiltonian.eigvecs' * trotter.eigvecs * evolved_dm_trott * trotter.eigvecs' * hamiltonian.eigvecs)), digits=4))
+# println(round.(abs.(diag(gibbs)), digits=4))
+# tracedistance_nh(Operator(b, hamiltonian.eigvecs' * trotter.eigvecs * evolved_dm_trott * trotter.eigvecs' * hamiltonian.eigvecs), Operator(b, gibbs))
+
+
+# plot!(tspan, trott_distances_to_gibbs, ylims=(0, 1),
+#         label="0")
 
 # @printf("Final distance to Gibbs (Trotter): %f\n", trott_distances_to_gibbs[end])
 
 #* Alg
-# 
+
 evolved_dm = copy(initial_dm)
 p = Progress(length(num_liouv_steps))
 @showprogress dt=1 desc="Algorithmic converging to Gibbs..." for delta_step in 1:num_liouv_steps
@@ -256,14 +263,14 @@ p = Progress(length(num_liouv_steps))
     push!(distances_to_gibbs, dist)
 end
 
-plot(tspan, distances_to_gibbs, ylims=(0, 1), color=:purple,
-    label="n=4", xlabel="Time", ylabel="Trace distance", 
-    title="Convergence to Gibbs state, n4r8-Heisenberg-Z")
+# plot(tspan, distances_to_gibbs, ylims=(0, 1), color=:purple,
+#     label="r=1", xlabel="Time", ylabel="Trace distance", 
+#     title="Convergence to Gibbs state, n4-Heisenberg-Z")
 
-# plot!(tspan, distances_to_gibbs, ylims=(0, 1),
-#     label="n=7")
-
-# savefig("n4-n7_gibbs_conv")
+plot!(tspan, distances_to_gibbs, ylims=(0, 1),
+    label="r=9")
+    
+# savefig("n4-r1-r9_gibbs_conv.pdf")
 
 # plot!(tspan, distances_to_gibbs, ylims=(0, 1), color=:maroon,
 #     label="Algorithm")

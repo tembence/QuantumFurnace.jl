@@ -173,18 +173,18 @@ end
 #* ---------- Test ----------
 
 #* Parameters
-# num_qubits = 5
+# num_qubits = 6
 # sigma = 5.
 # beta = 1.
 # eig_index = 8
 # jump_site_index = 1
 
 # #* Hamiltonian
-# hamiltonian = load("/Users/bence/code/liouvillian_metro/julia/data/hamiltonian_n5.jld")["ideal_ham"]
+# hamiltonian = load("/Users/bence/code/liouvillian_metro/julia/data/hamiltonian_n6.jld")["ideal_ham"]
 # # hamiltonian = find_ideal_heisenberg(num_qubits, fill(1.0, 3), batch_size=1)
 # initial_state = hamiltonian.eigvecs[:, eig_index]
-# hamiltonian.bohr_freqs = hamiltonian.eigvals .- transpose(hamiltonian.eigvals)
-# display(hamiltonian.bohr_freqs)
+# # hamiltonian.bohr_freqs = hamiltonian.eigvals .- transpose(hamiltonian.eigvals)
+# # display(hamiltonian.bohr_freqs)
 
 # # #! Uncomment for bohr oft
 # # construct_A_nus(jump, hamiltonian)
@@ -220,7 +220,8 @@ end
 # # isapprox(sqrt(length(time_labels)) * ft_norm, Fw_norm)
 
 # # This has always the same form independent of w0, since in the Fourier phase we always have w0t0 = 2pi / N
-# energy = energy_labels[100]
+# # energy = truncated_energy_labels[Int(round(length(truncated_energy_labels) / 2, digits=0))]
+# energy = rand(truncated_energy_labels)
 # phase = energy * N / (2 * pi)
 
 # @printf("Number of qubits: %d\n", num_qubits)
@@ -229,15 +230,22 @@ end
 # @printf("Time unit: %e\n", t0)
 # @printf("\nEnergy: %f\n", energy)
 
-# # oft_precision = ceil(Int, abs(log10(N^(-1))))
-# # hamiltonian.bohr_freqs = round.(hamiltonian.eigvals .- transpose(hamiltonian.eigvals), digits=oft_precision+3)
+# #* Energy precision
+# function round_to_oft_precision(value::Float64, precision::Float64)
+#     return round(value / precision) * precision
+# end
+
+# # Rounded bohr freqs
+# # hamiltonian.bohr_freqs = round_to_oft_precision.(hamiltonian.eigvals .- transpose(hamiltonian.eigvals), N^(-1))
+# # Exact bohr freqs
+# hamiltonian.bohr_freqs = hamiltonian.eigvals .- transpose(hamiltonian.eigvals)
 
 # #* Trotter
 # num_trotter_steps_per_t0 = Int(1)
 # trotter = create_trotter(hamiltonian, t0, num_trotter_steps_per_t0)
 # trotter_error_T = compute_trotter_error(hamiltonian, trotter, N*t0 / 2)
 # trotter_error_t0 = compute_trotter_error(hamiltonian, trotter, t0)
-# @printf("Trotter error T: %e\n", trotter_error)
+# @printf("Trotter error T: %e\n", trotter_error_T)
 # @printf("Trotter error t0: %e\n", trotter_error_t0)
 
 # #* Jump operators
@@ -279,17 +287,17 @@ end
 # @printf("Minimum time: %f\n", minimum(time_labels))
 # @printf("Number of labels %d\n", N)
 # @printf("Number of truncated labels %d\n", length(truncated_energy_labels))
-# @time oft_expl_trotter = explicit_trotter_oft(jump, trotter, energy, time_labels, sigma, beta)
-# oft_expl_trotter_in_eigenbasis = hamiltonian.eigvecs' * trotter.eigvecs * oft_expl_trotter * trotter.eigvecs' * hamiltonian.eigvecs
+# # @time oft_expl_trotter = explicit_trotter_oft(jump, trotter, energy, time_labels, sigma, beta)
+# # oft_expl_trotter_in_eigenbasis = hamiltonian.eigvecs' * trotter.eigvecs * oft_expl_trotter * trotter.eigvecs' * hamiltonian.eigvecs
 # @time oft_expl = explicit_oft(jump, hamiltonian, energy, time_labels, sigma, beta)
-# @printf("Distance Expl - Expl Trotter: %e\n", frobenius_norm(oft_expl - oft_expl_trotter_in_eigenbasis))
-# display(norm(oft_expl - oft_expl_trotter_in_eigenbasis))
+# # @printf("Distance Expl - Expl Trotter: %e\n", frobenius_norm(oft_expl - oft_expl_trotter_in_eigenbasis))
+# # display(norm(oft_expl - oft_expl_trotter_in_eigenbasis))
 
 
 # # # is it real?
 # # # display(isapprox(imag(oft_expl), zeros(ComplexF64, size(jump.data))))
 # @time oft_entry = entry_wise_oft(jump, energy, hamiltonian, sigma, beta) / (Fw_norm)
-# @printf("Distance Expl Trotter - Dream: %e\n", frobenius_norm(oft_expl_trotter_in_eigenbasis - oft_entry))
+# @printf("Distance Expl Trotter - Dream: %e\n", frobenius_norm(oft_expl - oft_entry))
 # # # display(isapprox(imag(oft_entry), zeros(ComplexF64, size(jump.data))))
 # # # expl_entries = collect(Iterators.flatten(oft_expl))
 # # # expl_entries[(imag(expl_entries)) .> 1e-18]
