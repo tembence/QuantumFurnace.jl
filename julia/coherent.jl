@@ -7,6 +7,7 @@ using Distributed
 using TensorOperations
 using JLD
 using Plots
+using QuadGK
 
 include("hamiltonian_tools.jl")
 include("jump_op_tools.jl")
@@ -47,9 +48,25 @@ end
 # (3.1) and Proposition III.1
 function coherent_gaussian_timedomain(jump::JumpOp, hamiltonian::HamHam, time_labels::Vector{Float64},
     sigma::Float64, beta::Float64)
+    b1 = compute_b1(time_labels)
+    b2 = exp.(-4*time_labels.^2 .- 2*im*time_labels) / sqrt(4*pi^3)
+    #TODO: Continue here with the time sums (3.1)
 end
 
 function coherent_metropolis_timedomain()
+end
+
+function convolute(f::Function, g::Function, t::Float64; atol=1e-12, rtol=1e-12)
+    integrand(s) = f(s) * g(t - s)
+    result, _ = quadgk(integrand, -Inf, Inf; atol=atol, rtol=rtol)
+    return result
+end
+
+# Corollary III.1, every parameter = 1 / beta
+function compute_b1(time_labels::Vector{Float64})
+    f1(t) = 1 / cosh(2 * pi * t)
+    f2(t) = sin(-t) * exp(-2 * t^2)
+    return 2 * sqrt(pi) * exp(1/8) * convolute.(Ref(f1), Ref(f2), time_labels)
 end
 
 #* Testing
@@ -74,6 +91,20 @@ jump = JumpOp(jump_op,
         Dict{Float64, SparseMatrixCSC{ComplexF64, Int64}}(), 
         zeros(0), 
         zeros(0, 0))
+
+#* b1 
+# N = 2^(12)
+# N_labels = [-Int(N/2):1:-1; 0:1:Int(N/2)-1]
+
+# w0 = 0.1
+# t0 = 2 * pi / (N * w0)
+# time_labels = t0 * N_labels
+
+# @time b1 = compute_b1(time_labels)
+
+#TODO: Check l1 norm 
+
+# plot(time_labels, real.(b1), label="Real part")
 
 #* Coherent dynamics
 @time B = coherent_bohr(hamiltonian, jump, beta)
