@@ -48,9 +48,31 @@ end
 # (3.1) and Proposition III.1
 function coherent_gaussian_timedomain(jump::JumpOp, hamiltonian::HamHam, time_labels::Vector{Float64},
     sigma::Float64, beta::Float64)
+    """Coherent term for the Gaussian case, written in timedomain and using ideal time evolution.
+    Working in the energy eigenbasis for the time evolutions, where H is diagonal."""
+    
     b1 = compute_b1(time_labels)
     b2 = exp.(-4*time_labels.^2 .- 2*im*time_labels) / sqrt(4*pi^3)
-    #TODO: Continue here with the time sums (3.1)
+
+    diag_time_evolve(t) = Diagonal(exp.(1im * hamiltonian.eigvals * t))
+
+    B = zeros(ComplexF64, size(hamiltonian.data, 1), size(hamiltonian.data, 1))
+
+    jump_op_in_eigenbasis_dag = jump.in_eigenbasis'
+    # Outer sum b1
+    for (i, t) in enumerate(time_labels)
+        time_evolution_outer = diag_time_evolve(beta * t)
+
+        # Inner sum b2
+        b2_sum = zeros(ComplexF64, size(hamiltonian.data, 1), size(hamiltonian.data, 1))
+        for (j, s) in enumerate(time_labels)
+            time_evolution_inner = diag_time_evolve(beta * s)
+            b2_sum .+= b2[j] * time_evolution_inner^2 * (time_evolution_inner')^2 * (jump_op_in_eigenbasis_dag * jump.in_eigenbasis)
+        end
+
+        B .+= b1[i] * time_evolution_outer' * b2_sum * time_evolution_outer
+    end
+    return B
 end
 
 function coherent_metropolis_timedomain()

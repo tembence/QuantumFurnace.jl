@@ -65,7 +65,7 @@ function explicit_oft(jump::JumpOp, hamiltonian::HamHam, energy::Float64, time_l
 
     oft_op = zeros(ComplexF64, size(jump.data))
     @showprogress "Explicit OFT..." for t in eachindex(time_labels)
-        oft_op += fourier_phase_factors[t] * normalized_time_gaussian_factors[t] * 
+        oft_op .+= fourier_phase_factors[t] * normalized_time_gaussian_factors[t] * 
         diag_exponentiate(time_labels[t]) * jump.in_eigenbasis * diag_exponentiate(-time_labels[t])
     end
 
@@ -92,10 +92,10 @@ function explicit_trotter_oft(jump::JumpOp, trotter::TrottTrott,
         trott_U_minus = adjoint(trott_U_plus)
 
         if i <= length(time_labels) / 2
-            oft_op += fourier_phase_factors[i] * normalized_time_gaussian_factors[i] * 
+            oft_op .+= fourier_phase_factors[i] * normalized_time_gaussian_factors[i] * 
                     trott_U_plus * jump.in_trotter_basis * trott_U_minus
         else
-            oft_op += fourier_phase_factors[i] * normalized_time_gaussian_factors[i] * 
+            oft_op .+= fourier_phase_factors[i] * normalized_time_gaussian_factors[i] * 
                     trott_U_minus * jump.in_trotter_basis * trott_U_plus
         end
     end
