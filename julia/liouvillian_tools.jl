@@ -12,9 +12,11 @@ include("hamiltonian_tools.jl")
 include("qi_tools.jl")
 include("trotter.jl")
 
-#! Trotter and alg match too well, maybe 1 step per t0 is too good.
-function liouvillian_delta_trajectory_trotter(jump::JumpOp, trotter::TrottTrott, energy_labels::Vector{Float64},
-    initial_dm::Matrix{ComplexF64}, delta::Float64, sigma::Float64, beta::Float64)
+#TODO: Think it over if it makes sense to just add the coherent term to the old Liouvillian... I think it'd better to create a new one
+
+# Trotter and alg match too well, 1 step per t0 is too good.
+function liouvillian_delta_trajectory_trotter(jump::JumpOp, trotter::TrottTrott, coherent_term::Union{Matrix{ComplexF64}, Nothing},
+    energy_labels::Vector{Float64}, initial_dm::Matrix{ComplexF64}, delta::Float64, sigma::Float64, beta::Float64)
     """Everything in Trotter basis, initial_dm too as input."""
 
     boltzmann_factor(energy) = min(1, exp(-beta * energy))
@@ -22,12 +24,18 @@ function liouvillian_delta_trajectory_trotter(jump::JumpOp, trotter::TrottTrott,
     # keep only energies in between -0.45 and 0.45
     energy_labels = energy_labels[abs.(energy_labels) .<= 0.45]
 
-    evolved_dm = zeros(ComplexF64, size(initial_dm))
+    # Coherent term for exact detailed balance
+    if coherent_term === nothing
+        evolved_dm = zeros(ComplexF64, size(initial_dm))
+    else
+        evolved_dm = -im * (coherent_term * initial_dm - initial_dm * coherent_term)
+    end
+
     for w in energy_labels
         oft_matrix = explicit_trotter_oft(jump, trotter, w, time_labels, sigma, beta)
         oft_matrix_dag = oft_matrix'
         
-        evolved_dm += delta * boltzmann_factor(w) *
+        evolved_dm .+= delta * boltzmann_factor(w) *
                     (oft_matrix * initial_dm * oft_matrix_dag
                     - 0.5 * oft_matrix_dag * oft_matrix * initial_dm
                     - 0.5 * initial_dm * oft_matrix_dag * oft_matrix)
@@ -37,9 +45,9 @@ function liouvillian_delta_trajectory_trotter(jump::JumpOp, trotter::TrottTrott,
     return evolved_dm
 end
 
-
-function liouvillian_delta_trajectory(jump::JumpOp, hamiltonian::HamHam, energy_labels::Vector{Float64},
-    initial_dm::Matrix{ComplexF64}, delta::Float64, sigma::Float64, beta::Float64)
+#! Extended arguments with coherent term, can lead to errors somewhere else
+function liouvillian_delta_trajectory(jump::JumpOp, hamiltonian::HamHam, coherent_term::Union{Matrix{ComplexF64}, Nothing},
+    energy_labels::Vector{Float64}, initial_dm::Matrix{ComplexF64}, delta::Float64, sigma::Float64, beta::Float64)
     """Computes δ * L[rho_0]"""
 
     Fw = exp.(- sigma^2 * (energy_labels).^2)
@@ -49,12 +57,18 @@ function liouvillian_delta_trajectory(jump::JumpOp, hamiltonian::HamHam, energy_
     # keep only energies in between -0.45 and 0.45
     energy_labels = energy_labels[abs.(energy_labels) .<= 0.45]
 
-    evolved_dm = zeros(ComplexF64, size(initial_dm))
+    # Coherent term for exact detailed balance
+    if coherent_term === nothing
+        evolved_dm = zeros(ComplexF64, size(initial_dm))
+    else
+        evolved_dm = -im * (coherent_term * initial_dm - initial_dm * coherent_term)
+    end
+
     for w in energy_labels
         oft_matrix = entry_wise_oft(jump, w, hamiltonian, sigma, beta) / Fw_norm
         oft_matrix_dag = oft_matrix'
         
-        evolved_dm += delta * boltzmann_factor(w) *
+        evolved_dm .+= delta * boltzmann_factor(w) *
                     (oft_matrix * initial_dm * oft_matrix_dag
                     - 0.5 * oft_matrix_dag * oft_matrix * initial_dm
                     - 0.5 * initial_dm * oft_matrix_dag * oft_matrix)
@@ -80,12 +94,6 @@ function exact_liouvillian_step(jump::JumpOp, hamiltonian::HamHam, energy_labels
     tout, evolved_dms = timeevolution.master([0.0, delta], initial_dm, evolution_hamiltonian, all_jumps) 
     # Trace is already = 1
     return evolved_dms[2].data
-end
-
-function liouvillian_step(jump::JumpOp, hamiltonian::HamHam, initial_dm::Matrix{ComplexF64}, 
-    delta::Float64, sigma::Float64, beta::Float64)
-
-    ideal_num_estimating_bits = ceil(Int64, log2(1 / hamiltonian.w0))
 end
 
 function truncate_energy_labels(energy_labels::Vector{Float64}, sigma::Float64)
