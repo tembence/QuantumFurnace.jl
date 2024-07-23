@@ -36,8 +36,32 @@ function entry_wise_oft(jump::JumpOp, energy::Float64, hamiltonian::HamHam, sigm
     #     jump_oft[i, j] = jump.in_eigenbasis[i, j] * exp(-(energy - hamiltonian.bohr_freqs[i, j])^2 * sigma^2)
     # end
 
-    #! Write it such that it knows about energy precision
     return jump.in_eigenbasis .* exp.(-((energy .- hamiltonian.bohr_freqs)).^2 * sigma^2)
+end
+
+function entry_wise_oft_exact_db(jump::JumpOp, energy::Float64, hamiltonian::HamHam, beta::Float64)
+    """sigma_E = 1 / beta. """
+    return jump.in_eigenbasis .* exp.(-((energy .- hamiltonian.bohr_freqs)).^2 * beta^2 / 4) #/ sqrt(2 * sqrt(2 * pi) / beta)
+end
+
+function explicit_oft_exact_db(jump::JumpOp, hamiltonian::HamHam, energy::Float64, time_labels::Vector{Float64},
+    beta::Float64)
+    """sigma_E = 1 / beta"""
+
+    time_gaussian_factors = exp.(- time_labels.^2 / beta^2)
+    # normalization is converging to sqrt(beta * sqrt(pi / 2)) for large N
+    normalized_time_gaussian_factors = time_gaussian_factors / sqrt(sum(time_gaussian_factors.^2))
+
+    fourier_phase_factors = exp.(-1im * energy * time_labels) / sqrt(length(time_labels))
+    diag_exponentiate(t) = Diagonal(exp.(1im * hamiltonian.eigvals * t))
+    
+    oft_op = zeros(ComplexF64, size(jump.data))
+    @showprogress "Explicit OFT..." for t in eachindex(time_labels)
+        oft_op .+= fourier_phase_factors[t] * normalized_time_gaussian_factors[t] * 
+        diag_exponentiate(time_labels[t]) * jump.in_eigenbasis * diag_exponentiate(-time_labels[t])
+    end
+
+    return oft_op
 end
 
 function explicit_oft(jump::JumpOp, hamiltonian::HamHam, energy::Float64, time_labels::Vector{Float64},
@@ -71,6 +95,35 @@ function explicit_oft(jump::JumpOp, hamiltonian::HamHam, energy::Float64, time_l
 
     return oft_op
 end
+
+function explicit_trotter_oft_exact_db(jump::JumpOp, trotter::TrottTrott, 
+    energy::Float64, time_labels::Vector{Float64}, beta::Float64)
+
+    time_gaussian_factors = exp.(- time_labels.^2 / beta^2)
+    normalized_time_gaussian_factors = time_gaussian_factors / sqrt(sum(time_gaussian_factors.^2))
+    
+    fourier_phase_factors = exp.(-1im * energy * time_labels) / sqrt(length(time_labels))
+
+    num_t0_steps = Int.(round.(abs.(time_labels) ./ trotter.t0, digits=0))
+    oft_op = zeros(ComplexF64, size(jump.data))
+    @showprogress "Explicit Trotter OFT..." for i in eachindex(time_labels)
+        t = time_labels[i]
+        trott_U_plus = Diagonal(trotter.eigvals_t0)^(num_t0_steps[i])
+        trott_U_minus = adjoint(trott_U_plus)
+
+        if i <= length(time_labels) / 2
+            oft_op .+= fourier_phase_factors[i] * normalized_time_gaussian_factors[i] * 
+                    trott_U_plus * jump.in_trotter_basis * trott_U_minus
+        else
+            oft_op .+= fourier_phase_factors[i] * normalized_time_gaussian_factors[i] * 
+                    trott_U_minus * jump.in_trotter_basis * trott_U_plus
+        end
+    end
+
+    # Return in Trotter basis
+    return oft_op
+end
+
 
 function explicit_trotter_oft(jump::JumpOp, trotter::TrottTrott, 
     energy::Float64, time_labels::Vector{Float64}, sigma::Float64, beta::Float64)

@@ -117,6 +117,24 @@ function create_hamham(terms::Vector{Vector{String}}, coeffs::Vector{Float64},
     return hamiltonian
 end
 
+function zeros_hamham(num_qubits::Int64)
+    """Creates a HamHam object with zero data"""
+    hamiltonian = HamHam(
+        zeros(0, 0),
+        nothing,
+        [[""]],
+        zeros(0),
+        nothing,
+        nothing,
+        zeros(0),
+        zeros(0, 0),
+        0.0,
+        0.0,
+        0.0
+    )
+    return hamiltonian
+end
+
 function find_ideal_heisenberg(num_qubits::Int64,
     coeffs::Vector{Float64}; batch_size::Int64 = 1)
     """Periodic Heisenberg 1D chain"""

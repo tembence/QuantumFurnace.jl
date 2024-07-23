@@ -12,30 +12,49 @@ include("hamiltonian_tools.jl")
 include("qi_tools.jl")
 include("trotter.jl")
 
-#TODO: Think it over if it makes sense to just add the coherent term to the old Liouvillian... I think it'd better to create a new one
+function liouvillian_delta_trajectory_trotter_gaussian_exact_db(jump::JumpOp, trotter::TrottTrott, 
+    coherent_term::Matrix{ComplexF64}, energy_labels::Vector{Float64}, initial_dm::Matrix{ComplexF64}, 
+    delta::Float64, sigma::Float64, beta::Float64)
+
+    # keep only energies in between -0.45 and 0.45 (physically impossible to get values outside of this range)
+    energy_labels = energy_labels[abs.(energy_labels) .<= 0.45]
+
+    transition_gaussian(energy) = exp(-(beta * energy + 1)^2 / 2)
+    transition_weights = transition_gaussian.(energy_labels)
+
+    evolved_dm = - im * delta * (coherent_term * initial_dm - initial_dm * coherent_term)
+    for (i, w) in enumerate(energy_labels)
+        oft_matrix = explicit_trotter_oft_exact_db(jump, trotter, w, time_labels, beta)
+        oft_matrix_dag = oft_matrix'
+        
+        evolved_dm .+= delta * transition_weights[i] *
+                    (oft_matrix * initial_dm * oft_matrix_dag
+                    - 0.5 * oft_matrix_dag * oft_matrix * initial_dm
+                    - 0.5 * initial_dm * oft_matrix_dag * oft_matrix)
+    end
+
+    # Return in energy basis
+    return evolved_dm
+end
 
 # Trotter and alg match too well, 1 step per t0 is too good.
-function liouvillian_delta_trajectory_trotter(jump::JumpOp, trotter::TrottTrott, coherent_term::Union{Matrix{ComplexF64}, Nothing},
+function liouvillian_delta_trajectory_trotter(jump::JumpOp, trotter::TrottTrott,
     energy_labels::Vector{Float64}, initial_dm::Matrix{ComplexF64}, delta::Float64, sigma::Float64, beta::Float64)
     """Everything in Trotter basis, initial_dm too as input."""
 
     boltzmann_factor(energy) = min(1, exp(-beta * energy))
-
+    
     # keep only energies in between -0.45 and 0.45
     energy_labels = energy_labels[abs.(energy_labels) .<= 0.45]
+    boltzmann_values = boltzmann_factor.(energy_labels)
 
-    # Coherent term for exact detailed balance
-    if coherent_term === nothing
-        evolved_dm = zeros(ComplexF64, size(initial_dm))
-    else
-        evolved_dm = -im * (coherent_term * initial_dm - initial_dm * coherent_term)
-    end
-
-    for w in energy_labels
+    #! Added enumerate, not debugged yet
+    evolved_dm = zeros(ComplexF64, size(initial_dm))
+    for (i, w) in enumerate(energy_labels)
         oft_matrix = explicit_trotter_oft(jump, trotter, w, time_labels, sigma, beta)
         oft_matrix_dag = oft_matrix'
         
-        evolved_dm .+= delta * boltzmann_factor(w) *
+        evolved_dm .+= delta * boltzmann_values[i] *
                     (oft_matrix * initial_dm * oft_matrix_dag
                     - 0.5 * oft_matrix_dag * oft_matrix * initial_dm
                     - 0.5 * initial_dm * oft_matrix_dag * oft_matrix)
@@ -45,8 +64,64 @@ function liouvillian_delta_trajectory_trotter(jump::JumpOp, trotter::TrottTrott,
     return evolved_dm
 end
 
-#! Extended arguments with coherent term, can lead to errors somewhere else
-function liouvillian_delta_trajectory(jump::JumpOp, hamiltonian::HamHam, coherent_term::Union{Matrix{ComplexF64}, Nothing},
+function liouvillian_delta_trajectory_metro_exact_db(jump::JumpOp, hamiltonian::HamHam, coherent_term::Matrix{ComplexF64},
+    energy_labels::Vector{Float64}, initial_dm::Matrix{ComplexF64}, delta::Float64, beta::Float64)
+
+    # keep only energies in between -0.45 and 0.45 (physically impossible to get values outside of this range)
+    energy_labels = energy_labels[abs.(energy_labels) .<= 0.45]
+
+    transition_metropolis(energy) = exp(-beta * maximum([energy + 1/(2*beta), 0]))
+    transition_weights = transition_metropolis.(energy_labels)
+
+    # Is there any transiton weight that is smaller than 1e-14?
+    if any(transition_weights .< 1e-14)
+        @printf("Transition weights smaller than 1e-14: %s\n", transition_weights[transition_weights .< 1e-14])
+    end
+
+    evolved_dm = - im * delta * (coherent_term * initial_dm - initial_dm * coherent_term)
+    for (i, w) in enumerate(energy_labels)
+        oft_matrix = explicit_oft_exact_db(jump, hamiltonian, w, time_labels, beta)
+        oft_matrix_dag = oft_matrix'
+        
+        evolved_dm .+= delta * transition_weights[i] *
+                    (oft_matrix * initial_dm * oft_matrix_dag
+                    - 0.5 * oft_matrix_dag * oft_matrix * initial_dm
+                    - 0.5 * initial_dm * oft_matrix_dag * oft_matrix)
+    end
+
+    # Return in energy basis
+    return evolved_dm
+end
+
+function liouvillian_delta_trajectory_gaussian_exact_db(jump::JumpOp, hamiltonian::HamHam, coherent_term::Matrix{ComplexF64},
+    energy_labels::Vector{Float64}, initial_dm::Matrix{ComplexF64}, delta::Float64, beta::Float64)
+
+    # keep only energies in between -0.45 and 0.45 (physically impossible to get values outside of this range)
+    energy_labels = energy_labels[abs.(energy_labels) .<= 0.45]
+
+    Fw = exp.(- beta^2 * (energy_labels).^2 / 4)
+    Fw_norm = sqrt(sum(Fw.^2))
+
+    transition_gaussian(energy) = exp(-(beta * energy + 1)^2 / 2)
+    transition_weights = transition_gaussian.(energy_labels)
+
+    evolved_dm = - im * delta * (coherent_term * initial_dm - initial_dm * coherent_term)
+    for (i, w) in enumerate(energy_labels)
+        oft_matrix = explicit_oft_exact_db(jump, hamiltonian, w, time_labels, beta)
+        # oft_matrix = entry_wise_oft_exact_db(jump, w, hamiltonian, beta)  #!
+        oft_matrix_dag = oft_matrix'
+        
+        evolved_dm .+= delta * transition_weights[i] *
+                    (oft_matrix * initial_dm * oft_matrix_dag
+                    - 0.5 * oft_matrix_dag * oft_matrix * initial_dm
+                    - 0.5 * initial_dm * oft_matrix_dag * oft_matrix)
+    end
+
+    # Return in energy basis
+    return evolved_dm #/ Fw_norm^2
+end
+
+function liouvillian_delta_trajectory(jump::JumpOp, hamiltonian::HamHam,
     energy_labels::Vector{Float64}, initial_dm::Matrix{ComplexF64}, delta::Float64, sigma::Float64, beta::Float64)
     """Computes δ * L[rho_0]"""
 
@@ -57,13 +132,7 @@ function liouvillian_delta_trajectory(jump::JumpOp, hamiltonian::HamHam, coheren
     # keep only energies in between -0.45 and 0.45
     energy_labels = energy_labels[abs.(energy_labels) .<= 0.45]
 
-    # Coherent term for exact detailed balance
-    if coherent_term === nothing
-        evolved_dm = zeros(ComplexF64, size(initial_dm))
-    else
-        evolved_dm = -im * (coherent_term * initial_dm - initial_dm * coherent_term)
-    end
-
+    evolved_dm = zeros(ComplexF64, size(initial_dm))
     for w in energy_labels
         oft_matrix = entry_wise_oft(jump, w, hamiltonian, sigma, beta) / Fw_norm
         oft_matrix_dag = oft_matrix'
@@ -76,7 +145,7 @@ function liouvillian_delta_trajectory(jump::JumpOp, hamiltonian::HamHam, coheren
     return evolved_dm
 end
 
-function exact_liouvillian_step(jump::JumpOp, hamiltonian::HamHam, energy_labels::Vector{Float64},
+function full_liouvillian_step(jump::JumpOp, hamiltonian::HamHam, energy_labels::Vector{Float64},
     initial_dm::Matrix{ComplexF64}, delta::Float64, sigma::Float64, beta::Float64)
 
     num_qubits = Int(log2(size(hamiltonian.data)[1]))
@@ -136,93 +205,93 @@ end
 #! 68s (q, r) = (8, 16)
 
 #* Parameters
-num_qubits = 4
-mixing_time = 10.0
-delta = 0.1
-num_liouv_steps = Int(mixing_time / delta)
-sigma = 5.
-beta = 1.
-eig_index = 8
+# num_qubits = 4
+# mixing_time = 10.0
+# delta = 0.1
+# num_liouv_steps = Int(mixing_time / delta)
+# sigma = 5.
+# beta = 1.
+# eig_index = 8
 
-#* Hamiltonian
-hamiltonian = load("/Users/bence/code/liouvillian_metro/julia/data/hamiltonian_n4.jld")["ideal_ham"]
-# hamiltonian = find_ideal_heisenberg(num_qubits, fill(1.0, 3), batch_size=1)
-# initial_state = hamiltonian.eigvecs[:, eig_index]
+# #* Hamiltonian
+# hamiltonian = load("/Users/bence/code/liouvillian_metro/julia/data/hamiltonian_n4.jld")["ideal_ham"]
+# # hamiltonian = find_ideal_heisenberg(num_qubits, fill(1.0, 3), batch_size=1)
+# # initial_state = hamiltonian.eigvecs[:, eig_index]
 
-initial_dm = zeros(ComplexF64, size(hamiltonian.data))
-initial_dm[eig_index, eig_index] = 1.0  # In eigenbasis
-hamiltonian.bohr_freqs = hamiltonian.eigvals .- transpose(hamiltonian.eigvals)
-# display(hamiltonian.bohr_freqs)
+# initial_dm = zeros(ComplexF64, size(hamiltonian.data))
+# initial_dm[eig_index, eig_index] = 1.0  # In eigenbasis
+# hamiltonian.bohr_freqs = hamiltonian.eigvals .- transpose(hamiltonian.eigvals)
+# # display(hamiltonian.bohr_freqs)
 
-#* Jump operators
-X::Matrix{ComplexF64} = [0 1; 1 0]
-Y::Matrix{ComplexF64} = [0.0 -im; im 0.0]
-Z::Matrix{ComplexF64} = [1 0; 0 -1]
-jump_paulis = [X, Y, Z]
+# #* Jump operators
+# X::Matrix{ComplexF64} = [0 1; 1 0]
+# Y::Matrix{ComplexF64} = [0.0 -im; im 0.0]
+# Z::Matrix{ComplexF64} = [1 0; 0 -1]
+# jump_paulis = [X, Y, Z]
 
-# jump_op = Matrix(pad_term([X], num_qubits, jump_site_index))
-# jump_op_in_eigenbasis = hamiltonian.eigvecs' * jump_op * hamiltonian.eigvecs
-# jump = JumpOp(jump_op,
-#         jump_op_in_eigenbasis,
-#         Dict{Float64, SparseMatrixCSC{ComplexF64, Int64}}(), 
-#         zeros(0))
+# # jump_op = Matrix(pad_term([X], num_qubits, jump_site_index))
+# # jump_op_in_eigenbasis = hamiltonian.eigvecs' * jump_op * hamiltonian.eigvecs
+# # jump = JumpOp(jump_op,
+# #         jump_op_in_eigenbasis,
+# #         Dict{Float64, SparseMatrixCSC{ComplexF64, Int64}}(), 
+# #         zeros(0))
 
-#* Fourier labels
-num_energy_bits = ceil(Int64, log2((0.45 * 2) / hamiltonian.w0)) + 1 # paper (above 3.7.), later will be β dependent
-num_energy_bits = 9
-N = 2^(num_energy_bits)
-N_labels = [0:1:Int(N/2)-1; -Int(N/2):1:-1]
+# #* Fourier labels
+# num_energy_bits = ceil(Int64, log2((0.45 * 2) / hamiltonian.w0)) + 1 # paper (above 3.7.), later will be β dependent
+# num_energy_bits = 9
+# N = 2^(num_energy_bits)
+# N_labels = [0:1:Int(N/2)-1; -Int(N/2):1:-1]
 
-t0 = 2 * pi / (N * hamiltonian.w0)
-time_labels = t0 * N_labels
-energy_labels = hamiltonian.w0 * N_labels
+# t0 = 2 * pi / (N * hamiltonian.w0)
+# time_labels = t0 * N_labels
+# energy_labels = hamiltonian.w0 * N_labels
 
-@printf("Number of qubits: %d\n", num_qubits)
-@printf("Number of energy bits: %d\n", num_energy_bits)
-@printf("Energy unit: %e\n", hamiltonian.w0)
-@printf("Time unit: %e\n", t0)
+# @printf("Number of qubits: %d\n", num_qubits)
+# @printf("Number of energy bits: %d\n", num_energy_bits)
+# @printf("Energy unit: %e\n", hamiltonian.w0)
+# @printf("Time unit: %e\n", t0)
 
-# Bohr freqs rounded
-# oft_precision = ceil(Int, abs(log10(N^(-1))))
-# hamiltonian.bohr_freqs = round.(hamiltonian.eigvals .- transpose(hamiltonian.eigvals), digits=oft_precision)
+# # Bohr freqs rounded
+# # oft_precision = ceil(Int, abs(log10(N^(-1))))
+# # hamiltonian.bohr_freqs = round.(hamiltonian.eigvals .- transpose(hamiltonian.eigvals), digits=oft_precision)
 
-#* Trotter
-num_trotter_steps_per_t0 = Int(1)
-trotter = create_trotter(hamiltonian, t0, num_trotter_steps_per_t0)
-@time trotter_error_T = compute_trotter_error(hamiltonian, trotter, N*t0 / 2)
-trotter_error_t0 = compute_trotter_error(hamiltonian, trotter, t0)
+# #* Trotter
+# num_trotter_steps_per_t0 = Int(1)
+# trotter = create_trotter(hamiltonian, t0, num_trotter_steps_per_t0)
+# @time trotter_error_T = compute_trotter_error(hamiltonian, trotter, N*t0 / 2)
+# trotter_error_t0 = compute_trotter_error(hamiltonian, trotter, t0)
 
-@printf("t0: %e\n", trotter.t0)
-@printf("Steps per t0: %d\n", trotter.num_trotter_steps_per_t0)
-@printf("Max time: %e\n", N*t0)
-@printf("Trotter error T: %e\n", trotter_error_T)
-@printf("Trotter error t0: %e\n", trotter_error_t0)
+# @printf("t0: %e\n", trotter.t0)
+# @printf("Steps per t0: %d\n", trotter.num_trotter_steps_per_t0)
+# @printf("Max time: %e\n", N*t0)
+# @printf("Trotter error T: %e\n", trotter_error_T)
+# @printf("Trotter error t0: %e\n", trotter_error_t0)
 
-#* Many steps convergence:
-b = SpinBasis(1//2)^num_qubits
-gibbs = gibbs_state(hamiltonian, beta)
-round.(abs.(gibbs), digits=4)
-evolved_dm = copy(initial_dm)
-distances_to_gibbs = [tracedistance_nh(Operator(b, evolved_dm), Operator(b, gibbs))]
+# #* Many steps convergence:
+# b = SpinBasis(1//2)^num_qubits
+# gibbs = gibbs_state(hamiltonian, beta)
+# round.(abs.(gibbs), digits=4)
+# evolved_dm = copy(initial_dm)
+# distances_to_gibbs = [tracedistance_nh(Operator(b, evolved_dm), Operator(b, gibbs))]
 
-# Pregenerate all random jumps
-all_random_jumps_generated = []
-Random.seed!(666)
-for _ in 1:num_liouv_steps
-    random_site = rand(1:num_qubits)
-    random_pauli = rand(jump_paulis)
-    jump_op = Matrix(pad_term([random_pauli], num_qubits, random_site))
-    jump_op_in_eigenbasis = hamiltonian.eigvecs' * jump_op * hamiltonian.eigvecs
-    jump_in_trotter_basis = trotter.eigvecs' * jump_op * trotter.eigvecs
-    jump = JumpOp(jump_op,
-            jump_op_in_eigenbasis,
-            Dict{Float64, SparseMatrixCSC{ComplexF64, Int64}}(), 
-            zeros(0),
-            jump_in_trotter_basis)
-    push!(all_random_jumps_generated, jump)
-end
+# # Pregenerate all random jumps
+# all_random_jumps_generated = []
+# Random.seed!(666)
+# for _ in 1:num_liouv_steps
+#     random_site = rand(1:num_qubits)
+#     random_pauli = rand(jump_paulis)
+#     jump_op = Matrix(pad_term([random_pauli], num_qubits, random_site))
+#     jump_op_in_eigenbasis = hamiltonian.eigvecs' * jump_op * hamiltonian.eigvecs
+#     jump_in_trotter_basis = trotter.eigvecs' * jump_op * trotter.eigvecs
+#     jump = JumpOp(jump_op,
+#             jump_op_in_eigenbasis,
+#             Dict{Float64, SparseMatrixCSC{ComplexF64, Int64}}(), 
+#             zeros(0),
+#             jump_in_trotter_basis)
+#     push!(all_random_jumps_generated, jump)
+# end
 
-tspan =[0.0:delta:mixing_time;]
+# tspan =[0.0:delta:mixing_time;]
 #* Trotter Alg
 # evolved_dm_trott = trotter.eigvecs' * hamiltonian.eigvecs * initial_dm * hamiltonian.eigvecs' * trotter.eigvecs
 # gibbs_in_trotter_basis = trotter.eigvecs' * hamiltonian.eigvecs * gibbs * hamiltonian.eigvecs' * trotter.eigvecs
@@ -256,27 +325,27 @@ tspan =[0.0:delta:mixing_time;]
 
 #* Alg
 
-evolved_dm = copy(initial_dm)
-p = Progress(length(num_liouv_steps))
-@showprogress dt=1 desc="Algorithmic converging to Gibbs..." for delta_step in 1:num_liouv_steps
-    # Random jump
-    jump_delta = all_random_jumps_generated[delta_step]
+# evolved_dm = copy(initial_dm)
+# p = Progress(length(num_liouv_steps))
+# @showprogress dt=1 desc="Algorithmic converging to Gibbs..." for delta_step in 1:num_liouv_steps
+#     # Random jump
+#     jump_delta = all_random_jumps_generated[delta_step]
 
-    # Evolve by delta time steps
-    evolved_dm += liouvillian_delta_trajectory(jump_delta, hamiltonian, energy_labels, evolved_dm, delta, sigma, beta)
-    evolved_dm /= tr(evolved_dm)
-    dist = tracedistance_nh(Operator(b, evolved_dm), Operator(b, gibbs))
-    @printf("Distance to Gibbs: %f\n", dist)
-    # next!(p, showvalues = [(:dist, dist)])
-    push!(distances_to_gibbs, dist)
-end
+#     # Evolve by delta time steps
+#     evolved_dm += liouvillian_delta_trajectory(jump_delta, hamiltonian, energy_labels, evolved_dm, delta, sigma, beta)
+#     evolved_dm /= tr(evolved_dm)
+#     dist = tracedistance_nh(Operator(b, evolved_dm), Operator(b, gibbs))
+#     @printf("Distance to Gibbs: %f\n", dist)
+#     # next!(p, showvalues = [(:dist, dist)])
+#     push!(distances_to_gibbs, dist)
+# end
 
 # plot(tspan, distances_to_gibbs, ylims=(0, 1), color=:purple,
 #     label="r=1", xlabel="Time", ylabel="Trace distance", 
 #     title="Convergence to Gibbs state, n4-Heisenberg-Z")
 
-plot!(tspan, distances_to_gibbs, ylims=(0, 1),
-    label="r=9")
+# plot!(tspan, distances_to_gibbs, ylims=(0, 1),
+#     label="r=9")
     
 # savefig("n4-r1-r9_gibbs_conv.pdf")
 

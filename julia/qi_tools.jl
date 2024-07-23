@@ -75,6 +75,19 @@ function gibbs_state(hamiltonian::HamHam, beta::Float64)
     return Matrix{ComplexF64}(rho / Z)
 end
 
+function random_density_matrix(num_qubits::Int)
+    # Generate a random complex matrix
+    A = randn(ComplexF64, 2^num_qubits, 2^num_qubits)
+    
+    # Compute A * A^†
+    ρ = A * A'
+    
+    # Normalize the matrix to make the trace equal to 1
+    ρ /= tr(ρ)
+    
+    return ρ
+end
+
 #* Compared with QuantumOptics implementations, my code is the same or faster and gives the same results
 # Test
 #! 12 qubits needs 8s for trdist (10^-15 precise), 32s for fidelity (10^-9 precise)
