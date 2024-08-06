@@ -15,16 +15,16 @@ include("liouvillian_tools.jl")
 include("coherent.jl")
 
 #* Parameters
-num_qubits = 5
-mixing_time = 60.0
+num_qubits = 7
+mixing_time = 35.
 delta = 0.1
 num_liouv_steps = Int(mixing_time / delta)
-sigma = 5.
-beta = 2.
-eig_index = 8
+beta = 10.
+eig_index = 3
 
 #* Hamiltonian
-hamiltonian = load("/Users/bence/code/liouvillian_metro/julia/data/hamiltonian_n5.jld")["ideal_ham"]
+hamiltonian = load("/Users/bence/code/liouvillian_metro/julia/data/hamiltonian_n7.jld")["ideal_ham"]
+hamiltonian.eigvals
 initial_dm = zeros(ComplexF64, size(hamiltonian.data))
 initial_dm[eig_index, eig_index] = 1.0  # In eigenbasis
 
@@ -40,8 +40,8 @@ jump_paulis = [X, Y, Z]
 
 #* Fourier labels
 # num_energy_bits = ceil(Int64, log2((0.45 * 2) / hamiltonian.w0)) + 1 # paper (above 3.7.), later will be β dependent
-# num_energy_bits = ceil(Int64, log2((0.45 * 4 + 2/beta) / hamiltonian.w0))# Under Fig. 5. with secular approx.
-num_energy_bits = 1
+num_energy_bits = ceil(Int64, log2((0.45 * 4 + 2/beta) / hamiltonian.w0)) - 2 # Under Fig. 5. with secular approx.
+# num_energy_bits = 8
 N = 2^(num_energy_bits)
 N_labels = [0:1:Int(N/2)-1; -Int(N/2):1:-1]
 
@@ -56,7 +56,7 @@ energy_labels = hamiltonian.w0 * N_labels
 
 #* Gibbs
 b = SpinBasis(1//2)^num_qubits
-gibbs = gibbs_state(hamiltonian, beta)
+gibbs = gibbs_state_in_eigen(hamiltonian, beta)
 evolved_dm = copy(initial_dm)
 distances_to_gibbs = [tracedistance_nh(Operator(b, evolved_dm), Operator(b, gibbs))]
 
@@ -78,11 +78,11 @@ for _ in 1:num_liouv_steps
 end
 
 #* Coherent term Gaussian
-b1_vals, b1_times = compute_truncated_b1(time_labels)
-b2_vals, b2_times = compute_truncated_b2(time_labels)
+# b1_vals, b1_times = compute_truncated_b1(time_labels)
+# b2_vals, b2_times = compute_truncated_b2(time_labels)
 
-coherent_terms::Vector{Matrix{ComplexF64}} = coherent_term_from_timedomain.(all_random_jumps_generated, 
-Ref(hamiltonian), Ref(b1_vals), Ref(b1_times), Ref(b2_vals), Ref(b2_times), Ref(beta))
+# coherent_terms::Vector{Matrix{ComplexF64}} = coherent_term_from_timedomain.(all_random_jumps_generated, 
+# Ref(hamiltonian), Ref(b1_vals), Ref(b1_times), Ref(b2_vals), Ref(b2_times), Ref(beta))
 
 tspan =[0.0:delta:mixing_time;]
 
@@ -93,14 +93,17 @@ p = Progress(length(num_liouv_steps))
     # Random jump
     jump_delta = all_random_jumps_generated[delta_step]
     # Corresponding coherent term
-    coherent_delta = coherent_terms[delta_step]
+    # coherent_delta = coherent_terms[delta_step]
+    coherent_delta = Matrix{ComplexF64}(zeros(2^num_qubits, 2^num_qubits))
 
     # Evolve by delta time steps
     evolved_dm += liouvillian_delta_trajectory_gaussian_exact_db(jump_delta, hamiltonian, coherent_delta,
     energy_labels, evolved_dm, delta, beta)
+    # trace = tr(evolved_dm)
+    # println("Trace: ", trace)
     evolved_dm /= tr(evolved_dm)
     dist = tracedistance_nh(Operator(b, evolved_dm), Operator(b, gibbs))
-    @printf("Distance to Gibbs: %f\n", dist)
+    @printf("\nDistance to Gibbs: %f\n", dist)
     # next!(p, showvalues = [(:dist, dist)])
     push!(distances_to_gibbs, dist)
     # if dist < 0.05
@@ -108,6 +111,12 @@ p = Progress(length(num_liouv_steps))
     #     break
     # end
 end
+
+min_dist = minimum(distances_to_gibbs)
+max_mixed_dm = Matrix(I, 2^num_qubits, 2^num_qubits) / 2^num_qubits
+dist_to_maxmixed = tracedistance_nh(Operator(b, evolved_dm), Operator(b, max_mixed_dm))
+@printf("Minimum distance to Gibbs: %f\n", min_dist)
+@printf("Distance to max mixed: %f\n", dist_to_maxmixed)
 
 #* Alg approx DB
 # evolved_dm = copy(initial_dm)

@@ -107,8 +107,8 @@ function liouvillian_delta_trajectory_gaussian_exact_db(jump::JumpOp, hamiltonia
 
     evolved_dm = - im * delta * (coherent_term * initial_dm - initial_dm * coherent_term)
     for (i, w) in enumerate(energy_labels)
-        oft_matrix = explicit_oft_exact_db(jump, hamiltonian, w, time_labels, beta)
-        # oft_matrix = entry_wise_oft_exact_db(jump, w, hamiltonian, beta)  #!
+        # oft_matrix = explicit_oft_exact_db(jump, hamiltonian, w, time_labels, beta)
+        oft_matrix = entry_wise_oft_exact_db(jump, w, hamiltonian, beta)  #!
         oft_matrix_dag = oft_matrix'
         
         evolved_dm .+= delta * transition_weights[i] *
@@ -118,7 +118,7 @@ function liouvillian_delta_trajectory_gaussian_exact_db(jump::JumpOp, hamiltonia
     end
 
     # Return in energy basis
-    return evolved_dm #/ Fw_norm^2
+    return evolved_dm / Fw_norm^2  #!
 end
 
 function liouvillian_delta_trajectory(jump::JumpOp, hamiltonian::HamHam,

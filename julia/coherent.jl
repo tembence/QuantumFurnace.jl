@@ -16,12 +16,21 @@ using SparseArrays
 include("trotter.jl")
 
 
-#TODO: Fix these, they dont match
-
+#TODO: Fix these, they are not close enough yet, check parameters for which maybe they could be closer to understand it
 # Eq. (2.5)
-function coherent_bohr(hamiltonian::HamHam, jump::JumpOp, beta::Float64)
-    #! Dont forget alpha_v1v2
-    B = (tanh.(-beta * hamiltonian.bohr_freqs / 4) / (2*im)) .* (jump.in_eigenbasis' * jump.in_eigenbasis)
+function coherent_gaussian_bohr(hamiltonian::HamHam, jump::JumpOp, energy_labels::Vector{Float64}, beta::Float64)
+
+    Fw = exp.(- beta^2 * (energy_labels).^2 / 4)
+    Fw_norm = sqrt(sum(Fw.^2))
+
+    gaussian_transition = exp.(-(energy_labels * beta .+ 1).^2 / 2)
+    tanh_matrix = tanh.(-beta * hamiltonian.bohr_freqs / 4) / (2*im)
+    B = zeros(ComplexF64, size(hamiltonian.data))
+    for (i, w) in enumerate(energy_labels)
+        jump_nu1 = entry_wise_oft_exact_db(jump, w, hamiltonian, beta) / Fw_norm
+        jump_nu2 = adjoint(entry_wise_oft_exact_db(jump, w, hamiltonian, beta)) / Fw_norm
+        B .+= gaussian_transition[i] * tanh_matrix .* (jump_nu2 * jump_nu1)
+    end
     return B
 end
 
@@ -152,45 +161,44 @@ function get_truncated_indices_b(b::Vector{ComplexF64})
 end
 
 #* Testing
-# num_qubits = 8
-# sigma = 5.
-# beta = 0.1
-# eig_index = 8
-# jump_site_index = 1
+num_qubits = 7
+sigma = 5.
+beta = 10.
+eig_index = 8
+jump_site_index = 1
 
-# #* Hamiltonian
-# hamiltonian = load("/Users/bence/code/liouvillian_metro/julia/data/hamiltonian_n8.jld")["ideal_ham"]
-# # hamiltonian = find_ideal_heisenberg(num_qubits, fill(1.0, 3), batch_size=1)
-# initial_state = hamiltonian.eigvecs[:, eig_index]
-# hamiltonian.bohr_freqs = hamiltonian.eigvals .- transpose(hamiltonian.eigvals)
+#* Hamiltonian
+hamiltonian = load("/Users/bence/code/liouvillian_metro/julia/data/hamiltonian_n7.jld")["ideal_ham"]
+# hamiltonian = find_ideal_heisenberg(num_qubits, fill(1.0, 3), batch_size=1)
+initial_state = hamiltonian.eigvecs[:, eig_index]
+hamiltonian.bohr_freqs = hamiltonian.eigvals .- transpose(hamiltonian.eigvals)
 
-# #* Jump operators
-# sigmax::Matrix{ComplexF64} = [0 1; 1 0]
-# jump_op = Matrix(pad_term([sigmax], num_qubits, jump_site_index))
-# jump_op_in_eigenbasis = hamiltonian.eigvecs' * jump_op * hamiltonian.eigvecs
-# jump = JumpOp(jump_op,
-#         jump_op_in_eigenbasis,
-#         Dict{Float64, SparseMatrixCSC{ComplexF64, Int64}}(), 
-#         zeros(0), 
-#         zeros(0, 0))
+#* Jump operators
+sigmax::Matrix{ComplexF64} = [0 1; 1 0]
+jump_op = Matrix(pad_term([sigmax], num_qubits, jump_site_index))
+jump_op_in_eigenbasis = hamiltonian.eigvecs' * jump_op * hamiltonian.eigvecs
+jump = JumpOp(jump_op,
+        jump_op_in_eigenbasis,
+        Dict{Float64, SparseMatrixCSC{ComplexF64, Int64}}(), 
+        zeros(0), 
+        zeros(0, 0))
 
-# #* Fourier labels
+#* Fourier labels
 # num_energy_bits = ceil(Int64, log2((0.45 * 2) / hamiltonian.w0)) + 2 # paper (above 3.7.), later will be β dependent
-# num_energy_bits = ceil(Int64, log2((0.45 * 4 + 2/beta) / hamiltonian.w0))  # Under Fig. 5. with secular approx.
-# # num_energy_bits = 9
-# N = 2^(num_energy_bits)
-# N_labels = [0:1:Int(N/2)-1; -Int(N/2):1:-1]
+num_energy_bits = ceil(Int64, log2((0.45 * 4 + 2/beta) / hamiltonian.w0)) # Under Fig. 5. with secular approx.
+# num_energy_bits = 9
+N = 2^(num_energy_bits)
+N_labels = [0:1:Int(N/2)-1; -Int(N/2):1:-1]
 
-# t0 = 2 * pi / (N * hamiltonian.w0)
-# time_labels = t0 * N_labels
-# energy_labels = hamiltonian.w0 * N_labels
+t0 = 2 * pi / (N * hamiltonian.w0)
+time_labels = t0 * N_labels
+energy_labels = hamiltonian.w0 * N_labels
 
-# @printf("Number of qubits: %d\n", num_qubits)
-# @printf("Number of energy bits: %d\n", num_energy_bits)
-# @printf("Energy unit: %e\n", hamiltonian.w0)
-# @printf("Time unit: %e\n", t0)
+@printf("Number of qubits: %d\n", num_qubits)
+@printf("Number of energy bits: %d\n", num_energy_bits)
+@printf("Energy unit: %e\n", hamiltonian.w0)
+@printf("Time unit: %e\n", t0)
 
-#* b1 
 # N = 2^(12)
 # N_labels = [-Int(N/2):1:-1; 0:1:Int(N/2)-1]
 
@@ -200,37 +208,34 @@ end
 
 # @time b1 = compute_b1(time_labels)
 
-#TODO: Check l1 norm 
+# # TODO: Check l1 norm 
 
 # plot(time_labels, real.(b1), label="Real part")
 
-#* Coherent term
-# @time B = coherent_bohr(hamiltonian, jump, beta)
+# * Coherent term in energy domain
+@time B_bohr = coherent_gaussian_bohr(hamiltonian, jump, energy_labels, beta)
 # @time B_explicit = coherent_bohr_explicit(hamiltonian, jump, beta)
-# println(norm(B - B_explicit))
 
-# b1 = compute_b1(time_labels)
-# display(abs(b1[2]))
-# b1 = Vector{ComplexF64}(b1)
-# all_ones = ones(ComplexF64, size(b1))
-# b2 = exp.(-4*time_labels.^2 .- 2*im*time_labels) / sqrt(4*pi^3)
+#* Coherent term in time domain
+b1_vals, b1_times = compute_truncated_b1(time_labels)
+b2_vals, b2_times = compute_truncated_b2(time_labels)
 
-# truncated_b1_times, truncated_b2_times = truncate_time_labels_b1b2(time_labels, b1, b2)
+@time B_t::Vector{Matrix{ComplexF64}} = coherent_term_from_timedomain.([jump], 
+Ref(hamiltonian), Ref(b1_vals), Ref(b1_times), Ref(b2_vals), Ref(b2_times), Ref(beta))
 
-# @printf("Truncated b1 times: %d\n", length(truncated_b1_times))
-# display(truncated_b1_times)
-# @printf("Truncated b2 times: %d\n", length(truncated_b2_times))
-# display(truncated_b2_times)
+#* Compare
+deviation = norm(B_bohr - B_t[1])
+b = SpinBasis(1//2)^num_qubits
+trdist = tracedistance(Operator(b, B_bohr), Operator(b, B_t[1]))
+@printf("Deviation: %e\n", deviation)
 
-# @time B = coherent_gaussian_timedomain(jump, hamiltonian, time_labels, beta)
-# # norm(B - B')
+function round_complex(z::ComplexF64, digits::Int64)
+    rounded_real = round(real(z), digits=digits)
+    rounded_imag = round(imag(z), digits=digits)
+    return rounded_real + rounded_imag*im
+end
 
-# function round_complex(z::ComplexF64, digits::Int64)
-#     rounded_real = round(real(z), digits=digits)
-#     rounded_imag = round(imag(z), digits=digits)
-#     return rounded_real + rounded_imag*im
-# end
-
-# # find nonzero elements in b
-# nonzero_indices = findall(!iszero, round_complex.(B, 7))
-# display(B[nonzero_indices])
+# find nonzero elements in b
+nonzero_indices = findall(!iszero, round_complex.(B_bohr, 6))
+length(nonzero_indices)
+minimum(imag.(B_bohr[nonzero_indices]))

@@ -68,9 +68,19 @@ function is_density_matrix(rho::Hermitian{ComplexF64, Matrix{ComplexF64}})
 end
 
 function gibbs_state(hamiltonian::HamHam, beta::Float64)
-    """Computes Gibbs state in the eigenbasis of the Hamiltonian"""
+    """Computes Gibbs state in computational basis!"""
     Z = sum(exp.(-beta * hamiltonian.eigvals))
     rho = sum([exp(-beta * hamiltonian.eigvals[i]) * hamiltonian.eigvecs[:, i] * hamiltonian.eigvecs[:, i]' 
+                                                                                    for i in 1:length(hamiltonian.eigvals)])
+    return Matrix{ComplexF64}(rho / Z)
+end
+
+function gibbs_state_in_eigen(hamiltonian::HamHam, beta::Float64)
+    """Computes Gibbs state in eigenbasis"""
+
+    eigvecs_in_eigen = I(size(hamiltonian.data)[1])
+    Z = sum(exp.(-beta * hamiltonian.eigvals))
+    rho = sum([exp(-beta * hamiltonian.eigvals[i]) * eigvecs_in_eigen[:, i] * eigvecs_in_eigen[:, i]' 
                                                                                     for i in 1:length(hamiltonian.eigvals)])
     return Matrix{ComplexF64}(rho / Z)
 end
