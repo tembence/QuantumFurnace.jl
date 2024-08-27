@@ -15,16 +15,15 @@ include("liouvillian_tools.jl")
 include("coherent.jl")
 
 #* Parameters
-num_qubits = 7
-mixing_time = 35.
+num_qubits = 4
+mixing_time = 40.
 delta = 0.1
 num_liouv_steps = Int(mixing_time / delta)
 beta = 10.
 eig_index = 3
 
 #* Hamiltonian
-hamiltonian = load("/Users/bence/code/liouvillian_metro/julia/data/hamiltonian_n7.jld")["ideal_ham"]
-hamiltonian.eigvals
+hamiltonian = load("/Users/bence/code/liouvillian_metro/julia/data/hamiltonian_n4.jld")["ideal_ham"]
 initial_dm = zeros(ComplexF64, size(hamiltonian.data))
 initial_dm[eig_index, eig_index] = 1.0  # In eigenbasis
 

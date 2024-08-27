@@ -231,90 +231,118 @@ id::Matrix{ComplexF64} = [1 0; 0 1]
 # @printf("Distance 2nd order: %f\n", dist2)
 
 #* Parameters
-# num_qubits = 5
-# beta = 1.
+# num_qubits = 3
+# mixing_time = 40.
+# delta = 1.
+# num_liouv_steps = Int(mixing_time / delta)
+# beta = 10.
+# eig_index = 3
 
 # #* Hamiltonian
-# hamiltonian = load("/Users/bence/code/liouvillian_metro/julia/data/hamiltonian_n5.jld")["ideal_ham"]
-# # hamiltonian = find_ideal_heisenberg(num_qubits, fill(1.0, 3), batch_size=1)
-
-# #* Fourier labels
-# num_energy_bits = ceil(Int64, log2((0.45 * 2) / hamiltonian.w0)) + 1  # paper (above 3.7.), later will be β dependent
+# hamiltonian = load("/Users/bence/code/liouvillian_metro/julia/data/hamiltonian_n3.jld")["ideal_ham"]
+# random_dm = random_density_matrix(num_qubits)
+# num_energy_bits = ceil(Int64, log2((0.45 * 4 + 2/beta) / hamiltonian.w0)) - 3 # Under Fig. 5. with secular approx.
 # N = 2^(num_energy_bits)
 # N_labels = [0:1:Int(N/2)-1; -Int(N/2):1:-1]
-
 # t0 = 2 * pi / (N * hamiltonian.w0)
-# time_labels = t0 * N_labels
-# energy_labels = hamiltonian.w0 * N_labels
+# factor = -4 
+# num_steps = 10
 
-# int_multiple = Int(N / 2)
-# T_plus = int_multiple * t0
-# T_minus = - T_plus
+# U = exp(im * factor * t0 * hamiltonian.data)
+# trotter = trotterize2(hamiltonian, factor * t0, abs(factor) * num_steps)
+# dist = norm(trotter - U)
 
-# #* Trotter
-# # @time trott = trotter(hamiltonian, T, num_trotter_steps)
-# # @time begin
-# #     trott2_1step = trotter2(hamiltonian, T/num_trotter_steps, 1)
-# #     eig_vals, eig_vecs = eigen(trott2_1step)
-# #     diag_trott2 = Diagonal(eig_vals)
-# #     trott2_with_diag = eig_vecs * diag_trott2^num_trotter_steps * eig_vecs'
-# # end
-# # @time trott2 = trotter2(hamiltonian, T, num_trotter_steps)
+# evolved_dm = U * random_dm * U'
+# trotter_evolved_dm = trotter * random_dm * trotter'
+# b = SpinBasis(1//2)^num_qubits
+# trdist = tracedistance_nh(Operator(b, evolved_dm), Operator(b, trotter_evolved_dm))
+# @printf("After -4t0 evolution: %f\n", trdist)
+# factor = 3
+# U = exp(im * factor * t0 * hamiltonian.data)
+# trotter = trotterize2(hamiltonian, factor * t0, abs(factor) * num_steps)
+# evolved_again_dm = U * evolved_dm * U'
+# trotter_evolved_again_dm = trotter * trotter_evolved_dm * trotter'
 
-# # dist_trotts = norm(trott2 - trott2_with_diag)
+# trdist2 = tracedistance_nh(Operator(b, evolved_again_dm), Operator(b, trotter_evolved_again_dm))
+# @printf("After 3t0 evolution: %f\n", trdist2)
 
-# #* Exact time evolution 
-# @time U_exact_plus = exp(im * T_plus * hamiltonian.data)
-# U_exact_minus = exp(im * T_minus * hamiltonian.data)
+# # #* Fourier labels
+# # num_energy_bits = ceil(Int64, log2((0.45 * 2) / hamiltonian.w0)) + 1  # paper (above 3.7.), later will be β dependent
+# # N = 2^(num_energy_bits)
+# # N_labels = [0:1:Int(N/2)-1; -Int(N/2):1:-1]
 
-# # dist = norm(trott - U_exact)
-# # dist2 = norm(trott2 - U_exact)
-# # dist2_diag = norm(trott2_with_diag - U_exact)
-# # @printf("Distance: %f\n", dist)
-# # @printf("Distance 2nd order: %s\n", dist2)
-# # @printf("Distance 2nd order with diag: %s\n", dist2_diag)
+# # t0 = 2 * pi / (N * hamiltonian.w0)
+# # time_labels = t0 * N_labels
+# # energy_labels = hamiltonian.w0 * N_labels
 
-# #* Testing fix number of trotter steps / t0, for different T
-# @printf("w0: %f\n", hamiltonian.w0)
-# @printf("T: %f\n", T_plus)
-# @printf("t0: %f\n", t0)
-# num_trotter_steps_per_t0 = 10
+# # int_multiple = Int(N / 2)
+# # T_plus = int_multiple * t0
+# # T_minus = - T_plus
 
-# num_trotter_steps = int_multiple * num_trotter_steps_per_t0
+# # #* Trotter
+# # # @time trott = trotter(hamiltonian, T, num_trotter_steps)
+# # # @time begin
+# # #     trott2_1step = trotter2(hamiltonian, T/num_trotter_steps, 1)
+# # #     eig_vals, eig_vecs = eigen(trott2_1step)
+# # #     diag_trott2 = Diagonal(eig_vals)
+# # #     trott2_with_diag = eig_vecs * diag_trott2^num_trotter_steps * eig_vecs'
+# # # end
+# # # @time trott2 = trotter2(hamiltonian, T, num_trotter_steps)
 
-# @time trotter_plus = create_trotter(hamiltonian, t0, num_trotter_steps_per_t0)
-# @time trotter_minus = create_trotter(hamiltonian, -t0, num_trotter_steps_per_t0)
+# # # dist_trotts = norm(trott2 - trott2_with_diag)
 
-# # How are negative and positive trotter eigvals related
-# conj_dist = norm(trotter_plus.eigvals_t0 - conj.(trotter_minus.eigvals_t0))
-# @printf("Conjugating the eigvals of + gets us - ... dist: %s\n", conj_dist)
-# minus_norm = norm(trotter_plus.eigvals_t0 + trotter_minus.eigvals_t0)
+# # #* Exact time evolution 
+# # @time U_exact_plus = exp(im * T_plus * hamiltonian.data)
+# # U_exact_minus = exp(im * T_minus * hamiltonian.data)
 
-# @time trott_error_plus = compute_trotter_error(hamiltonian, trotter_plus, T_plus)
-# @time trott_error_minus = compute_trotter_error(hamiltonian, trotter_minus, T_minus)
-# @printf("Trotter error +: %s\n", trott_error_plus)
-# @printf("Trotter error -: %s\n", trott_error_minus)
+# # # dist = norm(trott - U_exact)
+# # # dist2 = norm(trott2 - U_exact)
+# # # dist2_diag = norm(trott2_with_diag - U_exact)
+# # # @printf("Distance: %f\n", dist)
+# # # @printf("Distance 2nd order: %s\n", dist2)
+# # # @printf("Distance 2nd order with diag: %s\n", dist2_diag)
 
-# trott2_to_T_plus = trotttrotterize2(trotter_plus, T_plus)
-# trott2_to_T_minus = trotttrotterize2(trotter_minus, T_minus)
+# # #* Testing fix number of trotter steps / t0, for different T
+# # @printf("w0: %f\n", hamiltonian.w0)
+# # @printf("T: %f\n", T_plus)
+# # @printf("t0: %f\n", t0)
+# # num_trotter_steps_per_t0 = 10
 
-# adjoint_trott2_to_T_plus = trott2_to_T_plus'
-# adj_dist = norm(trott2_to_T_minus - adjoint_trott2_to_T_plus)
+# # num_trotter_steps = int_multiple * num_trotter_steps_per_t0
 
-# rewinded_trott = trott2_to_T_plus * trott2_to_T_minus
-# rewinded_exact = U_exact_plus * U_exact_minus
-# dist_to_id_trott = norm(rewinded_trott - I(2^num_qubits))
-# @printf("Distance to identity Trott rewind: %s\n", dist_to_id_trott)
-# dist_to_id_exact = norm(rewinded_exact - I(2^num_qubits))
-# @printf("Distance to identity Exact rewind: %s\n", dist_to_id_exact)
+# # @time trotter_plus = create_trotter(hamiltonian, t0, num_trotter_steps_per_t0)
+# # @time trotter_minus = create_trotter(hamiltonian, -t0, num_trotter_steps_per_t0)
 
-# #* With jump
-# jump_site_index = 1
-# sigmax::Matrix{ComplexF64} = [0 1; 1 0]
-# jump_op = Matrix(pad_term([sigmax], num_qubits, jump_site_index))
+# # # How are negative and positive trotter eigvals related
+# # conj_dist = norm(trotter_plus.eigvals_t0 - conj.(trotter_minus.eigvals_t0))
+# # @printf("Conjugating the eigvals of + gets us - ... dist: %s\n", conj_dist)
+# # minus_norm = norm(trotter_plus.eigvals_t0 + trotter_minus.eigvals_t0)
 
-# oft_core_trotter = trott2_to_T_plus * jump_op * trott2_to_T_minus
-# oft_core_exact = U_exact_plus * jump_op * U_exact_minus
+# # @time trott_error_plus = compute_trotter_error(hamiltonian, trotter_plus, T_plus)
+# # @time trott_error_minus = compute_trotter_error(hamiltonian, trotter_minus, T_minus)
+# # @printf("Trotter error +: %s\n", trott_error_plus)
+# # @printf("Trotter error -: %s\n", trott_error_minus)
 
-# dist_oft_cores = norm(oft_core_trotter - oft_core_exact)
-# @printf("Distance of OFT Trotter vs Exact: %s\n", dist_oft_cores)
+# # trott2_to_T_plus = trotttrotterize2(trotter_plus, T_plus)
+# # trott2_to_T_minus = trotttrotterize2(trotter_minus, T_minus)
+
+# # adjoint_trott2_to_T_plus = trott2_to_T_plus'
+# # adj_dist = norm(trott2_to_T_minus - adjoint_trott2_to_T_plus)
+
+# # rewinded_trott = trott2_to_T_plus * trott2_to_T_minus
+# # rewinded_exact = U_exact_plus * U_exact_minus
+# # dist_to_id_trott = norm(rewinded_trott - I(2^num_qubits))
+# # @printf("Distance to identity Trott rewind: %s\n", dist_to_id_trott)
+# # dist_to_id_exact = norm(rewinded_exact - I(2^num_qubits))
+# # @printf("Distance to identity Exact rewind: %s\n", dist_to_id_exact)
+
+# # #* With jump
+# # jump_site_index = 1
+# # sigmax::Matrix{ComplexF64} = [0 1; 1 0]
+# # jump_op = Matrix(pad_term([sigmax], num_qubits, jump_site_index))
+
+# # oft_core_trotter = trott2_to_T_plus * jump_op * trott2_to_T_minus
+# # oft_core_exact = U_exact_plus * jump_op * U_exact_minus
+
+# # dist_oft_cores = norm(oft_core_trotter - oft_core_exact)
+# # @printf("Distance of OFT Trotter vs Exact: %s\n", dist_oft_cores)
