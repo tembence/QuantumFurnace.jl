@@ -183,10 +183,10 @@ end
 #*#*#* TESTING *#*#*#
 
 # Pauli matrix exponentiation
-sigmax::Matrix{ComplexF64} = [0 1; 1 0]
-sigmay::Matrix{ComplexF64} = [0.0 -im; im 0.0]
-sigmaz::Matrix{ComplexF64} = [1 0; 0 -1]
-id::Matrix{ComplexF64} = [1 0; 0 1]
+# sigmax::Matrix{ComplexF64} = [0 1; 1 0]
+# sigmay::Matrix{ComplexF64} = [0.0 -im; im 0.0]
+# sigmaz::Matrix{ComplexF64} = [1 0; 0 -1]
+# id::Matrix{ComplexF64} = [1 0; 0 1]
 
 # paulistring = ["X", "X", "I", "I", "I", "I", "I", "I", "I", "I", "I", "I"]
 # coeff = 3.9

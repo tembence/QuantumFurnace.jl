@@ -56,6 +56,8 @@ end
 
 
 # (3.1) and Proposition III.1
+#FIXME: Cant be right, drives fixed point away from Gibbs.
+#TODO: Test b1 b2 function norms.
 function coherent_term_from_timedomain(jump::JumpOp, hamiltonian::HamHam, 
     b1_vals::Vector{ComplexF64}, b1_times::Vector{Float64}, b2_vals::Vector{ComplexF64}, b2_times::Vector{Float64},
     beta::Float64)
