@@ -45,7 +45,7 @@ best_evolved_dm = copy(evolved_dm)
 
 #* Fourier labels
 # Coherent terms only become significant if we take r + 1 at least.
-num_energy_bits = ceil(Int64, log2((0.45 * 4 + 2/beta) / hamiltonian.w0)) + 2 # Under Fig. 5. with secular approx.
+num_energy_bits = ceil(Int64, log2((0.45 * 4 + 2/beta) / hamiltonian.w0)) + 1 # Under Fig. 5. with secular approx.
 N = 2^(num_energy_bits)
 N_labels = [0:1:Int(N/2)-1; -Int(N/2):1:-1]
 
@@ -116,9 +116,10 @@ end
 
 #* Coherent terms
 if with_coherent
-    b1 = compute_truncated_b1(time_labels)
-    b2 = compute_truncated_b2(time_labels)
-    @printf("Number of coherent terms: %d\n", length(keys(b1)) * length(keys(b2)))
+    b1 = compute_truncated_b1(time_labels, 1e-16)
+    b2 = compute_truncated_b2(time_labels, 1e-16)
+    @printf("Number of b1 terms: %d\n", length(keys(b1)))
+    @printf("Number of b2 terms: %d\n", length(keys(b2)))
 else
     @printf("Not adding coherent terms! \n")
 end
@@ -147,7 +148,7 @@ distances_to_gibbs = [tracedistance_nh(Operator(b, evolved_dm), Operator(b, gibb
         # Coherent term
         if with_coherent
             #FIXME: For the cases when coherent terms become more significant, they slightly drive the fixed point from Gibbs...
-            # coherent_term = coherent_term_from_timedomain(jump, hamiltonian, b1, b2, beta)  #? Is it due to asymmetry in truncated time labels
+            # coherent_term = coherent_term_from_timedomain(jump, hamiltonian, b1, b2, beta)
             coherent_term = coherent_term_timedomain_integrated(jump, hamiltonian, beta)  # More Hermitian but still not perfect
             # @printf("Hermitian B? %s\n", norm(coherent_term - coherent_term'))
             # @printf("Trace norm of coherent term: %s\n", tracenorm_nh(Operator(b, coherent_term)))
