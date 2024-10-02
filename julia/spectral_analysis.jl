@@ -16,19 +16,19 @@ include("coherent.jl")
 include("db_tools.jl")
 
 #* Parameters
-num_qubits = 4
-mixing_time = 100.
-delta = 0.01
+num_qubits = 5
+mixing_time = 0.1
+delta = 0.1
 num_liouv_steps = Int(mixing_time / delta)
 # num_liouv_steps = 3 * num_qubits
 # num_liouv_steps = 2
 beta = 10.
 eig_index = 3
 Random.seed!(666)
-with_coherent = false
+with_coherent = true
 
 #* Hamiltonian
-hamiltonian = load("/Users/bence/code/liouvillian_metro/julia/data/hamiltonian_n4.jld")["ideal_ham"]
+hamiltonian = load("/Users/bence/code/liouvillian_metro/julia/data/hamiltonian_n5.jld")["ideal_ham"]
 initial_dm = zeros(ComplexF64, size(hamiltonian.data))
 initial_dm[eig_index, eig_index] = 1.0  # In eigenbasis
 initial_dm[eig_index + 1, eig_index + 1] = 1.0
@@ -143,38 +143,50 @@ distances_to_gibbs = [tracedistance_nh(Operator(b, evolved_dm), Operator(b, gibb
 
     # jump = all_random_jumps_generated[step]
     # Each jump once with delta
-    for jump in all_jumps_generated
+    println("Coherent + Dissipative terms, 1 Jump")
+    t_jumps = @elapsed begin
+        for jump in all_jumps_generated
 
-        # Coherent term
-        if with_coherent
-            #FIXME: For the cases when coherent terms become more significant, they slightly drive the fixed point from Gibbs...
-            coherent_term = coherent_term_from_timedomain(jump, hamiltonian, b1, b2, beta)
-            # coherent_term = coherent_term_timedomain_integrated(jump, hamiltonian, beta)  # More Hermitian but still not perfect
-            # @printf("Hermitian B? %s\n", norm(coherent_term - coherent_term'))
-            # @printf("Trace norm of coherent term: %s\n", tracenorm_nh(Operator(b, coherent_term)))
-            evolved_dm .+= - im * delta * (coherent_term * evolved_dm - evolved_dm * coherent_term)
-        end
+            # Coherent term
+            println("Coherent term")
+            t_coh = @elapsed begin
+                if with_coherent
+                    coherent_term = coherent_term_from_timedomain(jump, hamiltonian, b1, b2, beta)
+                    # coherent_term = coherent_term_timedomain_integrated(jump, hamiltonian, beta)  # More Hermitian but still not perfect
+                    # @printf("Hermitian B? %s\n", norm(coherent_term - coherent_term'))
+                    # @printf("Trace norm of coherent term: %s\n", tracenorm_nh(Operator(b, coherent_term)))
+                    evolved_dm .+= - im * delta * (coherent_term * evolved_dm - evolved_dm * coherent_term)
+                end
+            end
 
-        for (i, w) in enumerate(energy_labels)
-            # oft_matrix = explicit_oft_exact_db(jump, hamiltonian, w, time_labels, beta)
-            oft_matrix = sqrt(transition_weights[i]) * entry_wise_oft_exact_db(jump, w, hamiltonian, beta) / Fw_norm
-            oft_matrix_dag = oft_matrix'
+            println("Dissipative term")
+            t_diss = @elapsed begin
+                for (i, w) in enumerate(energy_labels)
+                    # oft_matrix = explicit_oft_exact_db(jump, hamiltonian, w, time_labels, beta)
+                    oft_matrix = sqrt(transition_weights[i]) * entry_wise_oft_exact_db(jump, w, hamiltonian, beta) / Fw_norm
+                    oft_matrix_dag = oft_matrix'
+                    
+                    evolved_dm .+= delta * (oft_matrix * evolved_dm * oft_matrix_dag
+                                - 0.5 * oft_matrix_dag * oft_matrix * evolved_dm
+                                - 0.5 * evolved_dm * oft_matrix_dag * oft_matrix)
+                end
+            end 
+            # @printf("Trace: %s\n", tr(evolved_dm))
+            # evolved_dm /= tr(evolved_dm)
             
-            evolved_dm .+= delta * (oft_matrix * evolved_dm * oft_matrix_dag
-                        - 0.5 * oft_matrix_dag * oft_matrix * evolved_dm
-                        - 0.5 * evolved_dm * oft_matrix_dag * oft_matrix)
-        end
+            dist = tracedistance_nh(Operator(b, evolved_dm), Operator(b, gibbs))
+            if dist < minimum(distances_to_gibbs)
+                best_evolved_dm = evolved_dm
+            end
+            # @printf("\nDistance to Gibbs: %f\n", dist)
+            push!(distances_to_gibbs, dist)
 
-        # @printf("Trace: %s\n", tr(evolved_dm))
-        # evolved_dm /= tr(evolved_dm)
-        
-        dist = tracedistance_nh(Operator(b, evolved_dm), Operator(b, gibbs))
-        if dist < minimum(distances_to_gibbs)
-            best_evolved_dm = evolved_dm
+            t_jump = t_coh + t_diss
+            @printf("Time for jump: %f\n", t_jump)
+            @printf("Ratio of coherent / dissipative terms: %f\n", t_coh / t_diss)
         end
-        # @printf("\nDistance to Gibbs: %f\n", dist)
-        push!(distances_to_gibbs, dist)
     end
+    @printf("Time for all jumps: %f\n", t_jumps)
 end
 
 #* Liouv construction
