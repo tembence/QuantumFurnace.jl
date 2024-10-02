@@ -25,7 +25,7 @@ num_liouv_steps = Int(mixing_time / delta)
 beta = 10.
 eig_index = 3
 Random.seed!(666)
-with_coherent = true
+with_coherent = false
 
 #* Hamiltonian
 hamiltonian = load("/Users/bence/code/liouvillian_metro/julia/data/hamiltonian_n4.jld")["ideal_ham"]
@@ -45,7 +45,7 @@ best_evolved_dm = copy(evolved_dm)
 
 #* Fourier labels
 # Coherent terms only become significant if we take r + 1 at least.
-num_energy_bits = ceil(Int64, log2((0.45 * 4 + 2/beta) / hamiltonian.w0)) + 1 # Under Fig. 5. with secular approx.
+num_energy_bits = ceil(Int64, log2((0.45 * 4 + 2/beta) / hamiltonian.w0)) + 3 # Under Fig. 5. with secular approx.
 N = 2^(num_energy_bits)
 N_labels = [0:1:Int(N/2)-1; -Int(N/2):1:-1]
 
@@ -148,8 +148,8 @@ distances_to_gibbs = [tracedistance_nh(Operator(b, evolved_dm), Operator(b, gibb
         # Coherent term
         if with_coherent
             #FIXME: For the cases when coherent terms become more significant, they slightly drive the fixed point from Gibbs...
-            # coherent_term = coherent_term_from_timedomain(jump, hamiltonian, b1, b2, beta)
-            coherent_term = coherent_term_timedomain_integrated(jump, hamiltonian, beta)  # More Hermitian but still not perfect
+            coherent_term = coherent_term_from_timedomain(jump, hamiltonian, b1, b2, beta)
+            # coherent_term = coherent_term_timedomain_integrated(jump, hamiltonian, beta)  # More Hermitian but still not perfect
             # @printf("Hermitian B? %s\n", norm(coherent_term - coherent_term'))
             # @printf("Trace norm of coherent term: %s\n", tracenorm_nh(Operator(b, coherent_term)))
             evolved_dm .+= - im * delta * (coherent_term * evolved_dm - evolved_dm * coherent_term)
@@ -185,8 +185,8 @@ liouv = zeros(ComplexF64, 4^num_qubits, 4^num_qubits)
 
     # Coherent term
     if with_coherent
-        # coherent_term = coherent_term_from_timedomain(jump, hamiltonian, b1, b2, beta)
-        coherent_term = coherent_term_timedomain_integrated(jump, hamiltonian, beta)
+        coherent_term = coherent_term_from_timedomain(jump, hamiltonian, b1, b2, beta)
+        # coherent_term = coherent_term_timedomain_integrated(jump, hamiltonian, beta)
         liouv .+= construct_liouvillian_coherent(coherent_term)
     end
 
@@ -262,7 +262,7 @@ is_evolved_zero = liouv * evolved_vec
 @printf("Is evolved a steady state? L(ρ) = %s\n", norm(is_evolved_zero))
 # is_random_zero = liouv * rand_dm_vec
 # @printf("Is random a steady state? L(r) = %s\n", norm(is_random_zero))
-
+ 
 
 # diff temp gibbs
 # betas = range(9.5, 10.5, length=10)

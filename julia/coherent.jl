@@ -15,7 +15,7 @@ include("trotter.jl")
 include("qi_tools.jl")
 include("trotter.jl")
 
-
+# const Number64 = Union{Float64, ComplexF64}
 #TODO: Fix these, they are not close enough yet, check parameters for which maybe they could be closer to understand it
 # Eq. (2.5)
 function coherent_gaussian_bohr(hamiltonian::HamHam, jump::JumpOp, energy_labels::Vector{Float64}, beta::Float64)
@@ -58,7 +58,7 @@ end
 # (3.1) and Proposition III.1
 # Has to be on a symmetric time domain, otherwise it can't be Hermitian.
 function coherent_term_from_timedomain(jump::JumpOp, hamiltonian::HamHam, 
-    b1::Dict{Float64, Float64}, b2::Dict{Float64, ComplexF64}, beta::Float64)
+    b1::Dict{Float64, ComplexF64}, b2::Dict{Float64, ComplexF64}, beta::Float64)
     """Coherent term for the Gaussian AND Metropolis case IF jump op is [A Adag, H] = 0 (X, Y, Z)
     written in timedomain and using ideal time evolution.
     Working in the energy eigenbasis for the time evolutions, where H is diagonal.
@@ -66,7 +66,7 @@ function coherent_term_from_timedomain(jump::JumpOp, hamiltonian::HamHam,
     
     diag_time_evolve(t) = Diagonal(exp.(1im * hamiltonian.eigvals * t))
     jump_op_in_eigenbasis_dag = jump.in_eigenbasis'
-    t0 = time_labels[2] - time_labels[1]
+    t0 = abs(time_labels[2] - time_labels[1])
 
     # Inner b2 integral
     b2_integral = zeros(ComplexF64, size(hamiltonian.data))
@@ -83,7 +83,7 @@ function coherent_term_from_timedomain(jump::JumpOp, hamiltonian::HamHam,
         time_evolution_outer = diag_time_evolve(beta * t)
         B .+= b1[t] * time_evolution_outer' * b2_integral * time_evolution_outer
     end
-    return B
+    return B * t0^2
 end
 
 # Deviates more and more from the sum, if we have higher r... but truncation is not the error.
@@ -145,7 +145,7 @@ end
 
 function compute_truncated_b2(time_labels::Vector{Float64}, atol::Float64 = 1e-14)
 
-    b2 = compute_b2(time_labels)
+    b2 = Vector{ComplexF64}(compute_b2(time_labels))
 
     # Skip all elements where b1 b2 are smaller than 1e-14
     indices_b2 = get_truncated_indices_b(b2, atol)
@@ -182,65 +182,66 @@ function get_truncated_indices_b(b::Vector{ComplexF64}, atol::Float64 = 1e-14)
 end
 
 #* Testing
-num_qubits = 4
-beta = 10.
-eig_index = 3
-jump_site_index = 1
+# num_qubits = 4
+# beta = 10.
+# eig_index = 3
+# jump_site_index = 1
 
-# #* Hamiltonian
-hamiltonian = load("/Users/bence/code/liouvillian_metro/julia/data/hamiltonian_n4.jld")["ideal_ham"]
-# hamiltonian = find_ideal_heisenberg(num_qubits, fill(1.0, 3), batch_size=1)
-initial_state = hamiltonian.eigvecs[:, eig_index]
-hamiltonian.bohr_freqs = hamiltonian.eigvals .- transpose(hamiltonian.eigvals)
+# # #* Hamiltonian
+# hamiltonian = load("/Users/bence/code/liouvillian_metro/julia/data/hamiltonian_n4.jld")["ideal_ham"]
+# # hamiltonian = find_ideal_heisenberg(num_qubits, fill(1.0, 3), batch_size=1)
+# initial_state = hamiltonian.eigvecs[:, eig_index]
+# hamiltonian.bohr_freqs = hamiltonian.eigvals .- transpose(hamiltonian.eigvals)
 
-# #* Jump operators
-sigmax::Matrix{ComplexF64} = [0 1; 1 0]
-jump_op = Matrix(pad_term([sigmax], num_qubits, jump_site_index))
-jump_op_in_eigenbasis = hamiltonian.eigvecs' * jump_op * hamiltonian.eigvecs
-jump = JumpOp(jump_op,
-        jump_op_in_eigenbasis,
-        Dict{Float64, SparseMatrixCSC{ComplexF64, Int64}}(), 
-        zeros(0), 
-        zeros(0, 0))
+# # #* Jump operators
+# sigmax::Matrix{ComplexF64} = [0 1; 1 0]
+# jump_op = Matrix(pad_term([sigmax], num_qubits, jump_site_index))
+# jump_op_in_eigenbasis = hamiltonian.eigvecs' * jump_op * hamiltonian.eigvecs
+# jump = JumpOp(jump_op,
+#         jump_op_in_eigenbasis,
+#         Dict{Float64, SparseMatrixCSC{ComplexF64, Int64}}(), 
+#         zeros(0), 
+#         zeros(0, 0))
 
-# #* Fourier labels
-# # num_energy_bits = ceil(Int64, log2((0.45 * 2) / hamiltonian.w0)) + 2 # paper (above 3.7.), later will be β dependent
-num_energy_bits = ceil(Int64, log2((0.45 * 4 + 2/beta) / hamiltonian.w0)) + 10
-# # num_energy_bits = 9
-N = 2^(num_energy_bits)
-N_labels = [0:1:Int(N/2)-1; -Int(N/2):1:-1]
+# # #* Fourier labels
+# # # num_energy_bits = ceil(Int64, log2((0.45 * 2) / hamiltonian.w0)) + 2 # paper (above 3.7.), later will be β dependent
+# num_energy_bits = ceil(Int64, log2((0.45 * 4 + 2/beta) / hamiltonian.w0)) + 3  # For good integral approx we might need more r than expected
+# # # num_energy_bits = 9
+# N = 2^(num_energy_bits)
+# N_labels = [0:1:Int(N/2)-1; -Int(N/2):1:-1]
 
-t0 = 2 * pi / (N * hamiltonian.w0)
-time_labels = t0 * N_labels
-maximum(abs.(time_labels))
+# t0 = 2 * pi / (N * hamiltonian.w0)
+# time_labels = t0 * N_labels
+# ((maximum(time_labels) - minimum(time_labels)) / N)^2
 
-energy_labels = hamiltonian.w0 * N_labels
+# energy_labels = hamiltonian.w0 * N_labels
 
-@printf("Number of qubits: %d\n", num_qubits)
-@printf("Number of energy bits: %d\n", num_energy_bits)
-@printf("Energy unit: %e\n", hamiltonian.w0)
-@printf("Time unit: %e\n", t0)
+# @printf("Number of qubits: %d\n", num_qubits)
+# @printf("Number of energy bits: %d\n", num_energy_bits)
+# @printf("Energy unit: %e\n", hamiltonian.w0)
+# @printf("Time unit: %e\n", t0)
 
-atol = 1e-16
-# atol = 0.0
-# time_labels = collect(-maximum(time_labels):t0:maximum(time_labels))  # symmetric but not necessary I think
-@time b1 = compute_truncated_b1(time_labels, atol)
-@time b2 = compute_truncated_b2(time_labels, atol)
-# 
-b2 = Dict(zip(collect(keys(b1)), compute_b2(collect(keys(b1)))))
+# atol = 1e-16
+# # atol = 0.0
+# # time_labels = collect(-maximum(time_labels):t0:maximum(time_labels))  # symmetric but not necessary I think
+# @time b1 = compute_truncated_b1(time_labels, atol)
+# @time b2 = compute_truncated_b2(time_labels, atol)
+# # 
+# b2 = Dict(zip(collect(keys(b1)), compute_b2(collect(keys(b1)))))
 
+# # show(stdout, "text/plain", sort(collect(keys(b1))))
+# # show(stdout, "text/plain", sort(collect(keys(b2))))
 
-# show(stdout, "text/plain", sort(collect(keys(b1))))
-# show(stdout, "text/plain", sort(collect(keys(b2))))
-@time B_explicit = coherent_term_from_timedomain(jump, hamiltonian, b1, b2, beta) 
-@time B_integrated = coherent_term_timedomain_integrated(jump, hamiltonian, beta, (minimum(time_labels), maximum(time_labels)))
+# @time B_explicit = coherent_term_from_timedomain(jump, hamiltonian, b1, b2, beta)
+# @time B_integrated = coherent_term_timedomain_integrated(jump, hamiltonian, beta, (minimum(time_labels), maximum(time_labels)))
 
-# norm(B_integrated - B_integrated')
-# norm(B_explicit - B_explicit')
-norm(B_explicit)
-norm(B_integrated)
+# # norm(B_integrated - B_integrated')
+# # norm(B_explicit - B_explicit')
+# norm(B_explicit)
+# norm(B_integrated)
 
-norm(B_explicit - B_integrated)
+# norm(B_explicit) / norm(B_integrated)
+# norm(B_explicit - B_integrated)
 
 #* l1 norms of b1, b2
 # f1(t) = 1 / cosh(2 * pi * t)
