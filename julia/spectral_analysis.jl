@@ -19,9 +19,9 @@ include("db_tools.jl")
 
 
 #* Parameters
-num_qubits = 4
-mixing_time = 20.
-delta = 0.1
+num_qubits = 7
+mixing_time = 1.
+delta = 1.
 num_liouv_steps = Int(mixing_time / delta)
 # num_liouv_steps = 3 * num_qubits
 # num_liouv_steps = 2
@@ -31,7 +31,7 @@ Random.seed!(666)
 with_coherent = false
 
 #* Hamiltonian
-hamiltonian = load("/Users/bence/code/liouvillian_metro/julia/data/hamiltonian_n4.jld")["ideal_ham"]
+hamiltonian = load("/Users/bence/code/liouvillian_metro/julia/data/hamiltonian_n7.jld")["ideal_ham"]
 initial_dm = zeros(ComplexF64, size(hamiltonian.data))
 initial_dm[eig_index, eig_index] = 1.0  # In eigenbasis
 initial_dm[eig_index + 1, eig_index + 1] = 1.0
@@ -69,6 +69,7 @@ transition_gaussian(energy) = exp(-(beta * energy + 1)^2 / 2)
 transition_cutoff = 1e-4  #!
 energy_cutoff = find_zero(x -> transition_gaussian(x) - transition_cutoff, 0)
 energy_labels = energy_labels[energy_labels .<= energy_cutoff]
+
 
 transition_weights = transition_gaussian.(energy_labels)
 
@@ -153,7 +154,7 @@ t_diss_total = 0.0
 # trotterized_liouv_evol = zeros(ComplexF64, 4^num_qubits, 4^num_qubits)
 distances_to_gibbs = [tracedistance_nh(Operator(b, evolved_dm), Operator(b, gibbs))]
 min_distance = distances_to_gibbs[1]
-@showprogress desc="Algorithm..." for step in 1:num_liouv_steps
+@showprogress dt=1 desc="Algorithm..." for step in 1:num_liouv_steps
 
     # jump = all_random_jumps_generated[step]
     # Each jump once with delta
@@ -179,10 +180,11 @@ min_distance = distances_to_gibbs[1]
                 # oft_matrix = explicit_oft_exact_db(jump, hamiltonian, w, time_labels, beta)
                 oft_matrix = entry_wise_oft_exact_db(jump, w, hamiltonian, beta)
                 oft_matrix_dag = oft_matrix'
+                oft_dag_oft = oft_matrix_dag * oft_matrix
                 
                 dissipative_dm_part .+= transition_weights[i] * (oft_matrix * evolved_dm * oft_matrix_dag
-                                    - 0.5 * oft_matrix_dag * oft_matrix * evolved_dm
-                                    - 0.5 * evolved_dm * oft_matrix_dag * oft_matrix) 
+                                    - 0.5 * oft_dag_oft * evolved_dm
+                                    - 0.5 * evolved_dm * oft_dag_oft) 
             end
             evolved_dm .+= delta * dissipative_dm_part / Fw_norm^2
         end 
