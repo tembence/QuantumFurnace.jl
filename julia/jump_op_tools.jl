@@ -226,18 +226,78 @@ end
 #* ---------- Test ----------
 
 #* Parameters
-# num_qubits = 6
+# num_qubits = 4
 # sigma = 5.
 # beta = 1.
 # eig_index = 8
 # jump_site_index = 1
 
-# #* Hamiltonian
-# hamiltonian = load("/Users/bence/code/liouvillian_metro/julia/data/hamiltonian_n6.jld")["ideal_ham"]
-# # hamiltonian = find_ideal_heisenberg(num_qubits, fill(1.0, 3), batch_size=1)
-# initial_state = hamiltonian.eigvecs[:, eig_index]
-# # hamiltonian.bohr_freqs = hamiltonian.eigvals .- transpose(hamiltonian.eigvals)
-# # display(hamiltonian.bohr_freqs)
+# # #* Hamiltonian
+# hamiltonian = load("/Users/bence/code/liouvillian_metro/julia/data/hamiltonian_n4.jld")["ideal_ham"]
+# # # hamiltonian = find_ideal_heisenberg(num_qubits, fill(1.0, 3), batch_size=1)
+# # initial_state = hamiltonian.eigvecs[:, eig_index]
+# hamiltonian.bohr_freqs = hamiltonian.eigvals .- transpose(hamiltonian.eigvals)
+# # # display(hamiltonian.bohr_freqs)
+
+# num_energy_bits = ceil(Int64, log2((0.45 * 4 + 2/beta) / hamiltonian.w0)) + 3 # Under Fig. 5. with secular approx.
+# N = 2^(num_energy_bits)
+# N_labels = [0:1:Int(N/2)-1; -Int(N/2):1:-1]
+
+# t0 = 2 * pi / (N * hamiltonian.w0)
+# time_labels = t0 * N_labels
+# energy_labels = hamiltonian.w0 * N_labels
+# energy_labels = energy_labels[abs.(energy_labels) .<= 0.45]  # Energies outside are impossible in a QC
+
+# # OFT normalizations for energy basis
+# Fw = exp.(- beta^2 * (energy_labels).^2 / 4)
+# Fw_norm = sqrt(sum(Fw.^2))
+
+# # Transition weights in the liouv
+# transition_gaussian(energy) = exp(-(beta * energy + 1)^2 / 2)
+
+# #* Jump operators
+# X::Matrix{ComplexF64} = [0 1; 1 0]
+# Y::Matrix{ComplexF64} = [0.0 -im; im 0.0]
+# Z::Matrix{ComplexF64} = [1 0; 0 -1]
+# jump_paulis = [X, Y, Z]
+# all_jumps_generated = []
+
+# #* X JUMP
+# sites = [1, 2, 3]
+# for site in sites
+# jump_op = Matrix(pad_term([X], num_qubits, site))
+#     jump_op_in_eigenbasis = hamiltonian.eigvecs' * jump_op * hamiltonian.eigvecs
+#     # jump_in_trotter_basis = trotter.eigvecs' * jump_op * trotter.eigvecs
+#     jump = JumpOp(jump_op,
+#             jump_op_in_eigenbasis,
+#             Dict{Float64, SparseMatrixCSC{ComplexF64, Int64}}(), 
+#             zeros(0),
+#             zeros(0, 0)) #jump_in_trotter_basis
+#     push!(all_jumps_generated, jump)
+# end
+
+# Random.seed!(667)
+# picked_E = rand(energy_labels)
+# jump = all_jumps_generated[1]
+# norm(jump.in_eigenbasis - jump.in_eigenbasis')
+# # sqrt(transition_gaussian(picked_E)) 
+# oft_matrix_plus = entry_wise_oft_exact_db(jump, picked_E, hamiltonian, beta) / Fw_norm
+# oft_matrix_minus = entry_wise_oft_exact_db(jump, -picked_E, hamiltonian, beta) / Fw_norm
+
+# norm(oft_matrix_plus - oft_matrix_plus')
+# norm(oft_matrix_minus' - oft_matrix_plus)  #! Is in the text.
+# @printf("Energy: %f\n", picked_E)
+# norm(oft_matrix_minus - oft_matrix_plus)
+
+
+
+
+
+
+
+
+
+
 
 # # #! Uncomment for bohr oft
 # # construct_A_nus(jump, hamiltonian)

@@ -86,8 +86,6 @@ function coherent_term_from_timedomain(jump::JumpOp, hamiltonian::HamHam,
     return B * t0^2
 end
 
-# Deviates more and more from the sum, if we have higher r... but truncation is not the error.
-#! I think it is a unit error, since integral has no units and sum has units.
 function coherent_term_timedomain_integrated(jump::JumpOp, hamiltonian::HamHam, beta::Float64, 
     time_domain::Tuple{Float64, Float64} = (-Inf, Inf))
 
@@ -181,69 +179,80 @@ function get_truncated_indices_b(b::Vector{ComplexF64}, atol::Float64 = 1e-14)
     return indices_b
 end
 
+function check_B(coherent_term::Matrix{ComplexF64}, jump::JumpOp, hamiltonian::HamHam, beta::Float64)
+    b = SpinBasis(1//2)^num_qubits
+    trnorm = tracenorm_nh(Operator(b, coherent_term))
+
+    B_integrated = coherent_term_timedomain_integrated(jump, hamiltonian, beta)
+    deviation = norm(B_integrated - coherent_term)
+
+    @printf("\nTracenorm of coherent term: %e\n", trnorm)
+    @printf("Deviation from integral: %e\n", deviation)
+end
+
 #* Testing
-num_qubits = 5
-beta = 10.
-eig_index = 3
-jump_site_index = 1
+# num_qubits = 5
+# beta = 10.
+# eig_index = 3
+# jump_site_index = 1
 
-# #* Hamiltonian
-hamiltonian = load("/Users/bence/code/liouvillian_metro/julia/data/hamiltonian_n5.jld")["ideal_ham"]
-# hamiltonian = find_ideal_heisenberg(num_qubits, fill(1.0, 3), batch_size=1)
-initial_state = hamiltonian.eigvecs[:, eig_index]
-hamiltonian.bohr_freqs = hamiltonian.eigvals .- transpose(hamiltonian.eigvals)
+# # #* Hamiltonian
+# hamiltonian = load("/Users/bence/code/liouvillian_metro/julia/data/hamiltonian_n5.jld")["ideal_ham"]
+# # hamiltonian = find_ideal_heisenberg(num_qubits, fill(1.0, 3), batch_size=1)
+# initial_state = hamiltonian.eigvecs[:, eig_index]
+# hamiltonian.bohr_freqs = hamiltonian.eigvals .- transpose(hamiltonian.eigvals)
 
-# #* Jump operators
-sigmax::Matrix{ComplexF64} = [0 1; 1 0]
-jump_op = Matrix(pad_term([sigmax], num_qubits, jump_site_index))
-jump_op_in_eigenbasis = hamiltonian.eigvecs' * jump_op * hamiltonian.eigvecs
-jump = JumpOp(jump_op,
-        jump_op_in_eigenbasis,
-        Dict{Float64, SparseMatrixCSC{ComplexF64, Int64}}(), 
-        zeros(0), 
-        zeros(0, 0))
+# # #* Jump operators
+# sigmax::Matrix{ComplexF64} = [0 1; 1 0]
+# jump_op = Matrix(pad_term([sigmax], num_qubits, jump_site_index))
+# jump_op_in_eigenbasis = hamiltonian.eigvecs' * jump_op * hamiltonian.eigvecs
+# jump = JumpOp(jump_op,
+#         jump_op_in_eigenbasis,
+#         Dict{Float64, SparseMatrixCSC{ComplexF64, Int64}}(), 
+#         zeros(0), 
+#         zeros(0, 0))
 
-# #* Fourier labels
-# # num_energy_bits = ceil(Int64, log2((0.45 * 2) / hamiltonian.w0)) + 2 # paper (above 3.7.), later will be β dependent
-num_energy_bits = ceil(Int64, log2((0.45 * 4 + 2/beta) / hamiltonian.w0)) + 1  # For good integral approx we might need more r than expected
-#! r scales even worse for a good integral in system size... Maybe it is just not efficient to approximate the integral for B.
-#! This could be big, since they don't mention how well can we approximate the integral within a quantum computer!
-# # num_energy_bits = 9
-N = 2^(num_energy_bits)
-N_labels = [0:1:Int(N/2)-1; -Int(N/2):1:-1]
+# # #* Fourier labels
+# # # num_energy_bits = ceil(Int64, log2((0.45 * 2) / hamiltonian.w0)) + 2 # paper (above 3.7.), later will be β dependent
+# num_energy_bits = ceil(Int64, log2((0.45 * 4 + 2/beta) / hamiltonian.w0)) + 1  # For good integral approx we might need more r than expected
+# #! r scales even worse for a good integral in system size... Maybe it is just not efficient to approximate the integral for B.
+# #! This could be big, since they don't mention how well can we approximate the integral within a quantum computer!
+# # # num_energy_bits = 9
+# N = 2^(num_energy_bits)
+# N_labels = [0:1:Int(N/2)-1; -Int(N/2):1:-1]
 
-t0 = 2 * pi / (N * hamiltonian.w0)
-time_labels = t0 * N_labels
-((maximum(time_labels) - minimum(time_labels)) / N)^2
+# t0 = 2 * pi / (N * hamiltonian.w0)
+# time_labels = t0 * N_labels
+# ((maximum(time_labels) - minimum(time_labels)) / N)^2
 
-energy_labels = hamiltonian.w0 * N_labels
+# energy_labels = hamiltonian.w0 * N_labels
 
-@printf("Number of qubits: %d\n", num_qubits)
-@printf("Number of energy bits: %d\n", num_energy_bits)
-@printf("Energy unit: %e\n", hamiltonian.w0)
-@printf("Time unit: %e\n", t0)
+# @printf("Number of qubits: %d\n", num_qubits)
+# @printf("Number of energy bits: %d\n", num_energy_bits)
+# @printf("Energy unit: %e\n", hamiltonian.w0)
+# @printf("Time unit: %e\n", t0)
 
-atol = 1e-12
-# atol = 0.0
-# time_labels = collect(-maximum(time_labels):t0:maximum(time_labels))  # symmetric but not necessary I think
-@time b1 = compute_truncated_b1(time_labels, atol)
-@time b2 = compute_truncated_b2(time_labels, atol)
-#
-@printf("Number of b1 terms kept: %d\n", length(b1))
-@printf("Number of b2 terms kept: %d\n", length(b2))
-b2 = Dict(zip(collect(keys(b1)), compute_b2(collect(keys(b1)))))
+# atol = 1e-12
+# # atol = 0.0
+# # time_labels = collect(-maximum(time_labels):t0:maximum(time_labels))  # symmetric but not necessary I think
+# @time b1 = compute_truncated_b1(time_labels, atol)
+# @time b2 = compute_truncated_b2(time_labels, atol)
+# #
+# @printf("Number of b1 terms kept: %d\n", length(b1))
+# @printf("Number of b2 terms kept: %d\n", length(b2))
+# b2 = Dict(zip(collect(keys(b1)), compute_b2(collect(keys(b1)))))
 
 # show(stdout, "text/plain", sort(collect(keys(b1))))
 # show(stdout, "text/plain", sort(collect(keys(b2))))
 
-@time B_explicit = coherent_term_from_timedomain(jump, hamiltonian, b1, b2, beta)
-@time B_integrated = coherent_term_timedomain_integrated(jump, hamiltonian, beta)
+# @time B_explicit = coherent_term_from_timedomain(jump, hamiltonian, b1, b2, beta)
+# @time B_integrated = coherent_term_timedomain_integrated(jump, hamiltonian, beta)
 
 # norm(B_integrated - B_integrated')
 # norm(B_explicit - B_explicit')
 
-norm(B_explicit) / norm(B_integrated)
-norm(B_explicit - B_integrated)
+# norm(B_explicit) / norm(B_integrated)
+# norm(B_explicit - B_integrated)
 
 #* l1 norms of b1, b2
 # f1(t) = 1 / cosh(2 * pi * t)
