@@ -19,9 +19,9 @@ include("db_tools.jl")
 
 
 #* Parameters
-num_qubits = 7
-mixing_time = 1.
-delta = 1.
+num_qubits = 4
+mixing_time = 20.
+delta = 0.1
 num_liouv_steps = Int(mixing_time / delta)
 # num_liouv_steps = 3 * num_qubits
 # num_liouv_steps = 2
@@ -31,12 +31,11 @@ Random.seed!(666)
 with_coherent = false
 
 #* Hamiltonian
-hamiltonian = load("/Users/bence/code/liouvillian_metro/julia/data/hamiltonian_n7.jld")["ideal_ham"]
+hamiltonian = load("/Users/bence/code/liouvillian_metro/julia/data/hamiltonian_n4.jld")["ideal_ham"]
 initial_dm = zeros(ComplexF64, size(hamiltonian.data))
 initial_dm[eig_index, eig_index] = 1.0  # In eigenbasis
 initial_dm[eig_index + 1, eig_index + 1] = 1.0
 initial_dm /= tr(initial_dm)
-tr(initial_dm)
 
 hamiltonian.bohr_freqs = hamiltonian.eigvals .- transpose(hamiltonian.eigvals)
 
@@ -174,7 +173,7 @@ min_distance = distances_to_gibbs[1]
             check_B(coherent_term, jump, hamiltonian, beta)
         end
 
-        t_diss = @elapsed begin
+        t_diss = @elapsed begin 
             dissipative_dm_part = zeros(ComplexF64, size(initial_dm))
             for (i, w) in enumerate(energy_labels)
                 # oft_matrix = explicit_oft_exact_db(jump, hamiltonian, w, time_labels, beta)
@@ -209,39 +208,41 @@ println("Time for dissipative terms: ", t_diss_total)
 println("----Total time: ", t_coh_total + t_diss_total)
 
 #* Liouv construction
-# liouv = zeros(ComplexF64, 4^num_qubits, 4^num_qubits)
-# @showprogress dt=1 desc="Liouvillian..." for step in eachindex(all_jumps_generated)
-#     # Jump
-#     jump = all_jumps_generated[step]
+liouv = zeros(ComplexF64, 4^num_qubits, 4^num_qubits)
+@showprogress dt=1 desc="Liouvillian..." for step in eachindex(all_jumps_generated)
+    # Jump
+    jump = all_jumps_generated[step]
 
-#     # Coherent term
-#     if with_coherent
-#         coherent_term = coherent_term_from_timedomain(jump, hamiltonian, b1, b2, beta)
-#         # coherent_term = coherent_term_timedomain_integrated(jump, hamiltonian, beta)
-#         liouv .+= construct_liouvillian_coherent(coherent_term)
-#     end
+    # Coherent term
+    if with_coherent
+        coherent_term = coherent_term_from_timedomain(jump, hamiltonian, b1, b2, beta)
+        # coherent_term = coherent_term_timedomain_integrated(jump, hamiltonian, beta)
+        liouv .+= construct_liouvillian_coherent(coherent_term)
+    end
 
-#     for (i, w) in enumerate(energy_labels)
-#         # oft_matrix = explicit_oft_exact_db(jump, hamiltonian, w, time_labels, beta)
-#         oft_matrix = sqrt(transition_weights[i]) * entry_wise_oft_exact_db(jump, w, hamiltonian, beta) / Fw_norm
-#         oft_matrix_dag = oft_matrix'
+    for (i, w) in enumerate(energy_labels)
+        # oft_matrix = explicit_oft_exact_db(jump, hamiltonian, w, time_labels, beta)
+        oft_matrix = sqrt(transition_weights[i]) * entry_wise_oft_exact_db(jump, w, hamiltonian, beta)
 
-#         #* Liouv
-#         liouv .+= construct_liouvillian_diss([oft_matrix])
-#     end
-# end
+        #* Liouv
+        liouv .+= construct_liouvillian_diss([oft_matrix])
+    end
+end
+
+# Very important normalization
+liouv /= Fw_norm^2
 
 #* Spectral analysis
-# eigvals_liouv, eigvecs_liouv = eigen(liouv)
-# spectral_gap = real(eigvals_liouv[end] - eigvals_liouv[end - 1])
-# # @printf("eigvals of L:\n")
-# # display(eigvals_liouv[end - 5:end])
+eigvals_liouv, eigvecs_liouv = eigen(liouv)
+spectral_gap = real(eigvals_liouv[end] - eigvals_liouv[end - 1])
+# @printf("eigvals of L:\n")
+# display(eigvals_liouv[end - 5:end])
 
-# # Stationary DM / vectorized
-# stationary_vec = eigvecs_liouv[:, end]
-# stationary_dm = reshape(stationary_vec, 2^num_qubits, 2^num_qubits)
-# stationary_dm /= tr(stationary_dm)
-# stationary_vec = vec(stationary_dm)
+# Stationary DM / vectorized
+stationary_vec = eigvecs_liouv[:, end]
+stationary_dm = reshape(stationary_vec, 2^num_qubits, 2^num_qubits)
+stationary_dm /= tr(stationary_dm)
+stationary_vec = vec(stationary_dm)
 
 # # Gibbs and evolved vectorized
 gibbs_vec = vec(gibbs)
@@ -254,40 +255,40 @@ evolved_vec = vec(evolved_dm)
 # HS distances
 dist_evolved_dm_gibbs_vec = norm(evolved_vec - gibbs_vec)
 dist_best_evolved_dm_gibbs_vec = norm(best_evolved_vec - gibbs_vec)
-# dist_ss_gibbs_vec = norm(stationary_vec - gibbs_vec)
-# dist_ss_evolved_dm_vec = norm(stationary_vec - evolved_vec)
-# dist_ss_best_evolved_dm_vec = norm(stationary_vec - best_evolved_vec)   
+dist_ss_gibbs_vec = norm(stationary_vec - gibbs_vec)
+dist_ss_evolved_dm_vec = norm(stationary_vec - evolved_vec)
+dist_ss_best_evolved_dm_vec = norm(stationary_vec - best_evolved_vec)   
 
 println(" //////// HS distances: ////////")
 @printf("HS norm evolved DM to Gibbs vec: %s\n", dist_evolved_dm_gibbs_vec)
 @printf("HS norm best evolved DM to Gibbs vec: %s\n", dist_best_evolved_dm_gibbs_vec)
-# @printf("--HS norm SS to Gibbs: %s\n", dist_ss_gibbs_vec)
-# @printf("HS norm evolved DM to SS: %s\n", dist_ss_evolved_dm_vec)
-# @printf("HS norm best evolved DM to SS: %s\n", dist_ss_best_evolved_dm_vec)
+@printf("--HS norm SS to Gibbs: %s\n", dist_ss_gibbs_vec)
+@printf("HS norm evolved DM to SS: %s\n", dist_ss_evolved_dm_vec)
+@printf("HS norm best evolved DM to SS: %s\n", dist_ss_best_evolved_dm_vec)
 
 # Trace distances
 println(" //////// Trace distances: ////////")
 min_dist = minimum(distances_to_gibbs)
 # max_mixed_dm = Matrix(I, 2^num_qubits, 2^num_qubits) / 2^num_qubits
 # dist_to_maxmixed = tracedistance_nh(Operator(b, best_evolved_dm), Operator(b, max_mixed_dm))
-# trdist_ss_evolved_dm = tracedistance_nh(Operator(b, evolved_dm), Operator(b, stationary_dm))
+trdist_ss_evolved_dm = tracedistance_nh(Operator(b, evolved_dm), Operator(b, stationary_dm))
 
 # trdist_ss_rand = tracedistance_nh(Operator(b, rand_dm), Operator(b, stationary_dm))
 @printf("Last distance to Gibbs: %s\n", distances_to_gibbs[end])
 @printf("Minimum distance to Gibbs: %s\n", min_dist)
 # @printf("Variance of last 10 distances to Gibbs: %s\n", var(distances_to_gibbs[end-10:end]))
 # @printf("Distance to max mixed: %s\n", dist_to_maxmixed)
-# @printf("Trace distance evolved DM to SS: %s\n", trdist_ss_evolved_dm)
+@printf("Trace distance evolved DM to SS: %s\n", trdist_ss_evolved_dm)
 # @printf("Trace distance random to SS: %s\n", trdist_ss_rand)
 
 # println("How good is our SS?:")
-# trdist_ss_gibbs = tracedistance_nh(Operator(b, gibbs), Operator(b, stationary_dm))  # Is trdist small to Gibbs?
-# @printf("Trace distance Gibbs to SS: %s\n", trdist_ss_gibbs)
-# is_it_zero = liouv * gibbs_vec # Is Gibbs a steady state?
-# @printf("Is Gibbs a steady state? L(π) = %s\n", norm(is_it_zero))
+trdist_ss_gibbs = tracedistance_nh(Operator(b, gibbs), Operator(b, stationary_dm))  # Is trdist small to Gibbs?
+@printf("Trace distance Gibbs to SS: %s\n", trdist_ss_gibbs)
+is_it_zero = liouv * gibbs_vec # Is Gibbs a steady state?
+@printf("Is Gibbs a steady state? L(π) = %s\n", norm(is_it_zero))
 
-# is_evolved_zero = liouv * evolved_vec
-# @printf("Is evolved a steady state? L(ρ) = %s\n", norm(is_evolved_zero))
+is_evolved_zero = liouv * evolved_vec
+@printf("Is evolved a steady state? L(ρ) = %s\n", norm(is_evolved_zero))
 # is_random_zero = liouv * rand_dm_vec
 # @printf("Is random a steady state? L(r) = %s\n", norm(is_random_zero))
  
