@@ -17,18 +17,15 @@ include("coherent.jl")
 include("db_tools.jl")
 #TODO: Plot 1 step durations with system size (and correspinding ideal energy bits or less...) to see how much time it takes later.
 
-
 #* Parameters
 num_qubits = 4
 mixing_time = 20.
 delta = 0.1
 num_liouv_steps = Int(mixing_time / delta)
-# num_liouv_steps = 3 * num_qubits
-# num_liouv_steps = 2
 beta = 10.
 eig_index = 3
 Random.seed!(666)
-with_coherent = false
+with_coherent = true
 
 #* Hamiltonian
 hamiltonian = load("/Users/bence/code/liouvillian_metro/julia/data/hamiltonian_n4.jld")["ideal_ham"]
@@ -55,29 +52,33 @@ N_labels = [0:1:Int(N/2)-1; -Int(N/2):1:-1]
 t0 = 2 * pi / (N * hamiltonian.w0)
 time_labels = t0 * N_labels
 energy_labels = hamiltonian.w0 * N_labels
-energy_labels = energy_labels[abs.(energy_labels) .<= 0.45]  # Energies outside are impossible in a QC
-
-# OFT normalizations for energy basis
+# OFT normalizations for energy basis. Doesn't matter much if here or after 0.45 truncation, but in principle here is better.
 Fw = exp.(- beta^2 * (energy_labels).^2 / 4)
 Fw_norm = sqrt(sum(Fw.^2))
 
+# Truncation, since we can't have any larger energy jumps in our system.
+# (Symmetrized the sum if we don't do any more truncation.)
+energy_labels_045 = energy_labels[abs.(energy_labels) .<= 0.45]
+
 # Transition weights in the liouv
-transition_gaussian(energy) = exp(-(beta * energy + 1)^2 / 2)
+transition_gaussian(energy) = exp(-(beta * energy + 1)^2 / 2)  # Calling this again and again is as fast as storing it.
 
 # Truncating energy labels based on the Gaussian transition function: 
 transition_cutoff = 1e-4  #!
 energy_cutoff = find_zero(x -> transition_gaussian(x) - transition_cutoff, 0)
-energy_labels = energy_labels[energy_labels .<= energy_cutoff]
+energy_labels = filter(x -> x <= energy_cutoff, energy_labels_045)
 
-
-transition_weights = transition_gaussian.(energy_labels)
+ # Setup for Hermitian symmetry stuff, (changes energy label order, which is not important now)
+energy_labels_cutoff_positive = filter(x -> x <= energy_cutoff && x > 0., energy_labels_045)
+energy_labels_rest = - filter(x -> x > energy_cutoff, energy_labels_045)
+push!(energy_labels_rest, 0.0) # Add w = 0.0 here, since it can't be in the positive part.
 
 #TODO: Do we need all 3 jumps, maybe 2 is good? 2-site jumps, still Hermitians? XX YY ZZ?
 #* Jump operators
 X::Matrix{ComplexF64} = [0 1; 1 0]
 Y::Matrix{ComplexF64} = [0.0 -im; im 0.0]
 Z::Matrix{ComplexF64} = [1 0; 0 -1]
-jump_paulis = [X, Y, Z]
+jump_paulis = [[X], [Y], [Z]]
 all_jumps_generated = []
 
 #* X JUMP
@@ -98,7 +99,7 @@ all_jumps_generated = []
 # All jumps but only once
 for pauli in jump_paulis
     for site in 1:num_qubits
-    jump_op = Matrix(pad_term([pauli], num_qubits, site))
+    jump_op = Matrix(pad_term(pauli, num_qubits, site))
     jump_op_in_eigenbasis = hamiltonian.eigvecs' * jump_op * hamiltonian.eigvecs
     # jump_in_trotter_basis = trotter.eigvecs' * jump_op * trotter.eigvecs
     jump = JumpOp(jump_op,
@@ -145,7 +146,7 @@ else
     @printf("Not adding coherent terms! \n")
 end
 
-#* Algorithm
+#* ////////////////////////// Algorithm //////////////////////////
 p = Progress(length(num_liouv_steps))
 t_coh_total = 0.0
 t_diss_total = 0.0
@@ -175,16 +176,41 @@ min_distance = distances_to_gibbs[1]
 
         t_diss = @elapsed begin 
             dissipative_dm_part = zeros(ComplexF64, size(initial_dm))
-            for (i, w) in enumerate(energy_labels)
-                # oft_matrix = explicit_oft_exact_db(jump, hamiltonian, w, time_labels, beta)
+            # Using Hermitian symmetry
+            # w <= cutoff, A(-w) = A(w)^\dagger
+            for w in energy_labels_cutoff_positive
+                oft_matrix = entry_wise_oft_exact_db(jump, w, hamiltonian, beta)
+                oft_matrix_dag = oft_matrix'  # = A(-w)
+                oft_dag_oft = oft_matrix_dag * oft_matrix
+                oft_oft_dag = oft_matrix * oft_matrix_dag
+                
+                # Boy, the brackets in this multiline expression are important.
+                dissipative_dm_part .+= transition_gaussian(w) * (oft_matrix * evolved_dm * oft_matrix_dag
+                                    - 0.5 * (oft_dag_oft * evolved_dm + evolved_dm * oft_dag_oft))
+                dissipative_dm_part .+=  transition_gaussian(-w) * (oft_matrix_dag * evolved_dm * oft_matrix 
+                                    - 0.5 * (oft_oft_dag * evolved_dm + evolved_dm * oft_oft_dag))
+            end
+
+            # w < -cutoff && w = 0.0
+            for w in energy_labels_rest
                 oft_matrix = entry_wise_oft_exact_db(jump, w, hamiltonian, beta)
                 oft_matrix_dag = oft_matrix'
                 oft_dag_oft = oft_matrix_dag * oft_matrix
                 
-                dissipative_dm_part .+= transition_weights[i] * (oft_matrix * evolved_dm * oft_matrix_dag
-                                    - 0.5 * oft_dag_oft * evolved_dm
-                                    - 0.5 * evolved_dm * oft_dag_oft) 
+                dissipative_dm_part .+=  transition_gaussian(w) * (oft_matrix * evolved_dm * oft_matrix_dag
+                                    - 0.5 * (oft_dag_oft * evolved_dm + evolved_dm * oft_dag_oft))
             end
+
+            # dissipative_dm_part = zeros(ComplexF64, size(initial_dm))
+            # for (i, w) in enumerate(energy_labels)
+            #     # oft_matrix = explicit_oft_exact_db(jump, hamiltonian, w, time_labels, beta)
+            #     oft_matrix = entry_wise_oft_exact_db(jump, w, hamiltonian, beta)
+            #     oft_matrix_dag = oft_matrix'
+            #     oft_dag_oft = oft_matrix_dag * oft_matrix
+                
+            #     dissipative_dm_part .+= transition_weights[i] * (oft_matrix * evolved_dm * oft_matrix_dag
+            #                         - 0.5 * (oft_dag_oft * evolved_dm + evolved_dm * oft_dag_oft))
+            # end
             evolved_dm .+= delta * dissipative_dm_part / Fw_norm^2
         end 
         # @printf("Trace: %s\n", tr(evolved_dm))
@@ -207,8 +233,10 @@ println("Time for coherent terms: ", t_coh_total)
 println("Time for dissipative terms: ", t_diss_total)
 println("----Total time: ", t_coh_total + t_diss_total)
 
-#* Liouv construction
+#* ////////////////////////// Liouv construction //////////////////////////
+
 liouv = zeros(ComplexF64, 4^num_qubits, 4^num_qubits)
+liouv_sym = zeros(ComplexF64, 4^num_qubits, 4^num_qubits)
 @showprogress dt=1 desc="Liouvillian..." for step in eachindex(all_jumps_generated)
     # Jump
     jump = all_jumps_generated[step]
@@ -220,13 +248,27 @@ liouv = zeros(ComplexF64, 4^num_qubits, 4^num_qubits)
         liouv .+= construct_liouvillian_coherent(coherent_term)
     end
 
-    for (i, w) in enumerate(energy_labels)
-        # oft_matrix = explicit_oft_exact_db(jump, hamiltonian, w, time_labels, beta)
-        oft_matrix = sqrt(transition_weights[i]) * entry_wise_oft_exact_db(jump, w, hamiltonian, beta)
+    #* Using Hermitian symmetry
+    # w <= cutoff, A(-w) = A(w)^\dagger
+    for w in energy_labels_cutoff_positive
+        oft_matrix = entry_wise_oft_exact_db(jump, w, hamiltonian, beta)
+        liouv .+= construct_liouvillian_diss([sqrt(transition_gaussian(w)) * oft_matrix, 
+                                            sqrt(transition_gaussian(-w)) * oft_matrix'])
+    end
 
-        #* Liouv
+    # w < -cutoff && w = 0.0
+    for w in energy_labels_rest
+        oft_matrix = sqrt(transition_gaussian(w)) * entry_wise_oft_exact_db(jump, w, hamiltonian, beta)
         liouv .+= construct_liouvillian_diss([oft_matrix])
     end
+
+    # for (i, w) in enumerate(energy_labels)
+    #     # oft_matrix = explicit_oft_exact_db(jump, hamiltonian, w, time_labels, beta)
+    #     oft_matrix = sqrt(transition_weights[i]) * entry_wise_oft_exact_db(jump, w, hamiltonian, beta)
+
+    #     #* Liouv
+    #     liouv .+= construct_liouvillian_diss([oft_matrix])
+    # end
 end
 
 # Very important normalization
@@ -235,6 +277,7 @@ liouv /= Fw_norm^2
 #* Spectral analysis
 eigvals_liouv, eigvecs_liouv = eigen(liouv)
 spectral_gap = real(eigvals_liouv[end] - eigvals_liouv[end - 1])
+@printf("Spectral gap: %s\n", spectral_gap)
 # @printf("eigvals of L:\n")
 # display(eigvals_liouv[end - 5:end])
 
