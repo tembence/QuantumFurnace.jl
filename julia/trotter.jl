@@ -8,13 +8,7 @@ using QuantumOptics
 
 include("hamiltonian_tools.jl")
 include("qi_tools.jl")
-
-mutable struct TrottTrott
-    t0::Float64
-    num_trotter_steps_per_t0::Rational{Int64}
-    eigvals_t0::Vector{ComplexF64}
-    eigvecs::Matrix{ComplexF64}
-end
+include("structs.jl")
 
 #! Maybe 1 Trotter step / t0 is still too good, because it deviates from OFT's by 1e-3 - 1e-4
 function create_trotter(hamiltonian::HamHam, t0::Float64, num_trotter_steps_per_t0::Int64)

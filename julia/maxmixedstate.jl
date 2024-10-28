@@ -13,7 +13,7 @@ include("hamiltonian_tools.jl")
 include("jump_op_tools.jl")
 include("trotter.jl")
 include("qi_tools.jl")
-include("liouvillian_tools.jl")
+include("spectral_analysis_tools.jl")
 include("coherent.jl")
 
 num_qubits = 10

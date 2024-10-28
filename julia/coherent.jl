@@ -58,7 +58,7 @@ end
 # (3.1) and Proposition III.1
 # Has to be on a symmetric time domain, otherwise it can't be Hermitian.
 function coherent_term_from_timedomain(jump::JumpOp, hamiltonian::HamHam, 
-    b1::Dict{Float64, ComplexF64}, b2::Dict{Float64, ComplexF64}, beta::Float64)
+    b1::Dict{Float64, ComplexF64}, b2::Dict{Float64, ComplexF64}, t0::Float64, beta::Float64)
     """Coherent term for the Gaussian AND Metropolis case IF jump op is [A Adag, H] = 0 (X, Y, Z)
     written in timedomain and using ideal time evolution.
     Working in the energy eigenbasis for the time evolutions, where H is diagonal.
@@ -66,7 +66,6 @@ function coherent_term_from_timedomain(jump::JumpOp, hamiltonian::HamHam,
     
     diag_time_evolve(t) = Diagonal(exp.(1im * hamiltonian.eigvals * t))
     jump_op_in_eigenbasis_dag = jump.in_eigenbasis'
-    t0 = abs(time_labels[2] - time_labels[1])
 
     # Inner b2 integral
     b2_integral = zeros(ComplexF64, size(hamiltonian.data))
@@ -86,7 +85,32 @@ function coherent_term_from_timedomain(jump::JumpOp, hamiltonian::HamHam,
     return B * t0^2
 end
 
-function coherent_term_timedomain_integrated(jump::JumpOp, hamiltonian::HamHam, beta::Float64, 
+function coherent_term_trotter(jump::JumpOp, hamiltonian::HamHam, trotter::TrottTrott, 
+    b1::Dict{Float64, ComplexF64}, b2::Dict{Float64, ComplexF64}, beta::Float64)
+
+    diag_time_evolve(t) = Diagonal(trotter.eigvals_t0.^Int(ceil(t / trotter.t0))) # Trotter steps
+    jump_op_in_eigenbasis_dag = jump.in_eigenbasis'
+
+    # Inner b2 integral
+    b2_integral = zeros(ComplexF64, size(hamiltonian.data))
+    for s in keys(b2)
+        time_evolution_inner = diag_time_evolve(beta * s)
+        b2_integral .+= b2[s] * time_evolution_inner * 
+        (jump_op_in_eigenbasis_dag * (time_evolution_inner')^2 * jump.in_eigenbasis) *
+        time_evolution_inner
+    end
+
+    # Outer b1 integral
+    B = zeros(ComplexF64, size(hamiltonian.data))
+    for t in keys(b1)
+        time_evolution_outer = diag_time_evolve(beta * t)
+        B .+= b1[t] * time_evolution_outer' * b2_integral * time_evolution_outer
+    end
+    return B * trotter.t0^2
+
+end
+
+function coherent_term_timedomain_integrated_gauss(jump::JumpOp, hamiltonian::HamHam, beta::Float64, 
     time_domain::Tuple{Float64, Float64} = (-Inf, Inf))
 
     f1(t) = 1 / cosh(2 * pi * t)
@@ -101,6 +125,36 @@ function coherent_term_timedomain_integrated(jump::JumpOp, hamiltonian::HamHam, 
                            (jump_op_in_eigenbasis_dag * diag_time_evolve(- 2 * beta * s) * jump.in_eigenbasis) *
                            diag_time_evolve(beta * s)
     b2_integral, _ = quadgk(b2_integrand, time_domain[1], time_domain[2]; atol=1e-12, rtol=1e-12)
+
+    # Outer b1 integral
+    b1_integrand(t) = b1_fn(t) * diag_time_evolve(- beta * t) * b2_integral * diag_time_evolve(beta * t)
+    B, _ = quadgk(b1_integrand, time_domain[1], time_domain[2]; atol=1e-12, rtol=1e-12)
+    return B
+end
+
+function heaviside(x::Float64)
+    return x <= 0 ? 1 : 0 
+end
+
+function coherent_term_timedomain_integrated_metro(jump::JumpOp, hamiltonian::HamHam, eta::Float64, beta::Float64, 
+    time_domain::Tuple{Float64, Float64} = (-Inf, Inf))
+
+    f1(t) = 1 / cosh(2 * pi * t)
+    f2(t) = sin(-t) * exp(-2 * t^2)
+    b1_fn(t) = 2 * sqrt(pi) * exp(1/8) * convolute.(Ref(f1), Ref(f2), t)
+    b2_metro_fn(t) = (exp(-2 * t^2 - im * t) + (abs(t) <= eta ? 1 : 0) * im * (2 * t + im)) / (sqrt(32) * pi * t * (2 * t + im))
+    diag_time_evolve(t) = Diagonal(exp.(1im * hamiltonian.eigvals * t))
+    jump_op_in_eigenbasis_dag = jump.in_eigenbasis'
+
+    # Inner b2 integral
+    b2_integrand(s) = b2_metro_fn(s) * diag_time_evolve(beta * s) * 
+                           (jump_op_in_eigenbasis_dag * diag_time_evolve(- 2 * beta * s) * jump.in_eigenbasis) *
+                           diag_time_evolve(beta * s)
+    # b2 function has singularity in t = 0
+    eps = 1e-12
+    b2_integral_1, _ = quadgk(b2_integrand, time_domain[1], -eps; atol=1e-12, rtol=1e-12)
+    b2_integral_2, _ = quadgk(b2_integrand, eps, time_domain[2]; atol=1e-12, rtol=1e-12)
+    b2_integral = b2_integral_1 + b2_integral_2
 
     # Outer b1 integral
     b1_integrand(t) = b1_fn(t) * diag_time_evolve(- beta * t) * b2_integral * diag_time_evolve(beta * t)
@@ -153,7 +207,7 @@ function compute_truncated_b2(time_labels::Vector{Float64}, atol::Float64 = 1e-1
     return Dict(zip(b2_times, b2_vals))
 end
 
-function compute_truncated_b2_metro(time_labels::Vector{Float64}, eta::Float64)
+function compute_truncated_b2_metro(time_labels::Vector{Float64}, eta::Float64, atol::Float64 = 1e-14)
     """(3.6)"""
     b2_metro::Vector{ComplexF64} = (1/(4 * pi * sqrt(2))) * 
         exp.(-2 * time_labels.^2 .- 1im * time_labels) ./ (time_labels .* (2 * time_labels .+ 1im))
@@ -162,11 +216,11 @@ function compute_truncated_b2_metro(time_labels::Vector{Float64}, eta::Float64)
     heaviside_eta = ifelse.(abs.(time_labels) .> eta, 0, ones(length(time_labels)))
     b2_metro .+= heaviside_eta .* (1im * (2 * time_labels .+ 1im) ./ (2 * time_labels .+ 1im))
     
-    indices_b2_metro = get_truncated_indices_b(b2_metro)
+    indices_b2_metro = get_truncated_indices_b(b2_metro, atol)
     b2_metro_times = time_labels[indices_b2_metro]
     b2_metro_vals = b2_metro[indices_b2_metro]
 
-    return (b2_metro_vals, b2_metro_times)
+    return Dict(zip(b2_metro_times, b2_metro_vals))
 end
 
 function get_truncated_indices_b(b::Vector{ComplexF64}, atol::Float64 = 1e-14)
@@ -179,11 +233,22 @@ function get_truncated_indices_b(b::Vector{ComplexF64}, atol::Float64 = 1e-14)
     return indices_b
 end
 
-function check_B(coherent_term::Matrix{ComplexF64}, jump::JumpOp, hamiltonian::HamHam, beta::Float64)
+function check_B_gauss(coherent_term::Matrix{ComplexF64}, jump::JumpOp, hamiltonian::HamHam, beta::Float64)
     b = SpinBasis(1//2)^num_qubits
     trnorm = tracenorm_nh(Operator(b, coherent_term))
 
-    B_integrated = coherent_term_timedomain_integrated(jump, hamiltonian, beta)
+    B_integrated = coherent_term_timedomain_integrated_gauss(jump, hamiltonian, beta)
+    deviation = norm(B_integrated - coherent_term)
+
+    @printf("\nTracenorm of coherent term: %e\n", trnorm)
+    @printf("Deviation from integral: %e\n", deviation)
+end
+
+function check_B_metro(coherent_term::Matrix{ComplexF64}, jump::JumpOp, hamiltonian::HamHam, eta::Float64, beta::Float64)
+    b = SpinBasis(1//2)^num_qubits
+    trnorm = tracenorm_nh(Operator(b, coherent_term))
+
+    B_integrated = coherent_term_timedomain_integrated_metro(jump, hamiltonian, eta, beta)
     deviation = norm(B_integrated - coherent_term)
 
     @printf("\nTracenorm of coherent term: %e\n", trnorm)

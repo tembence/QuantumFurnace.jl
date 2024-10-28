@@ -6,20 +6,9 @@ using ProgressMeter
 using Debugger
 using JLD
 
+include("structs.jl")
+
 # Could add a term coeff dict, to make find ideal hamiltonian, trotter, more generic, instead of Heisenberg
-mutable struct HamHam
-    data::Matrix{ComplexF64}
-    bohr_freqs::Union{Matrix{Float64}, Nothing}
-    base_terms::Vector{Vector{String}}
-    base_coeffs::Vector{Float64}
-    symbreak_terms::Union{Vector{String}, Nothing}
-    symbreak_coeffs::Union{Vector{Float64}, Nothing}
-    eigvals::Vector{Float64}
-    eigvecs::Matrix{ComplexF64}
-    w0::Float64  # Smallest bohr frequency
-    shift::Float64
-    rescaling_factor::Float64
-end
 
 function create_hamham(terms::Vector{Vector{String}}, coeffs::Vector{Float64}, num_qubits::Int64)
     """Creates a HamHam object from terms and coefficients. Only for NN terms for now."""

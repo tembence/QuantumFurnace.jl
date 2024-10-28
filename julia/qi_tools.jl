@@ -2,6 +2,7 @@ using LinearAlgebra
 using Random
 using Printf
 using QuantumOptics
+using JLD
 
 include("hamiltonian_tools.jl")
 
@@ -97,6 +98,15 @@ function random_density_matrix(num_qubits::Int)
     
     return ρ
 end
+
+# num_qubits = 4
+# beta = 10.
+# hamiltonian = load("/Users/bence/code/liouvillian_metro/julia/data/hamiltonian_n4.jld")["ideal_ham"]
+
+# hamiltonian.bohr_freqs = hamiltonian.eigvals .- transpose(hamiltonian.eigvals)
+# gibbs = gibbs_state(hamiltonian, beta)
+# gibbs_ineigen = hamiltonian.eigvecs * gibbs_state_in_eigen(hamiltonian, beta) * hamiltonian.eigvecs'
+# norm(gibbs - gibbs_ineigen)
 
 #* Compared with QuantumOptics implementations, my code is the same or faster and gives the same results
 # Test
