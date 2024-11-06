@@ -81,7 +81,6 @@ function construct_liouvillian_gauss(jumps::Vector{JumpOp}, hamiltonian::HamHam,
         # w <= cutoff, A(-w) = A(w)^\dagger
         liouv_diss = zeros(ComplexF64, 4^num_qubits, 4^num_qubits)
         for w in energy_labels_sym
-            @printf("w: %f\n", w)
             oft_matrix = entry_wise_oft_exact_db(jump, w, hamiltonian, beta)
             liouv_diss .+= vectorize_liouvillian_diss([sqrt_transition_gauss(w) * oft_matrix, 
                                                     sqrt_transition_gauss(-w) * oft_matrix'])
@@ -92,10 +91,79 @@ function construct_liouvillian_gauss(jumps::Vector{JumpOp}, hamiltonian::HamHam,
             oft_matrix = sqrt_transition_gauss(w) * entry_wise_oft_exact_db(jump, w, hamiltonian, beta)
             liouv_diss .+= vectorize_liouvillian_diss([oft_matrix])
         end
+        # Very important normalization
         liouv .+= liouv_diss / filter_gauss_norm_sq
     end
     
-    # Very important normalization
+    return liouv
+end
+
+function construct_liouvillian_gauss_ideal_time(jumps::Vector{JumpOp}, hamiltonian::HamHam, 
+    with_coherent::Bool, num_energy_bits::Int64, filter_gauss_t::Function, transition_gauss::Function, beta::Float64)
+    """In Trotter basis"""
+
+    # Energy labels
+    num_qubits = Int(log2(size(hamiltonian.data)[1]))
+    N = 2^(num_energy_bits)
+    N_labels = [0:1:Int(N/2)-1; -Int(N/2):1:-1]
+    energy_labels = hamiltonian.w0 * N_labels
+    t0 = 2 * pi / (N * hamiltonian.w0)
+    time_labels = t0 * N_labels
+
+    # Square root of transition 
+    sqrt_transition_gauss(w) = sqrt(transition_gauss(w))
+
+    # Filter Gaussian normalization for the jumps
+    filter_gauss_t_values = filter_gauss_t.(time_labels)  # exp.(- time_labels.^2 / beta^2)
+    filter_gauss_t_norm_sq = sum(filter_gauss_t_values.^2)
+
+    # Truncate energy -> 0.45 -> transition Gaussian truncation
+    energy_labels_045 = energy_labels[abs.(energy_labels) .<= 0.45]
+    transition_cutoff = 1e-4  #!
+    energy_cutoff_of_transition_gauss = find_zero(x -> transition_gauss(x) - transition_cutoff, 0)
+    energy_labels_sym = filter(x -> x <= energy_cutoff_of_transition_gauss && x > 0., energy_labels_045)
+    energy_labels_rest = - filter(x -> x > energy_cutoff_of_transition_gauss, energy_labels_045)
+    push!(energy_labels_rest, 0.0)
+
+    # Setup coherent part
+    if with_coherent
+        coherent_terms_atol = 1e-12
+        b1 = compute_truncated_b1(time_labels, coherent_terms_atol)
+        b2 = compute_truncated_b2(time_labels, coherent_terms_atol)
+        @printf("t0: %e\n", t0)
+        @printf("Number of b1 terms: %d\n", length(keys(b1)))
+        @printf("Number of b2 terms: %d\n", length(keys(b2)))
+    else
+        @printf("Not adding coherent terms! \n")
+    end
+
+    liouv = zeros(ComplexF64, 4^num_qubits, 4^num_qubits)
+    @showprogress dt=1 desc="Liouvillian..." for jump in jumps
+        # Coherent part
+        if with_coherent
+            coherent_term = coherent_term_from_timedomain(jump, hamiltonian, b1, b2, t0, beta)
+            # coherent_term = coherent_term_timedomain_integrated(jump, hamiltonian, beta)
+            liouv .+= vectorize_liouvillian_coherent(coherent_term)
+        end
+
+        # Dissipative part
+        # w <= cutoff, A(-w) = A(w)^\dagger
+        liouv_diss = zeros(ComplexF64, 4^num_qubits, 4^num_qubits)
+        for w in energy_labels_sym
+            oft_matrix = explicit_oft_exact_db(jump, hamiltonian, w, time_labels, beta)
+            liouv_diss .+= vectorize_liouvillian_diss([sqrt_transition_gauss(w) * oft_matrix, 
+                                                    sqrt_transition_gauss(-w) * oft_matrix'])
+        end
+    
+        # w < -cutoff && w = 0.0
+        for w in energy_labels_rest
+            oft_matrix = sqrt_transition_gauss(w) * explicit_oft_exact_db(jump, hamiltonian, w, time_labels, beta)
+            liouv_diss .+= vectorize_liouvillian_diss([oft_matrix])
+        end
+        # Very important normalization
+        liouv .+= liouv_diss / (filter_gauss_t_norm_sq * length(time_labels))
+    end
+    
     return liouv
 end
 

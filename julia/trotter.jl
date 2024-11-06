@@ -203,8 +203,8 @@ end
 # sigmaz::Matrix{ComplexF64} = [1 0; 0 -1]
 
 # num_qubits = 5
-# T = 100.
-# num_trotter_steps = 20
+# T = 1.
+# num_trotter_steps = 1
 
 # terms = [["X", "Y"], ["Z", "X"]]
 # symbreak = ["Z"]
@@ -215,14 +215,14 @@ end
 # # Exact
 # exact_U = exp(im * T * hamiltonian.data)
 # # Trotter
-# trotter2_U = trotter2(hamiltonian, T, num_trotter_steps)
-# trotter_U = trotter(hamiltonian, T, 2*num_trotter_steps)
+# trotter2_U = trotterize2(hamiltonian, T, num_trotter_steps)
+# trotter_U = trotterize(hamiltonian, T, num_trotter_steps)
 
 # dist = norm(trotter_U - exact_U)
 # dist2 = norm(trotter2_U - exact_U)
 
-# @printf("Distance: %f\n", dist)
-# @printf("Distance 2nd order: %f\n", dist2)
+# @printf("Distance: %s\n", dist)
+# @printf("Distance 2nd order: %s\n", dist2)
 
 #* Parameters
 # num_qubits = 3

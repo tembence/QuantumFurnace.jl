@@ -65,18 +65,23 @@ using Plots
 
 # Define the time vector
 # t = 0:255
-N = 3*256
-t = fftshift(LinRange(-255, 255, N))
-deltat = t[2] - t[1]
+N = 2^8
+times = LinRange(-10, 10, N)
+times_binaryorder = fftshift(times)
+deltat = abs(times[2] - times[1])
 
 # Compute the Fourier Transform
-sp = abs.(fftshift(fft(sin.(2*pi*80*t))))
+# sp = abs.(fftshift(fft(sin.(2*pi*80*t))))
 sigma_t = 2.0
-sp = (fftshift(ifft(exp.(-t.^2 / sigma_t^2)))) * N
+gauss(t) = exp(-t^2 / sigma_t^2)
+plot(times, gauss.(times), label="Gaussian", title="Gaussian Function", xlabel="t", ylabel="Amplitude")
+sp = (fftshift(ifft(gauss.(times_binaryorder)))) * N
 
 # Compute the corresponding frequencies
-freq = fftshift(fftfreq(length(t), deltat))
+freq = fftshift(fftfreq(length(times_binaryorder), deltat))
 
 # Plot the real and imaginary parts of the Fourier Transform
-plot(freq, real(sp), label="Real part")
+plot!(freq, real(sp), label="Real part")
 # plot!(freq, imag(sp), label="Imaginary part")
+
+fftfreq(5, 5) == fftfreq(5)*5

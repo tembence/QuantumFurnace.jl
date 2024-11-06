@@ -162,10 +162,6 @@ function coherent_term_timedomain_integrated_metro(jump::JumpOp, hamiltonian::Ha
     return B
 end
 
-#TODO: FINISH TROTTER VERSION 
-function coherent_term_timedomain_trotter()
-end
-
 function convolute(f::Function, g::Function, t::Float64; atol=1e-12, rtol=1e-12)
     integrand(s) = f(s) * g(t - s)
     result, _ = quadgk(integrand, -Inf, Inf; atol=atol, rtol=rtol)

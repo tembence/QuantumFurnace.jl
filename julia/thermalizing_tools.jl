@@ -276,6 +276,95 @@ function thermalize_gaussian_random(jumps::Vector{JumpOp}, hamiltonian::HamHam, 
     return HotAlgorithmResults(evolved_dm, distances_to_gibbs, time_steps)
 end
 
+function thermalize_gaussian_ideal_time(jumps::Vector{JumpOp}, hamiltonian::HamHam, with_coherent::Bool, 
+    evolved_dm::Matrix{ComplexF64}, num_energy_bits::Int64, filter_gauss_t::Function, transition_gauss::Function, 
+    delta::Float64, mixing_time::Float64, beta::Float64)
+
+    num_qubits = Int(log2(size(hamiltonian.data)[1]))
+    N = 2^(num_energy_bits)
+    N_labels = [0:1:Int(N/2)-1; -Int(N/2):1:-1]
+    energy_labels = hamiltonian.w0 * N_labels
+    t0 = 2 * pi / (N * hamiltonian.w0)
+    time_labels = t0 * N_labels
+
+    filter_gauss_t_values = filter_gauss_t.(time_labels)  # exp.(- time_labels.^2 / beta^2)
+    filter_gauss_t_norm_sq = sum(filter_gauss_t_values.^2)
+
+    num_liouv_steps = Int(round(mixing_time / delta, digits=0))
+    b = SpinBasis(1//2)^num_qubits
+    gibbs = gibbs_state_in_eigen(hamiltonian, beta)
+    
+    # Truncate energy -> 0.45 -> transition Gaussian truncation
+    energy_labels_045 = energy_labels[abs.(energy_labels) .<= 0.45]
+    transition_cutoff = 1e-4  #!
+    energy_cutoff_of_transition_gauss = find_zero(x -> transition_gauss(x) - transition_cutoff, 0)
+    energy_labels_sym = filter(x -> x <= energy_cutoff_of_transition_gauss && x > 0., energy_labels_045)
+    energy_labels_rest = - filter(x -> x > energy_cutoff_of_transition_gauss, energy_labels_045)
+    push!(energy_labels_rest, 0.0)
+
+    # Setup coherent part
+    if with_coherent
+        atol = 1e-12
+        b1 = compute_truncated_b1(time_labels, atol)
+        b2 = compute_truncated_b2(time_labels, atol)
+        @printf("t0: %e\n", t0)
+        @printf("Number of b1 terms: %d\n", length(keys(b1)))
+        @printf("Number of b2 terms: %d\n", length(keys(b2)))
+    else
+        @printf("Not adding coherent terms! \n")
+    end
+
+    distances_to_gibbs = [tracedistance_nh(Operator(b, evolved_dm), Operator(b, gibbs))]
+    time_steps = [0.0:delta:(num_liouv_steps * delta);]
+    @showprogress dt=1 desc="Algorithm..." for step in 1:num_liouv_steps
+
+        # Sum of all jumps at once
+        for jump in jumps
+            # Coherent term 
+            if with_coherent
+                coherent_term = coherent_term_from_timedomain(jump, hamiltonian, b1, b2, t0, beta)
+                evolved_dm .+= - im * delta * (coherent_term * evolved_dm - evolved_dm * coherent_term)
+    
+                if step == 1 && jump == jumps[1]
+                    check_B_gauss(coherent_term, jump, hamiltonian, beta)
+                end
+            end
+    
+            # w <= cutoff, A(-w) = A(w)^\dagger
+            dissipative_dm_part = zeros(ComplexF64, size(initial_dm))
+            for w in energy_labels_sym
+                oft_matrix = explicit_oft_exact_db(jump, hamiltonian, w, time_labels, beta)
+                oft_matrix_dag = oft_matrix'  # = A(-w)
+                oft_dag_oft = oft_matrix_dag * oft_matrix
+                oft_oft_dag = oft_matrix * oft_matrix_dag
+                
+                # Boy, the brackets in this multiline expression are important.
+                dissipative_dm_part .+= transition(w) * (oft_matrix * evolved_dm * oft_matrix_dag
+                                    - 0.5 * (oft_dag_oft * evolved_dm + evolved_dm * oft_dag_oft))
+                dissipative_dm_part .+=  transition(-w) * (oft_matrix_dag * evolved_dm * oft_matrix 
+                                    - 0.5 * (oft_oft_dag * evolved_dm + evolved_dm * oft_oft_dag))
+            end
+
+            # w < -cutoff && w = 0.0
+            for w in energy_labels_rest
+                oft_matrix = explicit_oft_exact_db(jump, hamiltonian, w, time_labels, beta)
+                oft_matrix_dag = oft_matrix'
+                oft_dag_oft = oft_matrix_dag * oft_matrix
+                
+                dissipative_dm_part .+=  transition(w) * (oft_matrix * evolved_dm * oft_matrix_dag
+                                    - 0.5 * (oft_dag_oft * evolved_dm + evolved_dm * oft_dag_oft))
+            end
+
+            evolved_dm .+= delta * dissipative_dm_part / (filter_gauss_t_norm_sq * length(time_labels))
+        end  
+        dist = tracedistance_nh(Operator(b, evolved_dm), Operator(b, gibbs))
+        push!(distances_to_gibbs, dist)
+        # @printf("\nDistance to Gibbs: %f\n", dist)
+    end
+    return HotAlgorithmResults(evolved_dm, distances_to_gibbs, time_steps)
+end
+
+#TODO: Write it up s.t. the error is like for the algorithm, i.e. twos complement Trotter.
 function thermalize_gaussian_trotter(jumps::Vector{JumpOp}, hamiltonian::HamHam, trotter::TrottTrott, with_coherent::Bool, 
     evolved_dm::Matrix{ComplexF64}, num_energy_bits::Int64, filter_gauss_t::Function, transition_gauss::Function, 
     delta::Float64, mixing_time::Float64, beta::Float64)

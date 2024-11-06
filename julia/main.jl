@@ -15,20 +15,21 @@ include("spectral_analysis_tools.jl")
 
 #TODO: memory map parallelization
 
-@enum FurnaceType GAUSS = 1 METRO = 2 TROTT_GAUSS = 3 TROTT_METRO = 4
+@enum FurnaceType GAUSS = 1 METRO = 2 TROTT_GAUSS = 3 TROTT_METRO = 4 TIME_GAUSS = 5
 
 #* Parameters
-num_qubits = 4
-mixing_time = 10.
+num_qubits = 3
+mixing_time = 5.
 delta = 0.05
 num_liouv_steps = Int(round(mixing_time / delta, digits=0))
 beta = 10.
 eta = 0.02  # Just don't make it smaller than 0.018
 eig_index = 3
 Random.seed!(666)
+save_it = false
 
-furnace = TROTT_METRO
-with_coherent = false
+furnace = GAUSS
+with_coherent = true  #TODO: Check how close B is between Trotter and ideal
 
 #* Hamiltonian
 ham_filename(n) = @sprintf("/Users/bence/code/liouvillian_metro/julia/data/hamiltonian_n%d.jld", n)
@@ -51,7 +52,7 @@ gibbs_largest_eigval = real(eigen(gibbs).values[1])
 num_energy_bits = ceil(Int64, log2((0.45 * 4 + 2/beta) / hamiltonian.w0)) + 2 # Under Fig. 5. with secular approx.
 
 # Transition weights in the liouv // Jump rate squared
-if furnace == GAUSS || furnace == TROTT_GAUSS
+if furnace == GAUSS || furnace == TROTT_GAUSS || furnace == TIME_GAUSS
     transition(energy) = exp(-(beta * energy + 1)^2 / 2)  # Calling this again and again is as fast as storing it.
 elseif furnace == METRO || furnace == TROTT_METRO
     transition(energy) = exp(-beta * maximum([energy + 1/(2*beta), 0]))  # Can't really be truncated
@@ -60,10 +61,10 @@ else
 end
 
 #* Trotter
-if furnace == TROTT_GAUSS || furnace == TROTT_METRO
+if furnace == TROTT_GAUSS || furnace == TROTT_METRO 
     filter_gauss_t(t) = exp(- t^2 / beta^2)
     t0 = 2 * pi / (hamiltonian.w0 * 2^num_energy_bits)
-    num_trotter_steps_per_t0 = 10
+    num_trotter_steps_per_t0 = 1000
     trotter = create_trotter(hamiltonian, t0, num_trotter_steps_per_t0)
     trotter_error_T = compute_trotter_error(hamiltonian, trotter, 2^num_energy_bits * t0)
     gibbs = trotter.eigvecs' * gibbs_state(hamiltonian, beta) * trotter.eigvecs
@@ -72,6 +73,8 @@ if furnace == TROTT_GAUSS || furnace == TROTT_METRO
 elseif furnace == GAUSS || furnace == METRO
     # OFT normalizations for energy basis
     filter_gauss_w(energy) = exp.(- beta^2 * (energy).^2 / 4)
+elseif furnace == TIME_GAUSS
+    filter_gauss_t(t) = exp(- t^2 / beta^2)
 end
 
 #* Jump operators
@@ -138,6 +141,9 @@ elseif furnace == TROTT_GAUSS
 elseif furnace == TROTT_METRO
     therm_results = thermalize_metro_trotter(all_jumps_generated, hamiltonian, trotter, with_coherent, initial_dm,
     num_energy_bits, filter_gauss_t, transition, eta, delta, mixing_time, beta)
+elseif furnace == TIME_GAUSS
+    therm_results = thermalize_gaussian_ideal_time(all_jumps_generated, hamiltonian, with_coherent, initial_dm, num_energy_bits,
+    filter_gauss_t, transition, delta, mixing_time, beta)
 end
 
 evolved_dm = therm_results.evolved_dm
@@ -156,6 +162,9 @@ elseif furnace == TROTT_GAUSS
 elseif furnace == TROTT_METRO
     liouv_matrix = construct_liouvillian_metro_trotter(all_jumps_generated, hamiltonian, trotter, with_coherent, num_energy_bits, 
     filter_gauss_t, transition, eta, beta)
+elseif furnace == TIME_GAUSS
+    liouv_matrix = construct_liouvillian_gauss_ideal_time(all_jumps_generated, hamiltonian, with_coherent, num_energy_bits, 
+    filter_gauss_t, transition, beta)
 end
 
 liouv = LiouvLiouv(liouv_matrix, zeros(0, 0), 0.0, 0.0)
@@ -213,16 +222,16 @@ is_evolved_zero = liouv.data * evolved_vec
 # is_random_zero = liouv * rand_dm_vec
 # @printf("Is random a steady state? L(r) = %s\n", norm(is_random_zero))
 
-
-if with_coherent == false
-    filename(furnace, n, r) = @sprintf("/Users/bence/code/liouvillian_metro/julia/data/%s_n%d_r%d.jld", furnace, n, r)
-else
-    filename(furnace, n, r) = @sprintf("/Users/bence/code/liouvillian_metro/julia/data/%s_n%d_r%d_B.jld", furnace, n, r)
+if save_it == true
+    if with_coherent == false
+        filename(furnace, n, r) = @sprintf("/Users/bence/code/liouvillian_metro/julia/data/%s_n%d_r%d.jld", furnace, n, r)
+    else
+        filename(furnace, n, r) = @sprintf("/Users/bence/code/liouvillian_metro/julia/data/%s_n%d_r%d_B_100.jld", furnace, n, r)
+    end
+    # Save objects with jld
+    save(filename(furnace, num_qubits, num_energy_bits), "alg_results", therm_results, "liouv", liouv)
 end
-# Save objects with jld
-save(filename(furnace, num_qubits, num_energy_bits), "alg_results", therm_results, "liouv", liouv)
- 
 # lll = load(filename(furnace, num_qubits, num_energy_bits))["liouv"]
 # rrr = load(filename(furnace, num_qubits, num_energy_bits))["alg_results"]
 
-plot(therm_results.time_steps, therm_results.distances_to_gibbs, label="Distance to Gibbs", xlabel="Time", ylabel="Distance", title="Distance to Gibbs over time")
+plot!(therm_results.time_steps, therm_results.distances_to_gibbs, label="Distance to Gibbs", xlabel="Time", ylabel="Distance", title="Distance to Gibbs over time")

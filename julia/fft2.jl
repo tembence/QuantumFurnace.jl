@@ -3,7 +3,7 @@ using Plots
 using QuadGK
 
 
-beta = 1.
+beta = 10.
 sigma_E = 1 / beta
 num_labels = Int(1e3)
 energies = fftshift(LinRange(-100., 100., num_labels))
@@ -16,9 +16,8 @@ F_nu_vals = F.(energies)
 @time f_t_vals = fftshift(ifft(F_nu_vals) * num_labels)
 f_t_vals /= sqrt(sum(f_t_vals.^2))
 times = collect(fftshift(fftfreq(num_labels, w0)))
-
 #plot 
-plot(times, real(f_t_vals), label="Real part of FFT", title="Inverse Fourier Transform of f_", xlabel="t", ylabel="Amplitude")
+plot(times ./ (minimum(times)) .* 5, real(f_t_vals), label="Real part of FFT", title="Inverse Fourier Transform of f_", xlabel="t", ylabel="Amplitude")
 
 #* Convolution via integral from
 function convolute(f::Function, g::Function, t::Float64; atol=1e-12, rtol=1e-12)
