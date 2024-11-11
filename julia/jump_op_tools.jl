@@ -200,7 +200,6 @@ function construct_A_nus(jump::JumpOp, hamiltonian::HamHam)
     # jump.in_eigenbasis
     # Matrix of all energy jumps in Hamiltonian, B_ij = E_i - E_j and i,j are ordered from smallest to largest energy
 
-
     jump_bohr_indices_dict = get_jump_bohr_indices(hamiltonian.bohr_freqs)
     jump.unique_freqs = collect(keys(jump_bohr_indices_dict))
 

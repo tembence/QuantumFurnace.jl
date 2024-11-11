@@ -21,14 +21,6 @@ function construct_liouvillian_gauss(jumps::Vector{JumpOp}, hamiltonian::HamHam,
     """Constructs the vectorized Davies Liouvillian that thermalizes the system. This function works for jumps that are
     Hermitian, because we use a symmetry of them for the energy labels the reduce computation. 
     Energy labels are also truncated for faster computation.
-    Args:
-        jumps: Hermitian jump operators that are used to construct the Liouvillian.
-        hamiltonian: Hamiltonian of the system.
-        with_coherent: If true, the coherent terms are added to the Liouvillian to get detailed balance.
-        num_energy_bits: Number of qubits in energy estimating register.
-        filter_gauss_w: Fourier transformed Gaussian filter around participating energy jump values in OFT.
-        transition: Sqrt is the jump rate of each jump in thermalizing dynamics.
-        beta: Inverse temperature.
     """
 
     # Energy labels

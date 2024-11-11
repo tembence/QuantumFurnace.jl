@@ -15,45 +15,28 @@ include("trotter.jl")
 include("qi_tools.jl")
 include("trotter.jl")
 
-# const Number64 = Union{Float64, ComplexF64}
-#TODO: Fix these, they are not close enough yet, check parameters for which maybe they could be closer to understand it
-# Eq. (2.5)
-function coherent_gaussian_bohr(hamiltonian::HamHam, jump::JumpOp, energy_labels::Vector{Float64}, beta::Float64)
+function coherent_gaussian_bohr(hamiltonian::HamHam, jump::JumpOp, beta::Float64)
 
-    Fw = exp.(- beta^2 * (energy_labels).^2 / 4)
-    Fw_norm = sqrt(sum(Fw.^2))
+    dim = size(hamiltonian.data, 1)
+    hamiltonian.bohr_freqs = hamiltonian.eigvals .- transpose(hamiltonian.eigvals)
+    bohr_freqs_kj = - (hamiltonian.eigvals .+ transpose(hamiltonian.eigvals))
 
-    gaussian_transition = exp.(-(energy_labels * beta .+ 1).^2 / 2)
-    tanh_matrix = tanh.(-beta * hamiltonian.bohr_freqs / 4) / (2*im)
-    B = zeros(ComplexF64, size(hamiltonian.data))
-    for (i, w) in enumerate(energy_labels)
-        jump_nu1 = entry_wise_oft_exact_db(jump, w, hamiltonian, beta)
-        jump_nu2 = adjoint(entry_wise_oft_exact_db(jump, w, hamiltonian, beta)) 
-        B .+= gaussian_transition[i] * tanh_matrix .* (jump_nu2 * jump_nu1)
-    end
-    return B / Fw_norm^2
-end
+    tanh_prefactor_kj = tanh.(-beta * hamiltonian.bohr_freqs / 4)
+    alpha_prefactor_kj = exp.(-beta^2 * hamiltonian.bohr_freqs.^2 / 8)
 
-function coherent_bohr_explicit(hamiltonian::HamHam, jump::JumpOp, beta::Float64)
-
-    dim = size(hamiltonian.bohr_freqs, 1)
-    B::SparseMatrixCSC{ComplexF64, Int64} = spzeros(dim, dim)
+    B = tanh_prefactor_kj .* alpha_prefactor_kj / (2 * im * sqrt(8))
     for j in 1:dim
-        for i in 1:dim
-            for k in 1:dim
-                    v = hamiltonian.bohr_freqs[k, i]
-                    sp_v2 = spzeros(dim, dim)
-                    sp_v2[i, k] = jump.in_eigenbasis[i, k]
-                    sp_v1 = spzeros(dim, dim)
-                    sp_v1[i, j] = jump.in_eigenbasis[i, j]
-
-                    B += (tanh(-beta * v / 4) / (2*im)) * sp_v2' * sp_v1
+        for k in 1:dim
+            bohr_freqs_kj_plus = bohr_freqs_kj[k, j] .+ 2 * hamiltonian.eigvals
+            sum_temp_kj = 0.
+            for i in 1:dim
+                sum_temp_kj += exp(-beta^2 * bohr_freqs_kj_plus[i]^2 / 16) * jump.in_eigenbasis'[k, i] * jump.in_eigenbasis[i, j]
             end
+            B[k, j] *= sum_temp_kj
         end
     end
     return B
 end
-
 
 # (3.1) and Proposition III.1
 # Has to be on a symmetric time domain, otherwise it can't be Hermitian.
@@ -252,27 +235,43 @@ function check_B_metro(coherent_term::Matrix{ComplexF64}, jump::JumpOp, hamilton
 end
 
 #* Testing
-# num_qubits = 5
-# beta = 10.
-# eig_index = 3
-# jump_site_index = 1
+num_qubits = 10
+beta = 10.
+eig_index = 3
+jump_site_index = 1
 
-# # #* Hamiltonian
-# hamiltonian = load("/Users/bence/code/liouvillian_metro/julia/data/hamiltonian_n5.jld")["ideal_ham"]
-# # hamiltonian = find_ideal_heisenberg(num_qubits, fill(1.0, 3), batch_size=1)
-# initial_state = hamiltonian.eigvecs[:, eig_index]
-# hamiltonian.bohr_freqs = hamiltonian.eigvals .- transpose(hamiltonian.eigvals)
+# #* Hamiltonian
+hamiltonian = load("/Users/bence/code/liouvillian_metro/julia/data/hamiltonian_n10.jld")["ideal_ham"]
+# hamiltonian = find_ideal_heisenberg(num_qubits, fill(1.0, 3), batch_size=1)
+initial_state = hamiltonian.eigvecs[:, eig_index]
+hamiltonian.bohr_freqs = hamiltonian.eigvals .- transpose(hamiltonian.eigvals)
 
-# # #* Jump operators
-# sigmax::Matrix{ComplexF64} = [0 1; 1 0]
-# jump_op = Matrix(pad_term([sigmax], num_qubits, jump_site_index))
-# jump_op_in_eigenbasis = hamiltonian.eigvecs' * jump_op * hamiltonian.eigvecs
-# jump = JumpOp(jump_op,
-#         jump_op_in_eigenbasis,
-#         Dict{Float64, SparseMatrixCSC{ComplexF64, Int64}}(), 
-#         zeros(0), 
-#         zeros(0, 0))
+# #* Jump operators
+X::Matrix{ComplexF64} = [0 1; 1 0]
+Y::Matrix{ComplexF64} = [0.0 -im; im 0.0]
+Z::Matrix{ComplexF64} = [1 0; 0 -1]
+jump_paulis = [[X], [Y], [Z]]
 
+# All jumps once
+all_jumps_generated::Vector{JumpOp} = []
+for pauli in jump_paulis
+    for site in 1:1
+    jump_op = Matrix(pad_term(pauli, num_qubits, site))
+    jump_op_in_eigenbasis = hamiltonian.eigvecs' * jump_op * hamiltonian.eigvecs
+    jump_in_trotter_basis = zeros(0, 0)
+    orthogonal = (jump_op == adjoint(jump_op))
+    jump = JumpOp(jump_op,
+            jump_op_in_eigenbasis,
+            Dict{Float64, SparseMatrixCSC{ComplexF64, Int64}}(), 
+            zeros(0),
+            jump_in_trotter_basis,
+            orthogonal) 
+    push!(all_jumps_generated, jump)
+    end
+end
+
+@time coherent_gauss_bohr = coherent_gaussian_bohr(hamiltonian, all_jumps_generated[1], beta)
+norm(coherent_gauss_bohr' - coherent_gauss_bohr)
 # # #* Fourier labels
 # # # num_energy_bits = ceil(Int64, log2((0.45 * 2) / hamiltonian.w0)) + 2 # paper (above 3.7.), later will be β dependent
 # num_energy_bits = ceil(Int64, log2((0.45 * 4 + 2/beta) / hamiltonian.w0)) + 1  # For good integral approx we might need more r than expected
