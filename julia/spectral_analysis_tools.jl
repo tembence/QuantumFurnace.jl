@@ -64,7 +64,8 @@ function construct_liouvillian_gauss(jumps::Vector{JumpOp}, hamiltonian::HamHam,
     @showprogress dt=1 desc="Liouvillian..." for jump in jumps
         # Coherent part
         if with_coherent
-            coherent_term = coherent_term_from_timedomain(jump, hamiltonian, b1, b2, t0, beta)
+            # coherent_term = coherent_term_from_timedomain(jump, hamiltonian, b1, b2, t0, beta)
+            coherent_term = coherent_gaussian_bohr(hamiltonian, jump, beta)
             # coherent_term = coherent_term_timedomain_integrated(jump, hamiltonian, beta)
             liouv .+= vectorize_liouvillian_coherent(coherent_term)
         end

@@ -57,6 +57,7 @@ function thermalize_gaussian(jumps::Vector{JumpOp}, hamiltonian::HamHam, with_co
         @printf("Not adding coherent terms! \n")
     end
 
+    counter_matrix = zeros(Int64, size(initial_dm))
     distances_to_gibbs = [tracedistance_nh(Operator(b, evolved_dm), Operator(b, gibbs))]
     time_steps = [0.0:delta:(num_liouv_steps * delta);]
     @showprogress dt=1 desc="Algorithm..." for step in 1:num_liouv_steps
@@ -65,7 +66,8 @@ function thermalize_gaussian(jumps::Vector{JumpOp}, hamiltonian::HamHam, with_co
         for jump in jumps
             # Coherent term
             if with_coherent
-                coherent_term = coherent_term_from_timedomain(jump, hamiltonian, b1, b2, t0, beta)
+                # coherent_term = coherent_term_from_timedomain(jump, hamiltonian, b1, b2, t0, beta)
+                coherent_term = coherent_gaussian_bohr(hamiltonian, jump, beta)
                 evolved_dm .+= - im * delta * (coherent_term * evolved_dm - evolved_dm * coherent_term)
     
                 if step == 1 && jump == jumps[1]
@@ -99,12 +101,23 @@ function thermalize_gaussian(jumps::Vector{JumpOp}, hamiltonian::HamHam, with_co
                                     - 0.5 * (oft_dag_oft * evolved_dm + evolved_dm * oft_dag_oft))
             end
 
+            # Tracking NNZ entries
             evolved_dm .+= delta * dissipative_dm_part / filter_gauss_norm_sq
+
+            for i in 1:2^num_qubits, j in 1:2^num_qubits
+                if abs(evolved_dm[i, j]) > 1e-14
+                    counter_matrix[i, j] += 1
+                end
+            end
         end
         dist = tracedistance_nh(Operator(b, evolved_dm), Operator(b, gibbs))
         push!(distances_to_gibbs, dist)
         # @printf("\nDistance to Gibbs: %f\n", dist)
     end
+    # Number of zero entires in counter_matrix
+    @printf("Number of zero elements in counter matrix: %d\n", sum(counter_matrix .== 0))
+    plot = heatmap(counter_matrix, color=:thermal)
+    display(plot)
     return HotAlgorithmResults(evolved_dm, distances_to_gibbs, time_steps)
 end
 

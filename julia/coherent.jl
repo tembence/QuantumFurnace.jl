@@ -15,6 +15,25 @@ include("trotter.jl")
 include("qi_tools.jl")
 include("trotter.jl")
 
+#TODO: Test DB symmetry of alpha coeffs
+function alpha_coeffs(hamiltonian::HamHam, beta::Float64)
+    dim = size(hamiltonian.data, 1)
+    hamiltonian.bohr_freqs = hamiltonian.eigvals .- transpose(hamiltonian.eigvals)
+    bohr_freqs_kj = - (hamiltonian.eigvals .+ transpose(hamiltonian.eigvals))
+    alpha = exp.(-beta^2 * hamiltonian.bohr_freqs.^2 / 8)
+
+    for j in 1:dim
+        for k in 1:dim
+            bohr_freqs_kj_plus = bohr_freqs_kj[k, j] .+ 2 * hamiltonian.eigvals
+            sum_temp_kj = 0.
+            for i in 1:dim
+                sum_temp_kj += exp(-beta^2 * (bohr_freqs_kj_plus[i] + 2/beta)^2 / 16)
+            end
+            alpha[k, j] *= sum_temp_kj
+        end
+    end
+end
+
 function coherent_gaussian_bohr(hamiltonian::HamHam, jump::JumpOp, beta::Float64)
 
     dim = size(hamiltonian.data, 1)
@@ -30,7 +49,7 @@ function coherent_gaussian_bohr(hamiltonian::HamHam, jump::JumpOp, beta::Float64
             bohr_freqs_kj_plus = bohr_freqs_kj[k, j] .+ 2 * hamiltonian.eigvals
             sum_temp_kj = 0.
             for i in 1:dim
-                sum_temp_kj += exp(-beta^2 * bohr_freqs_kj_plus[i]^2 / 16) * jump.in_eigenbasis'[k, i] * jump.in_eigenbasis[i, j]
+                sum_temp_kj += exp(-beta^2 * (bohr_freqs_kj_plus[i] + 2/beta)^2 / 16) * jump.in_eigenbasis'[k, i] * jump.in_eigenbasis[i, j]
             end
             B[k, j] *= sum_temp_kj
         end
@@ -235,177 +254,171 @@ function check_B_metro(coherent_term::Matrix{ComplexF64}, jump::JumpOp, hamilton
 end
 
 #* Testing
-num_qubits = 10
-beta = 10.
-eig_index = 3
-jump_site_index = 1
+# num_qubits = 5
+# beta = 10.
+# eig_index = 3
+# jump_site_index = 1
 
-# #* Hamiltonian
-hamiltonian = load("/Users/bence/code/liouvillian_metro/julia/data/hamiltonian_n10.jld")["ideal_ham"]
-# hamiltonian = find_ideal_heisenberg(num_qubits, fill(1.0, 3), batch_size=1)
-initial_state = hamiltonian.eigvecs[:, eig_index]
-hamiltonian.bohr_freqs = hamiltonian.eigvals .- transpose(hamiltonian.eigvals)
+# # #* Hamiltonian
+# hamiltonian = load("/Users/bence/code/liouvillian_metro/julia/data/hamiltonian_n5.jld")["ideal_ham"]
+# # hamiltonian = find_ideal_heisenberg(num_qubits, fill(1.0, 3), batch_size=1)
+# initial_state = hamiltonian.eigvecs[:, eig_index]
+# hamiltonian.bohr_freqs = hamiltonian.eigvals .- transpose(hamiltonian.eigvals)
 
-# #* Jump operators
-X::Matrix{ComplexF64} = [0 1; 1 0]
-Y::Matrix{ComplexF64} = [0.0 -im; im 0.0]
-Z::Matrix{ComplexF64} = [1 0; 0 -1]
-jump_paulis = [[X], [Y], [Z]]
+# # #* Jump operators
+# X::Matrix{ComplexF64} = [0 1; 1 0]
+# Y::Matrix{ComplexF64} = [0.0 -im; im 0.0]
+# Z::Matrix{ComplexF64} = [1 0; 0 -1]
+# jump_paulis = [[X], [Y], [Z]]
 
-# All jumps once
-all_jumps_generated::Vector{JumpOp} = []
-for pauli in jump_paulis
-    for site in 1:1
-    jump_op = Matrix(pad_term(pauli, num_qubits, site))
-    jump_op_in_eigenbasis = hamiltonian.eigvecs' * jump_op * hamiltonian.eigvecs
-    jump_in_trotter_basis = zeros(0, 0)
-    orthogonal = (jump_op == adjoint(jump_op))
-    jump = JumpOp(jump_op,
-            jump_op_in_eigenbasis,
-            Dict{Float64, SparseMatrixCSC{ComplexF64, Int64}}(), 
-            zeros(0),
-            jump_in_trotter_basis,
-            orthogonal) 
-    push!(all_jumps_generated, jump)
-    end
-end
+# # All jumps once
+# all_jumps_generated::Vector{JumpOp} = []
+# for pauli in jump_paulis
+#     for site in 1:num_qubits
+#     jump_op = Matrix(pad_term(pauli, num_qubits, site))
+#     jump_op_in_eigenbasis = hamiltonian.eigvecs' * jump_op * hamiltonian.eigvecs
+#     jump_in_trotter_basis = zeros(0, 0)
+#     orthogonal = (jump_op == adjoint(jump_op))
+#     jump = JumpOp(jump_op,
+#             jump_op_in_eigenbasis,
+#             Dict{Float64, SparseMatrixCSC{ComplexF64, Int64}}(), 
+#             zeros(0),
+#             jump_in_trotter_basis,
+#             orthogonal) 
+#     push!(all_jumps_generated, jump)
+#     end
+# end
 
-@time coherent_gauss_bohr = coherent_gaussian_bohr(hamiltonian, all_jumps_generated[1], beta)
-norm(coherent_gauss_bohr' - coherent_gauss_bohr)
-# # #* Fourier labels
-# # # num_energy_bits = ceil(Int64, log2((0.45 * 2) / hamiltonian.w0)) + 2 # paper (above 3.7.), later will be β dependent
-# num_energy_bits = ceil(Int64, log2((0.45 * 4 + 2/beta) / hamiltonian.w0)) + 1  # For good integral approx we might need more r than expected
-# #! r scales even worse for a good integral in system size... Maybe it is just not efficient to approximate the integral for B.
-# #! This could be big, since they don't mention how well can we approximate the integral within a quantum computer!
-# # # num_energy_bits = 9
+# # # #* Fourier labels
+# num_energy_bits = ceil(Int64, log2((0.45 * 4 + 2/beta) / hamiltonian.w0)) + 4  # For good integral approx we might need more r than expected
+# # num_energy_bits = 11
 # N = 2^(num_energy_bits)
 # N_labels = [0:1:Int(N/2)-1; -Int(N/2):1:-1]
 
 # t0 = 2 * pi / (N * hamiltonian.w0)
 # time_labels = t0 * N_labels
-# ((maximum(time_labels) - minimum(time_labels)) / N)^2
+# # ((maximum(time_labels) - minimum(time_labels)) / N)^2
 
 # energy_labels = hamiltonian.w0 * N_labels
 
-# @printf("Number of qubits: %d\n", num_qubits)
-# @printf("Number of energy bits: %d\n", num_energy_bits)
-# @printf("Energy unit: %e\n", hamiltonian.w0)
-# @printf("Time unit: %e\n", t0)
+# # @printf("Number of qubits: %d\n", num_qubits)
+# # @printf("Number of energy bits: %d\n", num_energy_bits)
+# # @printf("Energy unit: %e\n", hamiltonian.w0)
+# # @printf("Time unit: %e\n", t0)
 
 # atol = 1e-12
 # # atol = 0.0
 # # time_labels = collect(-maximum(time_labels):t0:maximum(time_labels))  # symmetric but not necessary I think
 # @time b1 = compute_truncated_b1(time_labels, atol)
 # @time b2 = compute_truncated_b2(time_labels, atol)
-# #
 # @printf("Number of b1 terms kept: %d\n", length(b1))
 # @printf("Number of b2 terms kept: %d\n", length(b2))
-# b2 = Dict(zip(collect(keys(b1)), compute_b2(collect(keys(b1)))))
 
-# show(stdout, "text/plain", sort(collect(keys(b1))))
-# show(stdout, "text/plain", sort(collect(keys(b2))))
+# jump = all_jumps_generated[10]
+# @time B_explicit = coherent_term_from_timedomain(jump, hamiltonian, b1, b2, t0, beta)
+# @time B_bohr = coherent_gaussian_bohr(hamiltonian, jump, beta)
+# @time B_integrated = coherent_term_timedomain_integrated_gauss(jump, hamiltonian, beta)
 
-# @time B_explicit = coherent_term_from_timedomain(jump, hamiltonian, b1, b2, beta)
-# @time B_integrated = coherent_term_timedomain_integrated(jump, hamiltonian, beta)
+# # norm(B_integrated - B_integrated')
+# # norm(B_explicit - B_explicit')
 
-# norm(B_integrated - B_integrated')
-# norm(B_explicit - B_explicit')
-
-# norm(B_explicit) / norm(B_integrated)
+# # norm(B_explicit) / norm(B_integrated)
 # norm(B_explicit - B_integrated)
 
-#* l1 norms of b1, b2
-# f1(t) = 1 / cosh(2 * pi * t)
-# f2(t) = sin(-t) * exp(-2 * t^2)
-# abs_b1_fn(t) = abs(2 * sqrt(pi) * exp(1/8) * convolute.(Ref(f1), Ref(f2), t))
-# b1_fn(t) = 2 * sqrt(pi) * exp(1/8) * convolute.(Ref(f1), Ref(f2), t)
-# abs_b2_fn(t) = abs(exp(-4*t^2 - 2im*t) / sqrt(4*pi^3))
-# b2_fn(t) = exp(-4*t^2 - 2im*t) / sqrt(4*pi^3)
+# norm(B_explicit - B_bohr)
 
-# b2_fn(-2.) == conj(b2_fn(2.))
+# #* l1 norms of b1, b2
+# # f1(t) = 1 / cosh(2 * pi * t)
+# # f2(t) = sin(-t) * exp(-2 * t^2)
+# # abs_b1_fn(t) = abs(2 * sqrt(pi) * exp(1/8) * convolute.(Ref(f1), Ref(f2), t))
+# # b1_fn(t) = 2 * sqrt(pi) * exp(1/8) * convolute.(Ref(f1), Ref(f2), t)
+# # abs_b2_fn(t) = abs(exp(-4*t^2 - 2im*t) / sqrt(4*pi^3))
+# # b2_fn(t) = exp(-4*t^2 - 2im*t) / sqrt(4*pi^3)
 
-#* Comlex conjugates of b1, b2
-# Dictionary is not keeping order, but it's correct
-# For truncated case
-# b1_vals = collect(values(b1))
-# b2_vals = collect(values(b2))
-# b2_neg = compute_truncated_b2(-time_labels, atol)
-# collect(keys(b2))
-# display(keys(b2_neg))
-# display(values(b2_neg))
-# b2_vals_negative_time = sort(collect(values(b2_neg)))
-# b1_vals_conj = conj.(b1_vals)
-# b2_vals_conj = conj.(b2_vals)
-# for k in keys(b2_neg)
-#     if k == -0.0
-#         display(b2_neg[k] == conj(b2[-k]))
-#     else
-#         display(b2_neg[-k] == conj(b2[k]))
-#     end
-# end
+# # b2_fn(-2.) == conj(b2_fn(2.))
 
-# b1_vals == b1_vals_conj
-# b2_vals_negative_time == b2_vals_conj
-# norm(b2_vals_negative_time - b2_vals_conj)
+# #* Comlex conjugates of b1, b2
+# # Dictionary is not keeping order, but it's correct
+# # For truncated case
+# # b1_vals = collect(values(b1))
+# # b2_vals = collect(values(b2))
+# # b2_neg = compute_truncated_b2(-time_labels, atol)
+# # collect(keys(b2))
+# # display(keys(b2_neg))
+# # display(values(b2_neg))
+# # b2_vals_negative_time = sort(collect(values(b2_neg)))
+# # b1_vals_conj = conj.(b1_vals)
+# # b2_vals_conj = conj.(b2_vals)
+# # for k in keys(b2_neg)
+# #     if k == -0.0
+# #         display(b2_neg[k] == conj(b2[-k]))
+# #     else
+# #         display(b2_neg[-k] == conj(b2[k]))
+# #     end
+# # end
 
-# # True for the whole time labels
-# b1_vals = b1_fn.(time_labels)
-# b2_vals = b2_fn.(time_labels)
-# b2_vals_negative_time = b2_fn.(-time_labels)
-# b1_vals_conj = conj.(b1_vals)
-# b2_vals_conj = conj.(b2_vals)
+# # b1_vals == b1_vals_conj
+# # b2_vals_negative_time == b2_vals_conj
+# # norm(b2_vals_negative_time - b2_vals_conj)
 
-# b1_vals == b1_vals_conj
-# b2_vals_negative_time == b2_vals_conj
+# # # True for the whole time labels
+# # b1_vals = b1_fn.(time_labels)
+# # b2_vals = b2_fn.(time_labels)
+# # b2_vals_negative_time = b2_fn.(-time_labels)
+# # b1_vals_conj = conj.(b1_vals)
+# # b2_vals_conj = conj.(b2_vals)
 
-# Print b1 b2 Plots
-# times = collect(-5:t0:5)
-# plot(times, real.(b1_fn.(times)), label="Real part b1")
-# plot!(times, imag.(b1_fn.(times)), label="Imag part b1")
-# plot(times, real.(b2_fn.(times)), label="Real part b2")
-# plot!(times, imag.(b2_fn.(times)), label="Imag part b2")
+# # b1_vals == b1_vals_conj
+# # b2_vals_negative_time == b2_vals_conj
 
-# truncated_times_b1 = collect(keys(b1))
-# truncated_times_b2 = collect(keys(b2))
-# plot!(truncated_times_b1, real.(values(b1)), label="Real part b1 trunc")
+# # Print b1 b2 Plots
+# # times = collect(-5:t0:5)
+# # plot(times, real.(b1_fn.(times)), label="Real part b1")
+# # plot!(times, imag.(b1_fn.(times)), label="Imag part b1")
+# # plot(times, real.(b2_fn.(times)), label="Real part b2")
+# # plot!(times, imag.(b2_fn.(times)), label="Imag part b2")
 
-# b1_integrated, _ = quadgk(abs_b1_fn, -Inf, Inf; atol=1e-12, rtol=1e-12)
-# b2_integrated, _ = quadgk(abs_b2_fn, -Inf, Inf; atol=1e-12, rtol=1e-12, order=10)
+# # truncated_times_b1 = collect(keys(b1))
+# # truncated_times_b2 = collect(keys(b2))
+# # plot!(truncated_times_b1, real.(values(b1)), label="Real part b1 trunc")
 
-# @printf("l1 norm of b1: %e\n", b1_integrated)
-# @printf("l1 norm of b2: %e\n", b2_integrated)
+# # b1_integrated, _ = quadgk(abs_b1_fn, -Inf, Inf; atol=1e-12, rtol=1e-12)
+# # b2_integrated, _ = quadgk(abs_b2_fn, -Inf, Inf; atol=1e-12, rtol=1e-12, order=10)
 
-# @time B_integrated = coherent_term_timedomain_integrated(jump, hamiltonian, beta)
-# @printf("Deviation Hermiticity: %e\n", norm(B_integrated - B_integrated'))
-# B_deviation_sum_integral = norm(B_integrated - B_explicit)
-# @printf("Deviation sum integral: %e\n", B_deviation_sum_integral)
+# # @printf("l1 norm of b1: %e\n", b1_integrated)
+# # @printf("l1 norm of b2: %e\n", b2_integrated)
 
-# # plot(time_labels, real.(b1), label="Real part")
+# # @time B_integrated = coherent_term_timedomain_integrated(jump, hamiltonian, beta)
+# # @printf("Deviation Hermiticity: %e\n", norm(B_integrated - B_integrated'))
+# # B_deviation_sum_integral = norm(B_integrated - B_explicit)
+# # @printf("Deviation sum integral: %e\n", B_deviation_sum_integral)
 
-# # * Coherent term in energy domain
-# @time B_bohr = coherent_gaussian_bohr(hamiltonian, jump, energy_labels, beta)
-# # @time B_explicit = coherent_bohr_explicit(hamiltonian, jump, beta)
+# # # plot(time_labels, real.(b1), label="Real part")
 
-# #* Coherent term in time domain
-# b1_vals, b1_times = compute_truncated_b1(time_labels)
-# b2_vals, b2_times = compute_truncated_b2(time_labels)
+# # # * Coherent term in energy domain
+# # @time B_bohr = coherent_gaussian_bohr(hamiltonian, jump, energy_labels, beta)
+# # # @time B_explicit = coherent_bohr_explicit(hamiltonian, jump, beta)
 
-# @time B_t::Vector{Matrix{ComplexF64}} = coherent_term_from_timedomain.([jump], 
-# Ref(hamiltonian), Ref(b1_vals), Ref(b1_times), Ref(b2_vals), Ref(b2_times), Ref(beta))
+# # #* Coherent term in time domain
+# # b1_vals, b1_times = compute_truncated_b1(time_labels)
+# # b2_vals, b2_times = compute_truncated_b2(time_labels)
 
-# #* Compare
-# deviation = norm(B_bohr - B_t[1])
-# b = SpinBasis(1//2)^num_qubits
-# trdist = tracedistance(Operator(b, B_bohr), Operator(b, B_t[1]))
-# @printf("Deviation: %e\n", deviation)
+# # @time B_t::Vector{Matrix{ComplexF64}} = coherent_term_from_timedomain.([jump], 
+# # Ref(hamiltonian), Ref(b1_vals), Ref(b1_times), Ref(b2_vals), Ref(b2_times), Ref(beta))
 
-# function round_complex(z::ComplexF64, digits::Int64)
-#     rounded_real = round(real(z), digits=digits)
-#     rounded_imag = round(imag(z), digits=digits)
-#     return rounded_real + rounded_imag*im
-# end
+# # #* Compare
+# # deviation = norm(B_bohr - B_t[1])
+# # b = SpinBasis(1//2)^num_qubits
+# # trdist = tracedistance(Operator(b, B_bohr), Operator(b, B_t[1]))
+# # @printf("Deviation: %e\n", deviation)
 
-# # find nonzero elements in b
-# nonzero_indices = findall(!iszero, round_complex.(B_bohr, 6))
-# length(nonzero_indices)
-# minimum(imag.(B_bohr[nonzero_indices]))
+# # function round_complex(z::ComplexF64, digits::Int64)
+# #     rounded_real = round(real(z), digits=digits)
+# #     rounded_imag = round(imag(z), digits=digits)
+# #     return rounded_real + rounded_imag*im
+# # end
+
+# # # find nonzero elements in b
+# # nonzero_indices = findall(!iszero, round_complex.(B_bohr, 6))
+# # length(nonzero_indices)
+# # minimum(imag.(B_bohr[nonzero_indices]))

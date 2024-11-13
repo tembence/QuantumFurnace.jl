@@ -18,7 +18,7 @@ include("spectral_analysis_tools.jl")
 @enum FurnaceType GAUSS = 1 METRO = 2 TROTT_GAUSS = 3 TROTT_METRO = 4 TIME_GAUSS = 5
 
 #* Parameters
-num_qubits = 3
+num_qubits = 4
 mixing_time = 5.
 delta = 0.05
 num_liouv_steps = Int(round(mixing_time / delta, digits=0))
@@ -40,6 +40,9 @@ initial_dm[eig_index, eig_index] = 1.0  # In eigenbasis
 initial_dm[eig_index + 1, eig_index + 1] = 1.0
 initial_dm /= tr(initial_dm)
 
+maxmixed = hamiltonian.eigvecs' * I(2^num_qubits) / 2^num_qubits * hamiltonian.eigvecs
+initial_dm = maxmixed / tr(maxmixed)
+
 hamiltonian.bohr_freqs = hamiltonian.eigvals .- transpose(hamiltonian.eigvals)
 
 #* Gibbs 
@@ -49,7 +52,7 @@ gibbs_largest_eigval = real(eigen(gibbs).values[1])
 
 #* Fourier labels
 # Coherent terms only become significant if we take r + 1 at least.
-num_energy_bits = ceil(Int64, log2((0.45 * 4 + 2/beta) / hamiltonian.w0)) + 2 # Under Fig. 5. with secular approx.
+num_energy_bits = ceil(Int64, log2((0.45 * 4 + 2/beta) / hamiltonian.w0)) + 3 # Under Fig. 5. with secular approx.
 
 # Transition weights in the liouv // Jump rate squared
 if furnace == GAUSS || furnace == TROTT_GAUSS || furnace == TIME_GAUSS
@@ -234,4 +237,4 @@ end
 # lll = load(filename(furnace, num_qubits, num_energy_bits))["liouv"]
 # rrr = load(filename(furnace, num_qubits, num_energy_bits))["alg_results"]
 
-plot!(therm_results.time_steps, therm_results.distances_to_gibbs, label="Distance to Gibbs", xlabel="Time", ylabel="Distance", title="Distance to Gibbs over time")
+# plot(therm_results.time_steps, therm_results.distances_to_gibbs, label="Distance to Gibbs", xlabel="Time", ylabel="Distance", title="Distance to Gibbs over time")
