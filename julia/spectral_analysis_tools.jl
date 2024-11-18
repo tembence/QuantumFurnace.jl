@@ -4,7 +4,6 @@ using Random
 using Printf
 using ProgressMeter
 using Distributed
-using QuantumOptics
 using BenchmarkTools
 using Roots
 
@@ -70,7 +69,7 @@ function construct_liouvillian_gauss(jumps::Vector{JumpOp}, hamiltonian::HamHam,
             liouv .+= vectorize_liouvillian_coherent(coherent_term)
         end
 
-        # Disiipative part
+        # Dissipative part
         # w <= cutoff, A(-w) = A(w)^\dagger
         liouv_diss = zeros(ComplexF64, 4^num_qubits, 4^num_qubits)
         for w in energy_labels_sym

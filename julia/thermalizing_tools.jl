@@ -4,7 +4,6 @@ using Random
 using Printf
 using ProgressMeter
 using Distributed
-using QuantumOptics
 using LaTeXStrings
 
 include("jump_op_tools.jl")
@@ -26,8 +25,7 @@ function thermalize_gaussian(jumps::Vector{JumpOp}, hamiltonian::HamHam, with_co
     energy_labels = hamiltonian.w0 * N_labels
 
     num_liouv_steps = Int(round(mixing_time / delta, digits=0))
-    b = SpinBasis(1//2)^num_qubits
-    gibbs = gibbs_state_in_eigen(hamiltonian, beta)
+    gibbs = Hermitian(gibbs_state_in_eigen(hamiltonian, beta))
 
     # Filter Gaussian normalization for the jumps
     filter_gauss_values = filter_gauss_w.(energy_labels)
@@ -57,8 +55,7 @@ function thermalize_gaussian(jumps::Vector{JumpOp}, hamiltonian::HamHam, with_co
         @printf("Not adding coherent terms! \n")
     end
 
-    counter_matrix = zeros(Int64, size(initial_dm))
-    distances_to_gibbs = [tracedistance_nh(Operator(b, evolved_dm), Operator(b, gibbs))]
+    distances_to_gibbs = [trace_distance_h(Hermitian(evolved_dm), gibbs)]
     time_steps = [0.0:delta:(num_liouv_steps * delta);]
     @showprogress dt=1 desc="Algorithm..." for step in 1:num_liouv_steps
 
@@ -100,24 +97,13 @@ function thermalize_gaussian(jumps::Vector{JumpOp}, hamiltonian::HamHam, with_co
                 dissipative_dm_part .+=  transition(w) * (oft_matrix * evolved_dm * oft_matrix_dag
                                     - 0.5 * (oft_dag_oft * evolved_dm + evolved_dm * oft_dag_oft))
             end
-
-            # Tracking NNZ entries
             evolved_dm .+= delta * dissipative_dm_part / filter_gauss_norm_sq
-
-            for i in 1:2^num_qubits, j in 1:2^num_qubits
-                if abs(evolved_dm[i, j]) > 1e-14
-                    counter_matrix[i, j] += 1
-                end
-            end
         end
-        dist = tracedistance_nh(Operator(b, evolved_dm), Operator(b, gibbs))
+
+        dist = trace_distance_h(Hermitian(evolved_dm), gibbs)
         push!(distances_to_gibbs, dist)
         # @printf("\nDistance to Gibbs: %f\n", dist)
     end
-    # Number of zero entires in counter_matrix
-    @printf("Number of zero elements in counter matrix: %d\n", sum(counter_matrix .== 0))
-    plot = heatmap(counter_matrix, color=:thermal)
-    display(plot)
     return HotAlgorithmResults(evolved_dm, distances_to_gibbs, time_steps)
 end
 
@@ -132,7 +118,6 @@ function thermalize_gaussian_nh(jumps::Vector{JumpOp}, hamiltonian::HamHam, with
     energy_labels = hamiltonian.w0 * N_labels
 
     num_liouv_steps = Int(round(mixing_time / delta, digits=0))
-    b = SpinBasis(1//2)^num_qubits
     gibbs = gibbs_state_in_eigen(hamiltonian, beta)
 
     # Filter Gaussian normalization for the jumps
@@ -162,7 +147,7 @@ function thermalize_gaussian_nh(jumps::Vector{JumpOp}, hamiltonian::HamHam, with
         @printf("Not adding coherent terms! \n")
     end
 
-    distances_to_gibbs = [tracedistance_nh(Operator(b, evolved_dm), Operator(b, gibbs))]
+    distances_to_gibbs = [trace_distance_nh(evolved_dm, gibbs)]
     @showprogress dt=1 desc="Algorithm..." for step in 1:num_liouv_steps
         # Sum of all jumps at once
         for jump in jumps
@@ -189,7 +174,7 @@ function thermalize_gaussian_nh(jumps::Vector{JumpOp}, hamiltonian::HamHam, with
 
             evolved_dm .+= delta * dissipative_dm_part / filter_gauss_norm_sq
             
-            dist = tracedistance_nh(Operator(b, evolved_dm), Operator(b, gibbs))
+            dist = trace_distance_nh(evolved_dm, gibbs)
             push!(distances_to_gibbs, dist)
             # @printf("\nDistance to Gibbs: %f\n", dist)
         end
@@ -208,7 +193,6 @@ function thermalize_gaussian_random(jumps::Vector{JumpOp}, hamiltonian::HamHam, 
     energy_labels = hamiltonian.w0 * N_labels
 
     num_liouv_steps = Int(round(mixing_time / delta, digits=0))
-    b = SpinBasis(1//2)^num_qubits
     gibbs = gibbs_state_in_eigen(hamiltonian, beta)
 
     # Filter Gaussian normalization for the jumps
@@ -239,7 +223,7 @@ function thermalize_gaussian_random(jumps::Vector{JumpOp}, hamiltonian::HamHam, 
         @printf("Not adding coherent terms! \n")
     end
 
-    distances_to_gibbs = [tracedistance_nh(Operator(b, evolved_dm), Operator(b, gibbs))]
+    distances_to_gibbs = [trace_distance_nh(evolved_dm, gibbs)]
     @showprogress dt=1 desc="Algorithm..." for step in 1:num_liouv_steps
 
         # Pick a random jump for this step
@@ -282,7 +266,7 @@ function thermalize_gaussian_random(jumps::Vector{JumpOp}, hamiltonian::HamHam, 
 
         evolved_dm .+= delta * dissipative_dm_part / filter_gauss_norm_sq
         
-        dist = tracedistance_nh(Operator(b, evolved_dm), Operator(b, gibbs))
+        dist = trace_distance_nh(evolved_dm, gibbs)
         push!(distances_to_gibbs, dist)
         # @printf("\nDistance to Gibbs: %f\n", dist)
     end
@@ -304,7 +288,6 @@ function thermalize_gaussian_ideal_time(jumps::Vector{JumpOp}, hamiltonian::HamH
     filter_gauss_t_norm_sq = sum(filter_gauss_t_values.^2)
 
     num_liouv_steps = Int(round(mixing_time / delta, digits=0))
-    b = SpinBasis(1//2)^num_qubits
     gibbs = gibbs_state_in_eigen(hamiltonian, beta)
     
     # Truncate energy -> 0.45 -> transition Gaussian truncation
@@ -327,7 +310,7 @@ function thermalize_gaussian_ideal_time(jumps::Vector{JumpOp}, hamiltonian::HamH
         @printf("Not adding coherent terms! \n")
     end
 
-    distances_to_gibbs = [tracedistance_nh(Operator(b, evolved_dm), Operator(b, gibbs))]
+    distances_to_gibbs = [trace_distance_nh(evolved_dm, gibbs)]
     time_steps = [0.0:delta:(num_liouv_steps * delta);]
     @showprogress dt=1 desc="Algorithm..." for step in 1:num_liouv_steps
 
@@ -370,7 +353,7 @@ function thermalize_gaussian_ideal_time(jumps::Vector{JumpOp}, hamiltonian::HamH
 
             evolved_dm .+= delta * dissipative_dm_part / (filter_gauss_t_norm_sq * length(time_labels))
         end  
-        dist = tracedistance_nh(Operator(b, evolved_dm), Operator(b, gibbs))
+        dist = trace_distance_nh(evolved_dm, gibbs)
         push!(distances_to_gibbs, dist)
         # @printf("\nDistance to Gibbs: %f\n", dist)
     end
@@ -393,7 +376,6 @@ function thermalize_gaussian_trotter(jumps::Vector{JumpOp}, hamiltonian::HamHam,
     filter_gauss_t_norm_sq = sum(filter_gauss_t_values.^2)
 
     num_liouv_steps = Int(round(mixing_time / delta, digits=0))
-    b = SpinBasis(1//2)^num_qubits
     gibbs_in_trotter = trotter.eigvecs' * gibbs_state(hamiltonian, beta) * trotter.eigvecs
     evolved_dm = trotter.eigvecs' * initial_dm * trotter.eigvecs
     
@@ -417,7 +399,7 @@ function thermalize_gaussian_trotter(jumps::Vector{JumpOp}, hamiltonian::HamHam,
         @printf("Not adding coherent terms! \n")
     end
 
-    distances_to_gibbs = [tracedistance_nh(Operator(b, evolved_dm), Operator(b, gibbs_in_trotter))]
+    distances_to_gibbs = [trace_distance_nh(evolved_dm, gibbs_in_trotter)]
     time_steps = [0.0:delta:(num_liouv_steps * delta);]
     @showprogress dt=1 desc="Algorithm..." for step in 1:num_liouv_steps
 
@@ -460,7 +442,7 @@ function thermalize_gaussian_trotter(jumps::Vector{JumpOp}, hamiltonian::HamHam,
 
             evolved_dm .+= delta * dissipative_dm_part / (filter_gauss_t_norm_sq * length(time_labels))
         end  
-        dist = tracedistance_nh(Operator(b, evolved_dm), Operator(b, gibbs_in_trotter))
+        dist = trace_distance_nh(evolved_dm, gibbs_in_trotter)
         push!(distances_to_gibbs, dist)
         # @printf("\nDistance to Gibbs: %f\n", dist)
     end
@@ -477,7 +459,6 @@ function thermalize_metro(jumps::Vector{JumpOp}, hamiltonian::HamHam, with_coher
     energy_labels = hamiltonian.w0 * N_labels
 
     num_liouv_steps = Int(round(mixing_time / delta, digits=0))
-    b = SpinBasis(1//2)^num_qubits
     gibbs = gibbs_state_in_eigen(hamiltonian, beta)
 
     # Filter Gaussian normalization for the jumps
@@ -504,7 +485,7 @@ function thermalize_metro(jumps::Vector{JumpOp}, hamiltonian::HamHam, with_coher
         @printf("Not adding coherent terms! \n")
     end
 
-    distances_to_gibbs = [tracedistance_nh(Operator(b, evolved_dm), Operator(b, gibbs))]
+    distances_to_gibbs = [trace_distance_nh(evolved_dm, gibbs)]
     time_steps = [0.0:delta:(num_liouv_steps * delta);]
     @showprogress dt=1 desc="Algorithm..." for step in 1:num_liouv_steps
         # Sum of all jumps at once
@@ -544,7 +525,7 @@ function thermalize_metro(jumps::Vector{JumpOp}, hamiltonian::HamHam, with_coher
 
             evolved_dm .+= delta * dissipative_dm_part / filter_gauss_norm_sq
         end   
-        dist = tracedistance_nh(Operator(b, evolved_dm), Operator(b, gibbs))
+        dist = trace_distance_nh(evolved_dm, gibbs)
         push!(distances_to_gibbs, dist)
         # @printf("\nDistance to Gibbs: %f\n", dist)
     end
@@ -565,7 +546,6 @@ function thermalize_metro_trotter(jumps::Vector{JumpOp}, hamiltonian::HamHam, tr
     filter_gauss_t_norm_sq = sum(filter_gauss_t_values.^2)
 
     num_liouv_steps = Int(round(mixing_time / delta, digits=0))
-    b = SpinBasis(1//2)^num_qubits
     gibbs_in_trotter = trotter.eigvecs' * gibbs_state(hamiltonian, beta) * trotter.eigvecs
     evolved_dm = trotter.eigvecs' * initial_dm * trotter.eigvecs
     
@@ -585,7 +565,7 @@ function thermalize_metro_trotter(jumps::Vector{JumpOp}, hamiltonian::HamHam, tr
         @printf("Not adding coherent terms! \n")
     end
 
-    distances_to_gibbs = [tracedistance_nh(Operator(b, evolved_dm), Operator(b, gibbs))]
+    distances_to_gibbs = [trace_distance_nh(evolved_dm, gibbs_in_trotter)]
     time_steps = [0.0:delta:(num_liouv_steps * delta);]
     @showprogress dt=1 desc="Algorithm..." for step in 1:num_liouv_steps
         # Sum of all jumps at once
@@ -625,7 +605,7 @@ function thermalize_metro_trotter(jumps::Vector{JumpOp}, hamiltonian::HamHam, tr
 
             evolved_dm .+= delta * dissipative_dm_part / (filter_gauss_t_norm_sq * length(time_labels))
         end
-        dist = tracedistance_nh(Operator(b, evolved_dm), Operator(b, gibbs_in_trotter))
+        dist = trace_distance_nh(evolved_dm, gibbs_in_trotter)
         push!(distances_to_gibbs, dist)
         # @printf("\nDistance to Gibbs: %f\n", dist)
     end
@@ -741,7 +721,6 @@ function full_liouvillian_step(jump::JumpOp, hamiltonian::HamHam, energy_labels:
     initial_dm::Matrix{ComplexF64}, delta::Float64, sigma::Float64, beta::Float64)
 
     num_qubits = Int(log2(size(hamiltonian.data)[1]))
-    b = SpinBasis(1//2)^num_qubits
 
     initial_dm = Operator(b, initial_dm)
     evolution_hamiltonian = Operator(b, spzeros(ComplexF64, 2^num_qubits, 2^num_qubits))
@@ -824,11 +803,10 @@ end
 # @printf("Trotter error t0: %e\n", trotter_error_t0)
 
 # #* Many steps convergence:
-# b = SpinBasis(1//2)^num_qubits
 # gibbs = gibbs_state(hamiltonian, beta)
 # round.(abs.(gibbs), digits=4)
 # evolved_dm = copy(initial_dm)
-# distances_to_gibbs = [tracedistance_nh(Operator(b, evolved_dm), Operator(b, gibbs))]
+# distances_to_gibbs = [trace_distance_nh(evolved_dm, gibbs)]
 
 # # Pregenerate all random jumps
 # all_random_jumps_generated = []
@@ -860,7 +838,7 @@ end
 #     evolved_dm_trott += liouvillian_delta_trajectory_trotter(jump_delta, trotter, energy_labels, evolved_dm_trott, 
 #                     delta, sigma, beta)
 #     evolved_dm_trott /= tr(evolved_dm_trott)
-#     dist = tracedistance_nh(Operator(b, evolved_dm_trott), Operator(b, gibbs_in_trotter_basis))
+#     dist = trace_distance_nh(evolved_dm, gibbs_in_trotter_basis)
 #     @printf("Distance to Gibbs: %f\n", dist)
 #     push!(trott_distances_to_gibbs, dist)
 # end
@@ -871,7 +849,7 @@ end
 
 # println(round.(abs.(diag(hamiltonian.eigvecs' * trotter.eigvecs * evolved_dm_trott * trotter.eigvecs' * hamiltonian.eigvecs)), digits=4))
 # println(round.(abs.(diag(gibbs)), digits=4))
-# tracedistance_nh(Operator(b, hamiltonian.eigvecs' * trotter.eigvecs * evolved_dm_trott * trotter.eigvecs' * hamiltonian.eigvecs), Operator(b, gibbs))
+# trace_distance_nh(hamiltonian.eigvecs' * trotter.eigvecs * evolved_dm_trott * trotter.eigvecs' * hamiltonian.eigvecs, gibbs)
 
 
 # plot!(tspan, trott_distances_to_gibbs, ylims=(0, 1),
@@ -973,7 +951,6 @@ end
 # # println(eigvals(evolved_dm_alg))
 # # # trace_distance(Hermitian(evolved_dm_alg), Hermitian(gibbs))
 # # # Compare
-# # b = SpinBasis(1//2)^num_qubits
 # # @printf("Distance to each other: %s\n", tracedistance_nh(Operator(b, evolved_dm_exact), Operator(b, evolved_dm_alg)))
 # # @printf("While delta^2 is: %s\n", delta^2)
 

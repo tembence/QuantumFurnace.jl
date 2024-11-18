@@ -3,7 +3,6 @@ using Random
 using Printf
 using ProgressMeter
 using Distributed
-using TensorOperations
 using JLD
 using Plots
 using QuadGK
@@ -90,26 +89,54 @@ end
 function coherent_term_trotter(jump::JumpOp, hamiltonian::HamHam, trotter::TrottTrott, 
     b1::Dict{Float64, ComplexF64}, b2::Dict{Float64, ComplexF64}, beta::Float64)
 
-    diag_time_evolve(t) = Diagonal(trotter.eigvals_t0.^Int(ceil(t / trotter.t0))) # Trotter steps
-    jump_op_in_eigenbasis_dag = jump.in_eigenbasis'
+    # diag_time_evolve(t) = Diagonal(trotter.eigvals_t0.^Int(ceil(t / trotter.t0))) # Trotter steps
 
+    jump_op_in_trotter_basis_dag = jump.in_trotter_basis'
+    eigvals_t0_diag = Diagonal(trotter.eigvals_t0)
+    #! What about negative times?
     # Inner b2 integral
     b2_integral = zeros(ComplexF64, size(hamiltonian.data))
     for s in keys(b2)
-        time_evolution_inner = diag_time_evolve(beta * s)
-        b2_integral .+= b2[s] * time_evolution_inner * 
-        (jump_op_in_eigenbasis_dag * (time_evolution_inner')^2 * jump.in_eigenbasis) *
-        time_evolution_inner
+        num_t0_steps = ceil((abs(s) * beta / trotter.t0))
+        trott_U_plus = eigvals_t0_diag^num_t0_steps
+        trott_U_minus = conj(trott_U_plus)
+
+        # less allocs this way:
+        temp_op = (s >= 0.0) ? (b2[s] * trott_U_plus * 
+        (jump_op_in_trotter_basis_dag * trott_U_minus^2 * jump.in_trotter_basis) *
+        trott_U_plus) : (b2[s] * trott_U_minus * 
+        (jump_op_in_trotter_basis_dag * trott_U_plus^2 * jump.in_trotter_basis) *
+        trott_U_minus)
+        b2_integral .+= temp_op
     end
+    # Inner b2 integral
+    # b2_integral = zeros(ComplexF64, size(hamiltonian.data))
+    # for s in keys(b2)
+    #     time_evolution_inner = eigvals_t0_diag^ceil((abs(s) / trotter.t0))
+    #     b2_integral .+= (b2[s] * time_evolution_inner * 
+    #     (jump_op_in_trotter_basis_dag * (time_evolution_inner')^2 * jump.in_trotter_basis) *
+    #     time_evolution_inner)
+    # end
 
     # Outer b1 integral
     B = zeros(ComplexF64, size(hamiltonian.data))
     for t in keys(b1)
-        time_evolution_outer = diag_time_evolve(beta * t)
-        B .+= b1[t] * time_evolution_outer' * b2_integral * time_evolution_outer
-    end
-    return B * trotter.t0^2
+        num_t0_steps = ceil((abs(t) * beta / trotter.t0))
+        trott_U_plus = eigvals_t0_diag^num_t0_steps
+        trott_U_minus = conj(trott_U_plus)
 
+        # less allocs this way:
+        temp_op = (t >= 0.0) ? (b1[t] * trott_U_minus * b2_integral * trott_U_plus) : 
+        (b1[t] * trott_U_plus * b2_integral * trott_U_minus)
+        B .+= temp_op
+    end
+
+    # for t in keys(b1)
+    #     time_evolution_outer = diag_time_evolve(beta * t)
+    #     B .+= b1[t] * time_evolution_outer' * b2_integral * time_evolution_outer
+    # end
+
+    return B * trotter.t0^2
 end
 
 function coherent_term_timedomain_integrated_gauss(jump::JumpOp, hamiltonian::HamHam, beta::Float64, 
@@ -265,19 +292,35 @@ end
 # initial_state = hamiltonian.eigvecs[:, eig_index]
 # hamiltonian.bohr_freqs = hamiltonian.eigvals .- transpose(hamiltonian.eigvals)
 
-# # #* Jump operators
+# # # #* Fourier labels
+# num_energy_bits = ceil(Int64, log2((0.45 * 4 + 2/beta) / hamiltonian.w0)) + 3  # For good integral approx we might need more r than expected
+# # num_energy_bits = 11
+# N = 2^(num_energy_bits)
+# N_labels = [0:1:Int(N/2)-1; -Int(N/2):1:-1]
+# t0 = 2 * pi / (N * hamiltonian.w0)
+# time_labels = t0 * N_labels
+# energy_labels = hamiltonian.w0 * N_labels
+
+# #* Trotter
+# #TODO: Where is the Trotter scaling? Why does it get worse if r is higher = smaller t0, but more B terms.
+# num_trotter_steps_per_t0 = 100
+# trotter = create_trotter(hamiltonian, t0, num_trotter_steps_per_t0)
+# trotter_error_T = compute_trotter_error(hamiltonian, trotter, 2^num_energy_bits * t0)
+# @printf("Num trotter steps / t0: %d\n", num_trotter_steps_per_t0)
+# @printf("Max order Trotter error on an OFT: %s\n", trotter_error_T)
+
+# #* Jump operators
 # X::Matrix{ComplexF64} = [0 1; 1 0]
 # Y::Matrix{ComplexF64} = [0.0 -im; im 0.0]
 # Z::Matrix{ComplexF64} = [1 0; 0 -1]
 # jump_paulis = [[X], [Y], [Z]]
 
-# # All jumps once
 # all_jumps_generated::Vector{JumpOp} = []
 # for pauli in jump_paulis
 #     for site in 1:num_qubits
 #     jump_op = Matrix(pad_term(pauli, num_qubits, site))
 #     jump_op_in_eigenbasis = hamiltonian.eigvecs' * jump_op * hamiltonian.eigvecs
-#     jump_in_trotter_basis = zeros(0, 0)
+#     jump_in_trotter_basis = trotter.eigvecs' * jump_op * trotter.eigvecs
 #     orthogonal = (jump_op == adjoint(jump_op))
 #     jump = JumpOp(jump_op,
 #             jump_op_in_eigenbasis,
@@ -289,22 +332,10 @@ end
 #     end
 # end
 
-# # # #* Fourier labels
-# num_energy_bits = ceil(Int64, log2((0.45 * 4 + 2/beta) / hamiltonian.w0)) + 4  # For good integral approx we might need more r than expected
-# # num_energy_bits = 11
-# N = 2^(num_energy_bits)
-# N_labels = [0:1:Int(N/2)-1; -Int(N/2):1:-1]
-
-# t0 = 2 * pi / (N * hamiltonian.w0)
-# time_labels = t0 * N_labels
-# # ((maximum(time_labels) - minimum(time_labels)) / N)^2
-
-# energy_labels = hamiltonian.w0 * N_labels
-
-# # @printf("Number of qubits: %d\n", num_qubits)
-# # @printf("Number of energy bits: %d\n", num_energy_bits)
-# # @printf("Energy unit: %e\n", hamiltonian.w0)
-# # @printf("Time unit: %e\n", t0)
+# @printf("Number of qubits: %d\n", num_qubits)
+# @printf("Number of energy bits: %d\n", num_energy_bits)
+# @printf("Energy unit: %e\n", hamiltonian.w0)
+# @printf("Time unit: %e\n", t0)
 
 # atol = 1e-12
 # # atol = 0.0
@@ -318,14 +349,12 @@ end
 # @time B_explicit = coherent_term_from_timedomain(jump, hamiltonian, b1, b2, t0, beta)
 # @time B_bohr = coherent_gaussian_bohr(hamiltonian, jump, beta)
 # @time B_integrated = coherent_term_timedomain_integrated_gauss(jump, hamiltonian, beta)
+# @time B_trotter = coherent_term_trotter(jump, hamiltonian, trotter, b1, b2, beta)
+# B_trotter_in_eigenbasis = hamiltonian.eigvecs' * trotter.eigvecs * B_trotter * trotter.eigvecs' * hamiltonian.eigvecs
 
-# # norm(B_integrated - B_integrated')
-# # norm(B_explicit - B_explicit')
-
-# # norm(B_explicit) / norm(B_integrated)
-# norm(B_explicit - B_integrated)
-
-# norm(B_explicit - B_bohr)
+# @printf("HS distance of bohr and explicit: %s\n", norm(B_bohr - B_explicit))
+# @printf("HS distance of bohr and trotter: %s\n", norm(B_bohr - B_trotter_in_eigenbasis))
+# @printf("HS distance of trotter and explicit: %s\n", norm(B_trotter_in_eigenbasis - B_explicit))
 
 # #* l1 norms of b1, b2
 # # f1(t) = 1 / cosh(2 * pi * t)

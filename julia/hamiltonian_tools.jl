@@ -53,6 +53,7 @@ function create_hamham(terms::Vector{Vector{String}}, coeffs::Vector{Float64}, n
     return hamiltonian
 end
 
+#TODO: Combine symbreak terms into just terms to make it cleaner
 function create_hamham(terms::Vector{Vector{String}}, coeffs::Vector{Float64}, 
     symbreak_terms::Vector{String}, symbreak_coeffs::Vector{Float64}, num_qubits::Int64)
     """Creates a HamHam object from terms and coefficients. Only for NN terms for now."""

@@ -4,7 +4,6 @@ using Random
 using Printf
 using ProgressMeter
 using Distributed
-using QuantumOptics
 
 include("hamiltonian_tools.jl")
 include("qi_tools.jl")

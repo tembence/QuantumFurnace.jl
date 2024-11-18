@@ -6,14 +6,13 @@ using JLD
 
 include("hamiltonian_tools.jl")
 
-function trace_distance(rho::Hermitian{ComplexF64, Matrix{ComplexF64}}, 
-    sigma::Hermitian{ComplexF64, Matrix{ComplexF64}}; validate::Bool = true)
+function trace_distance_h(rho::Hermitian{ComplexF64}, sigma::Hermitian{ComplexF64})
     """Qutip apparently uses some sparse eigval solver, but let's go with the dense one for now."""
-    if validate && (!is_density_matrix(rho) || !is_density_matrix(sigma))
-        throw(ArgumentError("Input matrices are not density matrices"))
-    end
-    eig_vals = eigvals(rho - sigma)
-    return sum(abs.(eig_vals)) / 2
+    return sum(abs.(eigvals(rho - sigma))) / 2
+end
+
+function trace_distance_nh(rho::Matrix{ComplexF64}, sigma::Matrix{ComplexF64})
+    return sum(svdvals(rho - sigma)) / 2
 end
 
 function fidelity(rho::Hermitian{ComplexF64, Matrix{ComplexF64}}, 
@@ -96,7 +95,7 @@ function random_density_matrix(num_qubits::Int)
     # Normalize the matrix to make the trace equal to 1
     ρ /= tr(ρ)
     
-    return ρ
+    return Hermitian(ρ)
 end
 
 # num_qubits = 4
@@ -111,13 +110,21 @@ end
 #* Compared with QuantumOptics implementations, my code is the same or faster and gives the same results
 # Test
 #! 12 qubits needs 8s for trdist (10^-15 precise), 32s for fidelity (10^-9 precise)
-# n = 10
+# n = 12
 # # generate random n qubit density Matrix
 # Random.seed!(666)
-# rho = rand(2^n, 2^n) + 1im * rand(2^n, 2^n)
-# rho = rho * rho'
-# rho = rho / tr(rho)
-# rho = Hermitian(rho)
+# rho = random_density_matrix(n)
+# sigma = random_density_matrix(n)
+# trdist = @time trace_distance_h(rho, sigma)
+# trdist_with_nh = @time trace_distance_nh(Matrix(rho), Matrix(sigma))
+
+# random_matrix_1 = rand(ComplexF64, 2^n, 2^n)
+# random_matrix_2 = rand(ComplexF64, 2^n, 2^n)
+# trdist_nh = @time trace_distance_nh(random_matrix_1, random_matrix_2)
+
+# b = SpinBasis(1//2)^n
+# trdist_qo_h = @time tracedistance_h(Operator(b, Matrix(rho)), Operator(b, Matrix(sigma)))
+# trdist_qo_nh = @time tracedistance_nh(Operator(b, random_matrix_1), Operator(b, random_matrix_2))
 
 # sigma = rand(2^n, 2^n) + 1im * rand(2^n, 2^n)
 # sigma = sigma * sigma'

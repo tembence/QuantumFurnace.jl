@@ -2,7 +2,6 @@ using LinearAlgebra
 using Random
 using Printf
 using ProgressMeter
-using QuantumOptics
 using JLD
 
 include("hamiltonian_tools.jl")
@@ -18,40 +17,45 @@ include("spectral_analysis_tools.jl")
 @enum FurnaceType GAUSS = 1 METRO = 2 TROTT_GAUSS = 3 TROTT_METRO = 4 TIME_GAUSS = 5
 
 #* Parameters
-num_qubits = 4
-mixing_time = 5.
-delta = 0.05
+num_qubits = 3
+delta = 0.01
+mixing_time = 1 * delta
 num_liouv_steps = Int(round(mixing_time / delta, digits=0))
 beta = 10.
 eta = 0.02  # Just don't make it smaller than 0.018
 eig_index = 3
 Random.seed!(666)
-save_it = false
 
+save_it = false
 furnace = GAUSS
 with_coherent = true  #TODO: Check how close B is between Trotter and ideal
 
 #* Hamiltonian
 ham_filename(n) = @sprintf("/Users/bence/code/liouvillian_metro/julia/data/hamiltonian_n%d.jld", n)
 hamiltonian = load(ham_filename(num_qubits))["ideal_ham"]
-# hamiltonian = load("/Users/bence/code/liouvillian_metro/julia/data/hamiltonian_n3.jld")["ideal_ham"]
+
+# coeffs = fill(1.0, 3)
+# hamiltonian = find_ideal_heisenberg(num_qubits, coeffs; batch_size=1)
+
 initial_dm = zeros(ComplexF64, size(hamiltonian.data))
 initial_dm[eig_index, eig_index] = 1.0  # In eigenbasis
 initial_dm[eig_index + 1, eig_index + 1] = 1.0
 initial_dm /= tr(initial_dm)
 
-maxmixed = hamiltonian.eigvecs' * I(2^num_qubits) / 2^num_qubits * hamiltonian.eigvecs
-initial_dm = maxmixed / tr(maxmixed)
+# maxmixed = hamiltonian.eigvecs' * I(2^num_qubits) / 2^num_qubits * hamiltonian.eigvecs
+# maxmixed /= tr(maxmixed)
+# ones_dm = ones(ComplexF64, 2^num_qubits, 2^num_qubits)
+# ones /= tr(ones)
+# initial_dm = ones
 
 hamiltonian.bohr_freqs = hamiltonian.eigvals .- transpose(hamiltonian.eigvals)
 
-#* Gibbs 
-b = SpinBasis(1//2)^num_qubits
+#* Gibbs
 gibbs = gibbs_state_in_eigen(hamiltonian, beta)
 gibbs_largest_eigval = real(eigen(gibbs).values[1])
 
 #* Fourier labels
-# Coherent terms only become significant if we take r + 1 at least.
+# Coherent terms only become significant if we take r + 1 at least. Only matches with energy domain version if r + 3 or more
 num_energy_bits = ceil(Int64, log2((0.45 * 4 + 2/beta) / hamiltonian.w0)) + 3 # Under Fig. 5. with secular approx.
 
 # Transition weights in the liouv // Jump rate squared
@@ -170,6 +174,22 @@ elseif furnace == TIME_GAUSS
     filter_gauss_t, transition, beta)
 end
 
+#* Check on Liouvillian Matrix
+# liouv_eigvals = eigvals(liouv_matrix)
+# one_vec = vec(I(2^num_qubits))
+# norm(liouv_matrix' * one_vec)
+
+initial_dm = zeros(ComplexF64, size(hamiltonian.data))
+initial_dm[eig_index, eig_index] = 1.0  # In eigenbasis
+initial_dm[eig_index + 1, eig_index + 1] = 1.0
+initial_dm /= tr(initial_dm)
+
+evolved_vec = vec(evolved_dm)
+initial_vec = vec(initial_dm)
+
+vec_lindbladian_time_evolved = initial_vec + mixing_time * liouv_matrix * initial_vec
+norm(vec_lindbladian_time_evolved - evolved_vec)
+
 liouv = LiouvLiouv(liouv_matrix, zeros(0, 0), 0.0, 0.0)
 trdist_eps = 1e-3
 mixing_time_bound(liouv, trdist_eps)
@@ -184,9 +204,6 @@ stationary_vec = vec(stationary_dm)
 # # Gibbs and evolved vectorized
 gibbs_vec = vec(gibbs)
 evolved_vec = vec(evolved_dm)
-
-# rand_dm = random_density_matrix(num_qubits)
-# rand_dm_vec = vec(rand_dm)
 
 # HS distances
 dist_evolved_dm_gibbs_vec = norm(evolved_vec - gibbs_vec)
@@ -203,18 +220,16 @@ println("\nTrace distances:")
 min_dist = minimum(distances_to_gibbs)
 # max_mixed_dm = Matrix(I, 2^num_qubits, 2^num_qubits) / 2^num_qubits
 # dist_to_maxmixed = tracedistance_nh(Operator(b, best_evolved_dm), Operator(b, max_mixed_dm))
-trdist_ss_evolved_dm = tracedistance_nh(Operator(b, evolved_dm), Operator(b, stationary_dm))
+trdist_ss_evolved_dm = trace_distance_nh(evolved_dm, stationary_dm)
 
-# trdist_ss_rand = tracedistance_nh(Operator(b, rand_dm), Operator(b, stationary_dm))
 @printf("Last distance to Gibbs: %s\n", distances_to_gibbs[end])
 @printf("Minimum distance to Gibbs: %s\n", min_dist)
 # @printf("Variance of last 10 distances to Gibbs: %s\n", var(distances_to_gibbs[end-10:end]))
 # @printf("Distance to max mixed: %s\n", dist_to_maxmixed)
 @printf("Trace distance evolved DM to SS: %s\n", trdist_ss_evolved_dm)
-# @printf("Trace distance random to SS: %s\n", trdist_ss_rand)
 
 
-trdist_ss_gibbs = tracedistance_nh(Operator(b, gibbs), Operator(b, stationary_dm))  # Is trdist small to Gibbs?
+trdist_ss_gibbs = trace_distance_nh(gibbs, stationary_dm)  # Is trdist small to Gibbs?
 @printf("Trace distance Gibbs to SS: %s\n", trdist_ss_gibbs)
 println("\nStationarity checks:")
 is_it_zero = liouv.data * gibbs_vec # Is Gibbs a steady state?
@@ -222,8 +237,6 @@ is_it_zero = liouv.data * gibbs_vec # Is Gibbs a steady state?
 
 is_evolved_zero = liouv.data * evolved_vec
 @printf("Is evolved a steady state? L(ρ) = %s\n", norm(is_evolved_zero))
-# is_random_zero = liouv * rand_dm_vec
-# @printf("Is random a steady state? L(r) = %s\n", norm(is_random_zero))
 
 if save_it == true
     if with_coherent == false
