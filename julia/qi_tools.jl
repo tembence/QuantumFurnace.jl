@@ -1,7 +1,7 @@
 using LinearAlgebra
 using Random
 using Printf
-using QuantumOptics
+# using QuantumOptics # Add it back if needed
 using JLD
 
 include("hamiltonian_tools.jl")
@@ -13,6 +13,14 @@ end
 
 function trace_distance_nh(rho::Matrix{ComplexF64}, sigma::Matrix{ComplexF64})
     return sum(svdvals(rho - sigma)) / 2
+end
+
+function trace_norm_h(rho::Hermitian{ComplexF64, Matrix{ComplexF64}})
+    return sum(abs.(eigvals(rho)))
+end
+
+function trace_norm_nh(rho::Matrix{ComplexF64})
+    return sum(svdvals(rho))
 end
 
 function fidelity(rho::Hermitian{ComplexF64, Matrix{ComplexF64}}, 

@@ -15,6 +15,44 @@ include("thermalizing_tools.jl")
 include("coherent.jl")
 include("structs.jl")
 
+function construct_liouvillian_gauss_bohr(jumps::Vector{JumpOp}, hamiltonian::HamHam, with_coherent::Bool, beta::Float64)
+
+    dim = size(hamiltonian.data, 1)
+    alpha(nu_1, nu_2) = exp(-beta^2 * (nu_1 + nu_2 + 2/beta)^2 / 16) * exp(-beta^2 * (nu_1 - nu_2)^2 / 8) / sqrt(8)
+
+    liouv = zeros(ComplexF64, dim^2, dim^2)
+    @showprogress dt=1 desc="Liouvillian..." for jump in jumps
+        # Coherent part
+        if with_coherent
+            # coherent_term = coherent_term_from_timedomain(jump, hamiltonian, b1, b2, t0, beta)
+            coherent_term = coherent_gaussian_bohr(hamiltonian, jump, beta)
+            # coherent_term = coherent_term_timedomain_integrated(jump, hamiltonian, beta)
+            liouv .+= vectorize_liouvillian_coherent(coherent_term)
+        end
+
+        # Dissipative part
+        for j in 1:dim
+            for k in 1:dim
+                for i in 1:dim
+                    A_nu_1::SparseMatrixCSC{ComplexF64} = spzeros(dim, dim)
+                    A_nu_2_dagger::SparseMatrixCSC{ComplexF64} = spzeros(dim, dim)
+                    nu_1 = hamiltonian.bohr_freqs[i, j]
+                    nu_2 = hamiltonian.bohr_freqs[i, k]
+                    check_alpha_skew_symmetry(alpha, nu_1, nu_2, beta)
+                    A_nu_1[i, j] = jump.in_eigenbasis[i, j] * alpha(nu_1, nu_2)
+                    A_nu_2_dagger[k, i] = adjoint(jump.in_eigenbasis[i, k])
+
+                    #TODO: Vectorization is different here because A_nu1^\dagger != A_nu2^\dagger
+                    # Function is written up but not tested yet.
+                    liouv .+= vectorize_liouvillian_diss(A_nu_1, A_nu_2_dagger)
+                end
+            end
+        end
+
+    end
+    return liouv
+end
+
 function construct_liouvillian_gauss(jumps::Vector{JumpOp}, hamiltonian::HamHam, with_coherent::Bool, 
     num_energy_bits::Int64, filter_gauss_w::Function, transition_gauss::Function, beta::Float64)
     """Constructs the vectorized Davies Liouvillian that thermalizes the system. This function works for jumps that are
@@ -427,6 +465,18 @@ function vectorize_liouvillian_coherent(coherent_term::Matrix{ComplexF64})
     return vecotrized_coherent_term
 end
 
+#TODO: Debug this function
+#TODO: Can't we sum up somehow first and then vectorize at once?
+function vectorize_liouvillian_diss(jump_1::SparseMatrixCSC{ComplexF64}, jump_2_dag::SparseMatrixCSC{ComplexF64})
+
+    dim = size(jump_1)[1]
+    spI = sparse(I, dim, dim)
+
+    jump_2_dag_jump_1 = jump_2_dag * jump_1
+    vectorized_liouv = kron(conj(jump_1), jump_2) - 0.5 * (kron(spI, jump_2_dag_jump_1) 
+                                                            + kron(transpose(jump_2_dag_jump_1), spI))
+    return vectorized_liouv
+
 function vectorize_liouvillian_diss(jump_ops::Vector{Matrix{ComplexF64}})
 
     dim = size(jump_ops[1])[1]
@@ -435,7 +485,8 @@ function vectorize_liouvillian_diss(jump_ops::Vector{Matrix{ComplexF64}})
     vectorized_liouv = zeros(ComplexF64, dim^2, dim^2)
     for jump in jump_ops
         jump_dag_jump = jump' * jump
-        vectorized_liouv .+= kron(conj(jump), jump) - 0.5 * kron(spI, jump_dag_jump) - 0.5 * kron(transpose(jump_dag_jump), spI)
+        vectorized_liouv .+= kron(conj(jump), jump) - 0.5 * (kron(spI, jump_dag_jump) + 
+                                                                kron(transpose(jump_dag_jump), spI))
     end
 
     return vectorized_liouv

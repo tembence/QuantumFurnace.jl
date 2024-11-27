@@ -13,6 +13,79 @@ include("trotter.jl")
 include("structs.jl")
 
 #TODO: Struct for Configs / Initialization of the thermalizations
+#TODO: Compare this to other thermalizations
+
+function thermalize_bohr(jumps::Vector{JumpOp}, hamiltonian::HamHam, with_coherent::Bool, evolved_dm::Matrix{ComplexF64},
+    delta::Float64, mixing_time::Float64, beta::Float64)
+
+    # num_liouv_steps = Int(round(mixing_time / delta, digits=0))
+    # gibbs = Hermitian(gibbs_state_in_eigen(hamiltonian, beta))
+    # distances_to_gibbs = [trace_distance_h(Hermitian(evolved_dm), gibbs)]
+
+    # time_steps = [0.0:delta:(num_liouv_steps * delta);]
+    # @showprogress dt=1 desc="Algorithm (Bohr)..." for step in 1:num_liouv_steps
+    #     for jump in jumps
+    #     end
+
+    # end
+
+end
+
+function dissipative_bohr(jump::JumpOp, hamiltonian::HamHam, evolved_dm::Matrix{ComplexF64}, delta::Float64, beta::Float64)
+
+    dim = size(hamiltonian.data, 1)
+    # Transition Gaussian, 2 filter Gaussians
+    alpha(nu_1, nu_2) = exp(-beta^2 * (nu_1 + nu_2 + 2/beta)^2 / 16) * exp(-beta^2 * (nu_1 - nu_2)^2 / 8) / sqrt(8)
+    # Setup coherent part
+    # if with_coherent
+    #     coherent_term = coherent_gaussian_bohr(hamiltonian, jump, beta)
+    #     @printf("Coherent term\n")
+    #     display(coherent_term)
+    #     temp_coh = - im * delta * (coherent_term * evolved_dm - evolved_dm * coherent_term)
+    #     @printf("Coherently evolved part\n")
+    #     display(temp_coh)
+    #     evolved_dm .+= temp_coh
+    # else
+    #     @printf("Not adding coherent terms! \n")
+    # end
+
+    jump_dissipated_dm = zeros(ComplexF64, dim, dim)
+    for j in 1:dim
+        for k in 1:dim
+            for i in 1:dim
+                A_nu_1::SparseMatrixCSC{ComplexF64} = spzeros(dim, dim)
+                A_nu_2_dagger::SparseMatrixCSC{ComplexF64} = spzeros(dim, dim)
+                nu_1 = hamiltonian.bohr_freqs[i, j]
+                nu_2 = hamiltonian.bohr_freqs[i, k]  #! Could be (k, i)
+                @printf("---For j, k, i: %d, %d, %d\n", j, k, i)
+                @printf("nu_1: %f, nu_2: %f\n", nu_1, nu_2)
+                check_alpha_skew_symmetry(alpha, nu_1, nu_2, beta)
+                A_nu_1[i, j] = jump.in_eigenbasis[i, j]
+                A_nu_2_dagger[k, i] = adjoint(jump.in_eigenbasis[i, k])
+                @printf("A_nu_1\n")
+                display(A_nu_1)
+                @printf("A_nu_2_dagger\n")
+                display(A_nu_2_dagger)
+                temp_diss = alpha(nu_1, nu_2) * (A_nu_1 * evolved_dm * A_nu_2_dagger
+                    - 0.5 * (A_nu_2_dagger * A_nu_1 * evolved_dm + evolved_dm * A_nu_2_dagger * A_nu_1)) 
+                @printf("///// Dissipated part\n")
+                display(temp_diss)
+                println()
+                jump_dissipated_dm .+= temp_diss
+            end
+        end
+    end
+    @printf("Resulting total dissipation part\n")
+    display(jump_dissipated_dm)
+    evolved_dm .+= delta * jump_dissipated_dm
+    @printf("Resulting delta evolved DM\n")
+    display(evolved_dm)
+    return evolved_dm
+end
+
+function check_alpha_skew_symmetry(alpha::Function, nu_1::Float64, nu_2::Float64, beta::Float64)
+    @assert norm(alpha(nu_1, nu_2) - alpha(-nu_2, -nu_1) * exp(-beta * (nu_1 + nu_2) / 2)) < 1e-14
+end
 
 function thermalize_gaussian(jumps::Vector{JumpOp}, hamiltonian::HamHam, with_coherent::Bool, evolved_dm::Matrix{ComplexF64},
     num_energy_bits::Int64, filter_gauss_w::Function, transition_gauss::Function,
@@ -40,20 +113,20 @@ function thermalize_gaussian(jumps::Vector{JumpOp}, hamiltonian::HamHam, with_co
     push!(energy_labels_rest, 0.0)
 
     # Setup coherent part
-    if with_coherent
+    # if with_coherent
         # Time labels for coherent
-        t0 = 2 * pi / (N * hamiltonian.w0)
-        time_labels = t0 * N_labels
+        # t0 = 2 * pi / (N * hamiltonian.w0)
+        # time_labels = t0 * N_labels
 
-        atol = 1e-12
-        b1 = compute_truncated_b1(time_labels, atol)
-        b2 = compute_truncated_b2(time_labels, atol)
-        @printf("t0: %e\n", t0)
-        @printf("Number of b1 terms: %d\n", length(keys(b1)))
-        @printf("Number of b2 terms: %d\n", length(keys(b2)))
-    else
-        @printf("Not adding coherent terms! \n")
-    end
+        # atol = 1e-12
+        # b1 = compute_truncated_b1(time_labels, atol)
+        # b2 = compute_truncated_b2(time_labels, atol)
+        # @printf("t0: %e\n", t0)
+        # @printf("Number of b1 terms: %d\n", length(keys(b1)))
+        # @printf("Number of b2 terms: %d\n", length(keys(b2)))
+    # else
+    #     @printf("Not adding coherent terms! \n")
+    # end
 
     distances_to_gibbs = [trace_distance_h(Hermitian(evolved_dm), gibbs)]
     time_steps = [0.0:delta:(num_liouv_steps * delta);]

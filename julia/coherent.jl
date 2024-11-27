@@ -36,23 +36,64 @@ end
 function coherent_gaussian_bohr(hamiltonian::HamHam, jump::JumpOp, beta::Float64)
 
     dim = size(hamiltonian.data, 1)
-    hamiltonian.bohr_freqs = hamiltonian.eigvals .- transpose(hamiltonian.eigvals)
+    # hamiltonian.bohr_freqs = hamiltonian.eigvals .- transpose(hamiltonian.eigvals)
     bohr_freqs_kj = - (hamiltonian.eigvals .+ transpose(hamiltonian.eigvals))
 
     tanh_prefactor_kj = tanh.(-beta * hamiltonian.bohr_freqs / 4)
-    alpha_prefactor_kj = exp.(-beta^2 * hamiltonian.bohr_freqs.^2 / 8)
+    part_alpha_prefactor_kj = exp.(-beta^2 * hamiltonian.bohr_freqs.^2 / 8)
 
-    B = tanh_prefactor_kj .* alpha_prefactor_kj / (2 * im * sqrt(8))
+    B = tanh_prefactor_kj .* part_alpha_prefactor_kj / (2 * im * sqrt(8))
     for j in 1:dim
         for k in 1:dim
-            bohr_freqs_kj_plus = bohr_freqs_kj[k, j] .+ 2 * hamiltonian.eigvals
+            bohr_freqs_plus_kj = bohr_freqs_kj[k, j] .+ 2 * hamiltonian.eigvals
             sum_temp_kj = 0.
             for i in 1:dim
-                sum_temp_kj += exp(-beta^2 * (bohr_freqs_kj_plus[i] + 2/beta)^2 / 16) * jump.in_eigenbasis'[k, i] * jump.in_eigenbasis[i, j]
+                sum_temp_kj += exp(-beta^2 * (bohr_freqs_plus_kj[i] + 2/beta)^2 / 16) * jump.in_eigenbasis'[k, i] * jump.in_eigenbasis[i, j]
             end
             B[k, j] *= sum_temp_kj
         end
     end
+    return B
+end
+
+# If you wanna speed this up you can drop all j=k terms, they are all zero.
+function coherent_gaussian_bohr_slow(hamiltonian::HamHam, jump::JumpOp, beta::Float64)
+
+    dim = size(hamiltonian.data, 1)
+    # Transition Gaussian, 2 filter Gaussians
+    alpha(nu_1, nu_2) = exp(-beta^2 * (nu_1 + nu_2 + 2/beta)^2 / 16) * exp(-beta^2 * (nu_1 - nu_2)^2 / 8) / sqrt(8)
+    tanh_factor(nu_1, nu_2) = tanh(-beta * (nu_1 - nu_2) / 4) / (2 * im)
+
+    B = zeros(ComplexF64, dim, dim)
+    for j in 1:dim
+        for k in 1:dim
+            for i in 1:dim
+                nu_1 = hamiltonian.bohr_freqs[i, j]
+                nu_2 = hamiltonian.bohr_freqs[i, k]
+                @printf("---For j, k, i: %d, %d, %d\n", j, k, i)
+                @printf("nu_1: %f, nu_2: %f\n", nu_1, nu_2)
+                check_alpha_skew_symmetry(alpha, nu_1, nu_2, beta)
+                
+                A_nu_1::SparseMatrixCSC{ComplexF64} = spzeros(dim, dim)
+                A_nu_2_dagger::SparseMatrixCSC{ComplexF64} = spzeros(dim, dim)
+                A_nu_1[i, j] = jump.in_eigenbasis[i, j]
+                A_nu_2_dagger[k, i] = adjoint(jump.in_eigenbasis[i, k])
+                @printf("A_nu_1\n")
+                display(A_nu_1)
+                @printf("A_nu_2_dagger\n")
+                display(A_nu_2_dagger)
+
+                temp_B = tanh_factor(nu_1, nu_2) * alpha(nu_1, nu_2) * A_nu_2_dagger * A_nu_1
+                @printf("///// B part\n")
+                display(temp_B)
+                println()
+                B .+= temp_B
+            end
+        end
+    end
+    @printf("Resulting total B\n")
+    display(B)
+
     return B
 end
 
@@ -259,9 +300,7 @@ function get_truncated_indices_b(b::Vector{ComplexF64}, atol::Float64 = 1e-14)
 end
 
 function check_B_gauss(coherent_term::Matrix{ComplexF64}, jump::JumpOp, hamiltonian::HamHam, beta::Float64)
-    b = SpinBasis(1//2)^num_qubits
-    trnorm = tracenorm_nh(Operator(b, coherent_term))
-
+    trnorm = trace_norm_nh(coherent_term)
     B_integrated = coherent_term_timedomain_integrated_gauss(jump, hamiltonian, beta)
     deviation = norm(B_integrated - coherent_term)
 
@@ -281,13 +320,13 @@ function check_B_metro(coherent_term::Matrix{ComplexF64}, jump::JumpOp, hamilton
 end
 
 #* Testing
-# num_qubits = 5
+# num_qubits = 6
 # beta = 10.
 # eig_index = 3
 # jump_site_index = 1
 
 # # #* Hamiltonian
-# hamiltonian = load("/Users/bence/code/liouvillian_metro/julia/data/hamiltonian_n5.jld")["ideal_ham"]
+# hamiltonian = load("/Users/bence/code/liouvillian_metro/julia/data/hamiltonian_n6.jld")["ideal_ham"]
 # # hamiltonian = find_ideal_heisenberg(num_qubits, fill(1.0, 3), batch_size=1)
 # initial_state = hamiltonian.eigvecs[:, eig_index]
 # hamiltonian.bohr_freqs = hamiltonian.eigvals .- transpose(hamiltonian.eigvals)
@@ -348,10 +387,12 @@ end
 # jump = all_jumps_generated[10]
 # @time B_explicit = coherent_term_from_timedomain(jump, hamiltonian, b1, b2, t0, beta)
 # @time B_bohr = coherent_gaussian_bohr(hamiltonian, jump, beta)
+# @time B_bohr_2 = coherent_gaussian_bohr_slow(hamiltonian, jump, beta)
 # @time B_integrated = coherent_term_timedomain_integrated_gauss(jump, hamiltonian, beta)
 # @time B_trotter = coherent_term_trotter(jump, hamiltonian, trotter, b1, b2, beta)
 # B_trotter_in_eigenbasis = hamiltonian.eigvecs' * trotter.eigvecs * B_trotter * trotter.eigvecs' * hamiltonian.eigvecs
 
+# @printf("HS dist of bohr and bohr 2: %s\n", norm(B_bohr - B_bohr_2))
 # @printf("HS distance of bohr and explicit: %s\n", norm(B_bohr - B_explicit))
 # @printf("HS distance of bohr and trotter: %s\n", norm(B_bohr - B_trotter_in_eigenbasis))
 # @printf("HS distance of trotter and explicit: %s\n", norm(B_trotter_in_eigenbasis - B_explicit))
