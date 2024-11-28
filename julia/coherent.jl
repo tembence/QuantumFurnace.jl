@@ -36,7 +36,6 @@ end
 function coherent_gaussian_bohr(hamiltonian::HamHam, jump::JumpOp, beta::Float64)
 
     dim = size(hamiltonian.data, 1)
-    # hamiltonian.bohr_freqs = hamiltonian.eigvals .- transpose(hamiltonian.eigvals)
     bohr_freqs_kj = - (hamiltonian.eigvals .+ transpose(hamiltonian.eigvals))
 
     tanh_prefactor_kj = tanh.(-beta * hamiltonian.bohr_freqs / 4)

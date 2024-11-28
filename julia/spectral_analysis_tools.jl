@@ -21,16 +21,16 @@ function construct_liouvillian_gauss_bohr(jumps::Vector{JumpOp}, hamiltonian::Ha
     alpha(nu_1, nu_2) = exp(-beta^2 * (nu_1 + nu_2 + 2/beta)^2 / 16) * exp(-beta^2 * (nu_1 - nu_2)^2 / 8) / sqrt(8)
 
     liouv = zeros(ComplexF64, dim^2, dim^2)
-    @showprogress dt=1 desc="Liouvillian..." for jump in jumps
+    @showprogress dt=1 desc="Liouvillian (Bohr)..." for jump in jumps
+
         # Coherent part
         if with_coherent
-            # coherent_term = coherent_term_from_timedomain(jump, hamiltonian, b1, b2, t0, beta)
             coherent_term = coherent_gaussian_bohr(hamiltonian, jump, beta)
-            # coherent_term = coherent_term_timedomain_integrated(jump, hamiltonian, beta)
             liouv .+= vectorize_liouvillian_coherent(coherent_term)
         end
 
         # Dissipative part
+        #TODO: if slow, rearrange for loops, put j low and sum up all A_nu_1s while keeping nu2 fix, and vec the sum.
         for j in 1:dim
             for k in 1:dim
                 for i in 1:dim
@@ -39,11 +39,9 @@ function construct_liouvillian_gauss_bohr(jumps::Vector{JumpOp}, hamiltonian::Ha
                     nu_1 = hamiltonian.bohr_freqs[i, j]
                     nu_2 = hamiltonian.bohr_freqs[i, k]
                     check_alpha_skew_symmetry(alpha, nu_1, nu_2, beta)
-                    A_nu_1[i, j] = jump.in_eigenbasis[i, j] * alpha(nu_1, nu_2)
+                    A_nu_1[i, j] = jump.in_eigenbasis[i, j] * alpha(nu_1, nu_2)  # Jump rates on one side
                     A_nu_2_dagger[k, i] = adjoint(jump.in_eigenbasis[i, k])
 
-                    #TODO: Vectorization is different here because A_nu1^\dagger != A_nu2^\dagger
-                    # Function is written up but not tested yet.
                     liouv .+= vectorize_liouvillian_diss(A_nu_1, A_nu_2_dagger)
                 end
             end
@@ -465,17 +463,15 @@ function vectorize_liouvillian_coherent(coherent_term::Matrix{ComplexF64})
     return vecotrized_coherent_term
 end
 
-#TODO: Debug this function
-#TODO: Can't we sum up somehow first and then vectorize at once?
 function vectorize_liouvillian_diss(jump_1::SparseMatrixCSC{ComplexF64}, jump_2_dag::SparseMatrixCSC{ComplexF64})
 
     dim = size(jump_1)[1]
     spI = sparse(I, dim, dim)
 
     jump_2_dag_jump_1 = jump_2_dag * jump_1
-    vectorized_liouv = kron(conj(jump_1), jump_2) - 0.5 * (kron(spI, jump_2_dag_jump_1) 
-                                                            + kron(transpose(jump_2_dag_jump_1), spI))
+    vectorized_liouv = kron(transpose(jump_2_dag), jump_1) - 0.5 * (kron(spI, jump_2_dag_jump_1) + kron(transpose(jump_2_dag_jump_1), spI))
     return vectorized_liouv
+end
 
 function vectorize_liouvillian_diss(jump_ops::Vector{Matrix{ComplexF64}})
 
@@ -485,8 +481,7 @@ function vectorize_liouvillian_diss(jump_ops::Vector{Matrix{ComplexF64}})
     vectorized_liouv = zeros(ComplexF64, dim^2, dim^2)
     for jump in jump_ops
         jump_dag_jump = jump' * jump
-        vectorized_liouv .+= kron(conj(jump), jump) - 0.5 * (kron(spI, jump_dag_jump) + 
-                                                                kron(transpose(jump_dag_jump), spI))
+        vectorized_liouv .+= kron(conj(jump), jump) - 0.5 * (kron(spI, jump_dag_jump) + kron(transpose(jump_dag_jump), spI))
     end
 
     return vectorized_liouv

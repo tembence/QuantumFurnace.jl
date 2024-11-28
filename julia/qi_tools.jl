@@ -6,25 +6,27 @@ using JLD
 
 include("hamiltonian_tools.jl")
 
-function trace_distance_h(rho::Hermitian{ComplexF64}, sigma::Hermitian{ComplexF64})
+function trace_distance_h(rho::Union{Hermitian{<:Real}, Hermitian{<:Complex}}, 
+    sigma::Union{Hermitian{<:Real}, Hermitian{<:Complex}})
     """Qutip apparently uses some sparse eigval solver, but let's go with the dense one for now."""
     return sum(abs.(eigvals(rho - sigma))) / 2
 end
 
-function trace_distance_nh(rho::Matrix{ComplexF64}, sigma::Matrix{ComplexF64})
+function trace_distance_nh(rho::Union{Matrix{<:Real}, Matrix{<:Complex}}, 
+    sigma::Union{Matrix{<:Real}, Matrix{<:Complex}})
     return sum(svdvals(rho - sigma)) / 2
 end
 
-function trace_norm_h(rho::Hermitian{ComplexF64, Matrix{ComplexF64}})
+function trace_norm_h(rho::Union{Hermitian{<:Real}, Hermitian{<:Complex}})
     return sum(abs.(eigvals(rho)))
 end
 
-function trace_norm_nh(rho::Matrix{ComplexF64})
+function trace_norm_nh(rho::Union{Matrix{<:Real}, Matrix{<:Complex}})
     return sum(svdvals(rho))
 end
 
-function fidelity(rho::Hermitian{ComplexF64, Matrix{ComplexF64}}, 
-    sigma::Hermitian{ComplexF64, Matrix{ComplexF64}}; validate::Bool = true)
+function fidelity(rho::Union{Hermitian{<:Real}, Hermitian{<:Complex}}, 
+    sigma::Union{Hermitian{<:Real}, Hermitian{<:Complex}}; validate::Bool = true)
 
     if validate && (!is_density_matrix(rho) || !is_density_matrix(sigma))
         throw(ArgumentError("Input matrices are not density matrices"))
@@ -39,7 +41,7 @@ function frobenius_norm(A::Matrix{ComplexF64})
     return sqrt(sum(abs.(eig_vals).^2))
 end
 
-function is_density_matrix(rho::Matrix{ComplexF64})
+function is_density_matrix(rho::Union{Hermitian{<:Real}, Hermitian{<:Complex}})
     if !isapprox(rho, rho')
         throw(ArgumentError("Input matrix is not Hermitian"))
     end
@@ -104,6 +106,21 @@ function random_density_matrix(num_qubits::Int)
     ρ /= tr(ρ)
     
     return Hermitian(ρ)
+end
+
+function are_we_tp(liouv::Matrix{ComplexF64})
+    initial_dm_OG = zeros(ComplexF64, size(hamiltonian.data))
+    initial_dm_OG[2, 2] = 1.0
+    initial_dm_OG[1, 2] = 1.0
+    initial_dm_OG /= tr(initial_dm_OG)
+    initial_vec = vec(initial_dm_OG)
+
+    liouv_time_evolution(t) = exp(t * liouv)
+    t = 1.0
+    time_evolved_vec = liouv_time_evolution(t) * initial_vec
+    id = I(2^num_qubits)
+    vec_id = vec(id)
+    @printf("Are we TP?: %s\n", vec_id' * time_evolved_vec)
 end
 
 # num_qubits = 4

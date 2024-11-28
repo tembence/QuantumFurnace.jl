@@ -33,16 +33,24 @@ ham_in_eigenbasis = hamiltonian.eigvecs' * hamiltonian.data * hamiltonian.eigvec
 num_energy_bits = ceil(Int64, log2((0.45 * 4 + 2/beta) / hamiltonian.w0)) + 3
 
 # initial_dm = ones(ComplexF64, size(hamiltonian.data)) # In eigenbasis
-initial_dm_OG = zeros(ComplexF64, size(hamiltonian.data))
-initial_dm_OG[2, 2] = 1.0
-initial_dm_OG[1, 2] = 1.0
-initial_dm_OG /= tr(initial_dm_OG)
+# initial_dm_OG = zeros(ComplexF64, size(hamiltonian.data))
+# initial_dm_OG[2, 2] = 1.0
+# initial_dm_OG[1, 2] = 1.0
+# initial_dm_OG[2, 1] = 1.0
 
+initial_dm_OG = diagm([0.25, 0.75])
+
+# initial_dm_OG = initial_dm_OG * initial_dm_OG'
+# initial_dm_OG /= tr(initial_dm_OG)
+@assert initial_dm_OG == adjoint(initial_dm_OG) "Initial DM is not Hermitian"
+# eigvals(initial_dm_OG)
+# tr(initial_dm_OG)
 @printf("Initial DM:\n")
 display(initial_dm_OG)
 
 #* Gibbs
 gibbs = gibbs_state_in_eigen(hamiltonian, beta)
+gibbs_vec = vec(gibbs)
 gibbs_largest_eigval = real(eigen(gibbs).values[1])
 
 #* Fourier labels, Gaussians
@@ -65,13 +73,29 @@ X::Matrix{ComplexF64} = [0 1; 1 0]
 Y::Matrix{ComplexF64} = [0.0 -im; im 0.0]
 Z::Matrix{ComplexF64} = [1 0; 0 -1]
 H::Matrix{ComplexF64} = [1 1; 1 -1] / sqrt(2)
-jump_paulis = [[X], [Y], [Z], [H]]
-jump_paulis = [[H]]
+T::Matrix{ComplexF64} = [1 0; 0 exp(im * pi / 4)]
+Tdag::Matrix{ComplexF64} = [1 0; 0 exp(-im * pi / 4)]
+SM::Matrix{ComplexF64} = [0 1; 0 0]
+SP::Matrix{ComplexF64} = [0 0; 1 0]
+XplusY = X + Y
+XplusT = X + T
+XplusTdag = X + Tdag
+
+# Have all adjoints in there too:
+jump_set = [[X], [Y], [Z], [H], [T], [Tdag], [SM], [SP], [XplusY]]  #, [XplusT], [XplusTdag]]
+
+# Normalize jumps
+# jump_sum = zeros(2^num_qubits, 2^num_qubits)
+# for j in jump_set
+#     jump_sum .+= j[1] * j[1]'
+# end
+# jump_normalization = maximum(svdvals(jump_sum))
+jump_normalization = 1.
 
 all_jumps_generated::Vector{JumpOp} = []
-for pauli in jump_paulis
+for jump_type in jump_set
     for site in 1:num_qubits
-    jump_op = Matrix(pad_term(pauli, num_qubits, site))
+    jump_op = Matrix(pad_term(jump_type, num_qubits, site)) / jump_normalization
     jump_op_in_eigenbasis = hamiltonian.eigvecs' * jump_op * hamiltonian.eigvecs
     jump_in_trotter_basis = zeros(0, 0)
     orthogonal = (jump_op == adjoint(jump_op))
@@ -92,28 +116,29 @@ end
 @printf("Mixing time: %s\n", mixing_time)
 @printf("Delta: %s\n", delta)
 
-for jump in all_jumps_generated[1:1]
-    @printf("--- Jump in eigenbasis:\n")
-    display(jump.in_eigenbasis)
-    @printf("Jump effect on initial DM\n")
-    display(jump.in_eigenbasis * initial_dm_OG)
-    @printf("Energy before jump: %s\n", tr(ham_in_eigenbasis * initial_dm_OG))
-    @printf("Energy after jump: %s\n", tr(ham_in_eigenbasis * jump.in_eigenbasis * initial_dm_OG * jump.in_eigenbasis'))
+#* Thermalize
+# for jump in all_jumps_generated[1:1]
+#     @printf("--- Jump in eigenbasis:\n")
+#     display(jump.in_eigenbasis)
+#     @printf("Jump effect on initial DM\n")
+#     display(jump.in_eigenbasis * initial_dm_OG)
+#     @printf("Energy before jump: %s\n", tr(ham_in_eigenbasis * initial_dm_OG))
+#     @printf("Energy after jump: %s\n", tr(ham_in_eigenbasis * jump.in_eigenbasis * initial_dm_OG * jump.in_eigenbasis'))
 
     # initial_dm = copy(initial_dm_OG)  # Deepcopy in julia
     # @time results = thermalize_gaussian([jump], hamiltonian, with_coherent, initial_dm, num_energy_bits,
     #     filter_gauss_w, transition, delta, mixing_time, beta)
 
     # Reinitalize
-    initial_dm = copy(initial_dm_OG)
-    coherent_term = coherent_gaussian_bohr(hamiltonian, jump, beta)
-    initial_dm .+= - im * delta * (coherent_term * initial_dm - initial_dm * coherent_term)
-    @printf("DM after coherent part:\n")
-    display(initial_dm)
+    # initial_dm = copy(initial_dm_OG)
+    # coherent_term = coherent_gaussian_bohr(hamiltonian, jump, beta)
+    # initial_dm .+= - im * delta * (coherent_term * initial_dm - initial_dm * coherent_term)
+    # @printf("DM after coherent part:\n")
+    # display(initial_dm)
     # @time evolved_dm = evolve_bohr_explicit!(jump, hamiltonian, with_coherent, initial_dm, delta, beta)
     
     # println(trace_distance_nh(evolved_dm, results.evolved_dm), "\n")
-end
+# end
 
 # liouv_matrix = construct_liouvillian_gauss(all_jumps_generated, hamiltonian, with_coherent, num_energy_bits, 
 #     filter_gauss_w, transition, beta)
@@ -126,4 +151,58 @@ end
 
 # trdist_fix_gibbs = trace_distance_nh(liouv.steady_state, gibbs)
 # @printf("Trace distance Gibbs - steady state: %s\n", trdist_fix_gibbs)
+
+#* Construct Liouvillian
+liouvillian = construct_liouvillian_gauss_bohr(all_jumps_generated, hamiltonian, with_coherent, beta)
+liouv_eigvals, liouv_eigvecs = eigen(liouvillian) 
+steady_state_vec = liouv_eigvecs[:, end]
+steady_state_dm = reshape(steady_state_vec, size(initial_dm_OG))
+steady_state_dm /= tr(steady_state_dm)
+steady_state_vec = vec(steady_state_dm)
+
+#* Steady state, Gibbs?
+norm(gibbs_vec - steady_state_vec)
+trace_distance_h(Hermitian(gibbs), Hermitian(steady_state_dm))
+
+#* Liouvillian checks
+# liouv_time_evolution(t) = exp(t * liouvillian)
+# t = 1.0
+# initial_vec = vec(initial_dm_OG)
+# time_evolved_vec = liouv_time_evolution(t) * initial_vec
+
+# Trace preserving
+# id = I(2^num_qubits)
+# vec_id = vec(id)
+# tr_of_evolved_dm = vec_id' * time_evolved_vec
+
+# Hermiticity preserving
+# time_evolved_dm = reshape(time_evolved_vec, size(initial_dm_OG))
+# norm(time_evolved_dm' - time_evolved_dm)
+
+# Positivity and time evolution
+# for i in 1:1000
+#     t = rand()
+#     time_evolved_vec = liouv_time_evolution(t) * initial_vec
+#     time_evolved_vec_with_derivative = initial_vec + t * liouv_time_evolution(t) * initial_vec
+#     hs_dist = norm(time_evolved_vec - time_evolved_vec_with_derivative)
+#     if hs_dist < 1e-10
+#         @printf("HS dist is %s\n", hs_dist)
+#     end
+
+#     time_evolved_dm = reshape(time_evolved_vec, size(initial_dm_OG))
+#     eigvals_dm = eigvals(time_evolved_dm)
+#     if any(real.(eigvals_dm) .<= 0)
+#         display(eigvals_dm)
+#     end
+# end
+
+# Steady state check
+# is_zero = norm(liouvillian * steady_state_vec)
+
+# Convergence to steady state
+# fidelity(Hermitian(initial_dm_OG), Hermitian(steady_state_dm)) # There is overlap
+# t = 1000.
+# long_time_evolved_vec = liouv_time_evolution(t) * initial_vec
+# norm(long_time_evolved_vec - steady_state_vec)
+
 
