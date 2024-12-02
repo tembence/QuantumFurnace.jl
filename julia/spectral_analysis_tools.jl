@@ -15,6 +15,112 @@ include("thermalizing_tools.jl")
 include("coherent.jl")
 include("structs.jl")
 
+
+function transition_bohr_gibbsed(jumps::Vector{JumpOp}, hamiltonian::HamHam, beta::Float64)
+    """adjoint=true, means it prepares the adjoint transition part wrt to the HS inner product."""
+
+    dim = size(hamiltonian.data, 1)
+
+    alpha(nu_1, nu_2) = exp(-beta^2 * (nu_1 + nu_2 + 2/beta)^2 / 16) * exp(-beta^2 * (nu_1 - nu_2)^2 / 8) / sqrt(8)
+
+    gibbs = gibbs_state_in_eigen(hamiltonian, beta)
+    
+    T = zeros(ComplexF64, dim^2, dim^2)  # Vectorized transition part of the Liouvillian
+    all_the_nu1s = []
+    all_the_nu2s = []
+    for jump in jumps
+        for j in 1:dim
+            for k in 1:dim
+                for i in 1:dim
+                    A_nu_1::SparseMatrixCSC{ComplexF64} = spzeros(dim, dim)
+                    A_nu_2::SparseMatrixCSC{ComplexF64} = spzeros(dim, dim)
+                    nu_1 = hamiltonian.bohr_freqs[i, j]
+                    nu_2 = hamiltonian.bohr_freqs[i, k]
+                    check_alpha_skew_symmetry(alpha, nu_1, nu_2, beta)
+
+                    A_nu_1[i, j] = jump.in_eigenbasis[i, j]        # A_nu_1
+                    A_nu_2[k, i] = conj(jump.in_eigenbasis[i, k])  # A_nu_2^\dagger
+                    
+                    # Testing Gibbsing 
+                    @printf("Is Gibbsing A_nu1 what we expect?: %s\n", norm(A_nu_1*exp(beta * nu_1 / 2) - gibbs^(-0.5) * A_nu_1 * gibbs^(0.5))< 1e-15)
+                    @printf("Is Gibbsing A_nu2 what we expect?: %s\n", norm(A_nu_2*exp(beta * nu_2 / 2) - gibbs^(0.5) * A_nu_2 * gibbs^(-0.5))< 1e-15)
+                    # Testin skew symmetry
+                    @printf("Is alpha skew symmetric?: %s\n", norm(alpha(nu_1, nu_2) * exp(beta*(nu_1 + nu_2)/2) - alpha(-nu_2, -nu_1)) < 1e-15)
+                    # Testing A dagger symmetry
+                    A_nu_1_dag::SparseMatrixCSC{ComplexF64} = spzeros(dim, dim)
+                    A_nu_1_dag[j, i] = conj(jump.in_eigenbasis[i, j])
+                    A_dag_minus_nu_1::SparseMatrixCSC{ComplexF64} = spzeros(dim, dim)
+                    A_dag_minus_nu_1[j, i] = adjoint(jump.in_eigenbasis)[j, i]
+                    @printf("Is A_nu_1 dagger what we expect?: %s\n", norm(A_nu_1_dag - A_dag_minus_nu_1) < 1e-15)
+                    # all jumps had hermitian adjoint pairs.
+                    # Checkking all the nus present
+                    push!(all_the_nu1s, nu_1)
+                    push!(all_the_nu2s, nu_2)
+                    # alpha^* symmetry
+                    @printf("Is alpha^* what we expect?: %s\n", norm(conj(alpha(nu_1, nu_2)) - alpha(nu_2, nu_1)) < 1e-15)
+
+                    #! Gibbsing it
+                    A_nu_1 = gibbs^(-0.5) * A_nu_1 * gibbs^(0.5)
+                    A_nu_2 = gibbs^(0.5) * A_nu_2 * gibbs^(-0.5)
+
+                    # Vectorized
+                    # T .+= alpha(nu_1, nu_2) * kron(transpose(A_nu_2), A_nu_1)
+                    #! Vectorized Watrous
+                    T .+= alpha(nu_1, nu_2) * kron(A_nu_1, transpose(A_nu_2))
+                end
+            end
+        end
+    end
+    # Did each nu have a negative pair in the set?
+    return T
+end
+
+
+function transition_bohr(jumps::Vector{JumpOp}, hamiltonian::HamHam, beta::Float64; adjoint::Bool=false)
+    """adjoint=true, means it prepares the adjoint transition part wrt to the HS inner product."""
+
+    dim = size(hamiltonian.data, 1)
+
+    alpha(nu_1, nu_2) = exp(-beta^2 * (nu_1 + nu_2 + 2/beta)^2 / 16) * exp(-beta^2 * (nu_1 - nu_2)^2 / 8) / sqrt(8)
+    # alpha^* = alpha
+    
+    T = zeros(ComplexF64, dim^2, dim^2)  # Vectorized transition part of the Liouvillian
+    for jump in jumps
+        for j in 1:dim
+            for k in 1:dim
+                for i in 1:dim
+                    A_nu_1::SparseMatrixCSC{ComplexF64} = spzeros(dim, dim)
+                    A_nu_2::SparseMatrixCSC{ComplexF64} = spzeros(dim, dim)
+                    nu_1 = hamiltonian.bohr_freqs[i, j]
+                    nu_2 = hamiltonian.bohr_freqs[i, k]
+                    check_alpha_skew_symmetry(alpha, nu_1, nu_2, beta)
+
+                    if adjoint  # alpha^* A_nu_1^\dagger (.) A_nu_2
+                        A_nu_1[j, i] = conj(jump.in_eigenbasis[i, j])  # A_nu_1^\dagger
+                        A_nu_2[i, k] = jump.in_eigenbasis[i, k]        # A_nu_2
+                        
+                        # Their adjoint
+                        # A_nu_1[i, j] = jump.in_eigenbasis[i, j]         # A_nu_1
+                        # A_nu_2[k, i] = conj(jump.in_eigenbasis[i, k])   # A_nu_2^\dagger
+                    else  # alpha A_nu_1 (.) A_nu_2^\dagger
+                        A_nu_1[i, j] = jump.in_eigenbasis[i, j]         # A_nu_1
+                        A_nu_2[k, i] = conj(jump.in_eigenbasis[i, k])   # A_nu_2^\dagger
+                    end
+
+                    # Vectorized
+                    # T .+= alpha(nu_1, nu_2) * kron(transpose(A_nu_2), A_nu_1) 
+                    # T .+= alpha(nu_1, nu_2) * kron(transpose(A_nu_1), A_nu_2)  # Theirs
+
+                    #! Vectorized Watrous
+                    T .+= alpha(nu_1, nu_2) * kron(A_nu_1, transpose(A_nu_2))
+                    # T .+= alpha(nu_1, nu_2) * kron(A_nu_2, transpose(A_nu_1))  # Theirs
+                end
+            end
+        end
+    end
+    return T
+end
+
 function construct_liouvillian_gauss_bohr(jumps::Vector{JumpOp}, hamiltonian::HamHam, with_coherent::Bool, beta::Float64)
 
     dim = size(hamiltonian.data, 1)
@@ -459,30 +565,41 @@ function vectorize_liouvillian_coherent(coherent_term::Matrix{ComplexF64})
     spI = sparse(I, dim, dim)
 
     # -i ((I ⊗ B) - (B^T ⊗ I))
-    vecotrized_coherent_term = -1im * (kron(spI, coherent_term) - kron(transpose(coherent_term), spI))
-    return vecotrized_coherent_term
+    # vecotrized_coherent_term = -1im * (kron(spI, coherent_term) - kron(transpose(coherent_term), spI))
+
+    # Watrous
+    vecotrized_coherent_part = -1im *(kron(coherent_term, spI) - kron(spI, transpose(coherent_term)))
+    return vecotrized_coherent_part
 end
 
-function vectorize_liouvillian_diss(jump_1::SparseMatrixCSC{ComplexF64}, jump_2_dag::SparseMatrixCSC{ComplexF64})
+function vectorize_liouvillian_diss(jump_1::SparseMatrixCSC{ComplexF64}, jump_2::SparseMatrixCSC{ComplexF64})
+    """L = J1 * X * J2 - 0.5 * (J2 * J1 * X + X * J2 * J1)"""
+
 
     dim = size(jump_1)[1]
     spI = sparse(I, dim, dim)
 
-    jump_2_dag_jump_1 = jump_2_dag * jump_1
-    vectorized_liouv = kron(transpose(jump_2_dag), jump_1) - 0.5 * (kron(spI, jump_2_dag_jump_1) + kron(transpose(jump_2_dag_jump_1), spI))
-    return vectorized_liouv
+    jump_2_jump_1 = jump_2 * jump_1
+    # vectorized_diss_part = kron(transpose(jump_2), jump_1) - 0.5 * (kron(spI, jump_2_jump_1) + kron(transpose(jump_2_jump_1), spI))
+    
+    # Watrous
+    vectorized_diss_part = kron(jump_1, transpose(jump_2)) - 0.5 * (kron(jump_2_jump_1, spI) + kron(spI, transpose(jump_2_jump_1))) 
+    
+    return vectorized_diss_part
 end
 
-function vectorize_liouvillian_diss(jump_ops::Vector{Matrix{ComplexF64}})
+#! Rewrote it from jumps to jump, no for loop inside here
+function vectorize_liouvillian_diss(jump_op::Matrix{ComplexF64})
 
     dim = size(jump_ops[1])[1]
     spI = sparse(I, dim, dim)
 
     vectorized_liouv = zeros(ComplexF64, dim^2, dim^2)
-    for jump in jump_ops
-        jump_dag_jump = jump' * jump
-        vectorized_liouv .+= kron(conj(jump), jump) - 0.5 * (kron(spI, jump_dag_jump) + kron(transpose(jump_dag_jump), spI))
-    end
+    jump_dag_jump = jump' * jump
+
+    # Jump^\dag^T = Jump^*
+    # Watrous
+    vectorized_liouv .+= kron(jump, conj(jump)) - 0.5 * (kron(jump_dag_jump, spI) + kron(spI, transpose(jump_dag_jump))) 
 
     return vectorized_liouv
 end

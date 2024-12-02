@@ -82,7 +82,13 @@ XplusT = X + T
 XplusTdag = X + Tdag
 
 # Have all adjoints in there too:
-jump_set = [[X], [Y], [Z], [H], [T], [Tdag], [SM], [SP], [XplusY]]  #, [XplusT], [XplusTdag]]
+jump_set = [[X], [Y], [Z], [H], [T], [Tdag], [SM], [SP]]
+# Do we have all adjoints in the set too?
+for jump in jump_set
+    if !(in(adjoint(jump[1]), vcat(jump_set...)))
+        @printf("Adjoint is not in the jump set\n")
+    end
+end
 
 # Normalize jumps
 # jump_sum = zeros(2^num_qubits, 2^num_qubits)
@@ -115,6 +121,52 @@ end
 @printf("Energy unit: %e\n", hamiltonian.w0)
 @printf("Mixing time: %s\n", mixing_time)
 @printf("Delta: %s\n", delta)
+
+#* Testing DB of Lindbladian parts
+#* Is A_nu an eigenvector of \sigma (.) \sigma^{-1}
+# hamiltonian.bohr_freqs
+# jump_from_the_set = 1
+# (i, j) = (1, 2)
+# nu = hamiltonian.bohr_freqs[i, j]
+# jump_nu = zeros(ComplexF64, 2^num_qubits, 2^num_qubits)
+# jump_nu[i, j] = all_jumps_generated[jump_from_the_set].in_eigenbasis[i, j]
+# energy = tr(ham_in_eigenbasis * initial_dm_OG)
+# jumped_DM = jump_nu * initial_dm_OG * jump_nu'
+# jumped_DM /= tr(jumped_DM)
+# jumped_energy = tr(ham_in_eigenbasis * jumped_DM)
+
+# # Checked!
+# for jump_from_the_set in eachindex(all_jumps_generated)
+#     for i in 1:2
+#         for j in 1:2
+#             jump_nu = zeros(ComplexF64, 2, 2)
+#             nu = hamiltonian.bohr_freqs[i, j]
+#             jump_nu[i, j] = all_jumps_generated[jump_from_the_set].in_eigenbasis[i, j]
+#             # @printf("Is it in eigenvector of Delta? \n")
+#             # display(gibbs * jump_nu * gibbs^(-1) == exp(-beta * nu) * jump_nu)
+#             if norm(gibbs * jump_nu * gibbs^(-1) - exp(-beta * nu) * jump_nu) > 1e-15
+#                 @printf("Nope\n")
+#                 @printf("Jump from the set: %d\n", jump_from_the_set)
+#                 @printf("i: %d, j: %d\n", i, j)
+#             end
+#         end
+#     end
+# end
+
+#* Does T have DB?
+gibbsed(op) = gibbs^(-0.5) * op * gibbs^(0.5)
+jump = all_jumps_generated[1]
+gibbsed_jump = gibbsed(jump.data)
+gibbsed_jump_in_eigenbasis = hamiltonian.eigvecs' * gibbsed_jump * hamiltonian.eigvecs
+eigenbasis_jump_gibbsed = gibbsed(jump.in_eigenbasis)
+
+T = transition_bohr(all_jumps_generated, hamiltonian, beta; adjoint=false)
+T_adjoint = transition_bohr(all_jumps_generated, hamiltonian, beta; adjoint=true)
+T_adjoint * gibbs_vec
+
+T_gibbsed = transition_bohr_gibbsed(all_jumps_generated, hamiltonian, beta)
+T_gibbsed * gibbs_vec
+#! No DB for now.
 
 #* Thermalize
 # for jump in all_jumps_generated[1:1]
@@ -153,19 +205,19 @@ end
 # @printf("Trace distance Gibbs - steady state: %s\n", trdist_fix_gibbs)
 
 #* Construct Liouvillian
-liouvillian = construct_liouvillian_gauss_bohr(all_jumps_generated, hamiltonian, with_coherent, beta)
-liouv_eigvals, liouv_eigvecs = eigen(liouvillian) 
-steady_state_vec = liouv_eigvecs[:, end]
-steady_state_dm = reshape(steady_state_vec, size(initial_dm_OG))
-steady_state_dm /= tr(steady_state_dm)
-steady_state_vec = vec(steady_state_dm)
+# liouvillian = construct_liouvillian_gauss_bohr(all_jumps_generated, hamiltonian, with_coherent, beta)
+# liouv_eigvals, liouv_eigvecs = eigen(liouvillian) 
+# steady_state_vec = liouv_eigvecs[:, end]
+# steady_state_dm = reshape(steady_state_vec, size(initial_dm_OG))
+# steady_state_dm /= tr(steady_state_dm)
+# steady_state_vec = vec(steady_state_dm)
 
 #* Steady state, Gibbs?
-norm(gibbs_vec - steady_state_vec)
-trace_distance_h(Hermitian(gibbs), Hermitian(steady_state_dm))
+# norm(gibbs_vec - steady_state_vec)
+# trace_distance_h(Hermitian(gibbs), Hermitian(steady_state_dm))
 
 #* Liouvillian checks
-# liouv_time_evolution(t) = exp(t * liouvillian)
+liouv_time_evolution(t) = exp(t * liouvillian)
 # t = 1.0
 # initial_vec = vec(initial_dm_OG)
 # time_evolved_vec = liouv_time_evolution(t) * initial_vec

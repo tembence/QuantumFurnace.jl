@@ -31,6 +31,7 @@ function thermalize_bohr(jumps::Vector{JumpOp}, hamiltonian::HamHam, with_cohere
 
 end
 
+#TODO: Figure out how to best structure the code
 function dissipative_bohr(jump::JumpOp, hamiltonian::HamHam, evolved_dm::Matrix{ComplexF64}, delta::Float64, beta::Float64)
 
     dim = size(hamiltonian.data, 1)
