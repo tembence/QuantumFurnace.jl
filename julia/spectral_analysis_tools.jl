@@ -15,8 +15,145 @@ include("thermalizing_tools.jl")
 include("coherent.jl")
 include("structs.jl")
 
+function transition_bohr_gibbsed(jumps::Vector{JumpOp}, hamiltonian::HamHam, dm::Matrix{ComplexF64}, 
+    beta::Float64)
+    """This is the generator with an input density matrix, but not the evolution."""
 
-function transition_bohr_gibbsed(jumps::Vector{JumpOp}, hamiltonian::HamHam, beta::Float64)
+    dim = size(hamiltonian.data, 1)
+    alpha(nu_1, nu_2) = exp(-beta^2 * (nu_1 + nu_2 + 2/beta)^2 / 16) * exp(-beta^2 * (nu_1 - nu_2)^2 / 8) / sqrt(8)
+    # alpha^* = alpha
+    
+    T_on_dm = zeros(ComplexF64, dim, dim)  # Vectorized transition part of the Liouvillian
+    for jump in jumps
+        jump_diag = diag(jump.in_eigenbasis)
+        for j in 1:dim
+            for k in 1:dim
+                for i in 1:dim
+                    A_nu_1::SparseMatrixCSC{ComplexF64} = spzeros(dim, dim)
+                    A_nu_2::SparseMatrixCSC{ComplexF64} = spzeros(dim, dim)
+                    nu_1 = hamiltonian.bohr_freqs[i, j]
+                    nu_2 = hamiltonian.bohr_freqs[i, k]
+                    @printf("---For j, k, i: %d, %d, %d\n", j, k, i)
+                    @printf("nu_1: %f, nu_2: %f\n", nu_1, nu_2)
+                    check_alpha_skew_symmetry(alpha, nu_1, nu_2, beta)
+
+                    # alpha A_nu_1 (.) A_nu_2^\dagger
+                    if nu_1 != 0.0
+                        A_nu_1[i, j] = jump.in_eigenbasis[i, j]         # A_nu_1
+                    else
+                        A_nu_1 .= spdiagm(0 => jump_diag)
+                    end
+                    if nu_2 != 0.0
+                        A_nu_2[k, i] = conj(jump.in_eigenbasis[i, k])   # A_nu_2^\dagger
+                    else  #! Want a check where the conj matters to see how fucking correct this is:
+                        A_nu_2 .= conj.(spdiagm(0 => jump_diag))
+                    end
+
+                    @printf("A_nu_1\n")
+                    display(A_nu_1)
+                    @printf("A_nu_2_dagger\n")
+                    display(A_nu_2)
+
+                    #! Gibbsing it
+                    A_nu_1 = gibbs^(-0.5) * A_nu_1 * gibbs^(0.5)
+                    A_nu_2 = gibbs^(0.5) * A_nu_2 * gibbs^(-0.5)
+                    @printf("GIBBSED\n")
+                    @printf("A_nu_1\n")
+                    display(A_nu_1)
+                    @printf("A_nu_2_dagger\n")
+                    display(A_nu_2)
+
+                    T_on_dm_temp = alpha(nu_1, nu_2) * A_nu_1 * dm * A_nu_2
+                    @printf("T_on_dm_temp\n")
+                    display(T_on_dm_temp)
+                    T_on_dm .+= T_on_dm_temp
+                end
+            end
+        end
+    end
+    return T_on_dm
+end
+
+function transition_bohr(jumps::Vector{JumpOp}, hamiltonian::HamHam, dm::Matrix{ComplexF64}, 
+    beta::Float64; adjoint::Bool=false)
+    """This is the generator with an input density matrix, but not the evolution."""
+
+    if adjoint
+        @printf("Adjoint transition part\n")
+    else
+        @printf("Transition part\n")
+    end
+
+    dim = size(hamiltonian.data, 1)
+    alpha(nu_1, nu_2) = exp(-beta^2 * (nu_1 + nu_2 + 2/beta)^2 / 16) * exp(-beta^2 * (nu_1 - nu_2)^2 / 8) / sqrt(8)
+    # alpha^* = alpha
+    
+    T_on_dm = zeros(ComplexF64, dim, dim)  # Vectorized transition part of the Liouvillian
+    for jump in jumps
+        jump_diag = diag(jump.in_eigenbasis)
+        for j in 1:dim
+            for k in 1:dim
+                for i in 1:dim
+                    A_nu_1::SparseMatrixCSC{ComplexF64} = spzeros(dim, dim)
+                    A_nu_2::SparseMatrixCSC{ComplexF64} = spzeros(dim, dim)
+                    nu_1 = hamiltonian.bohr_freqs[i, j]
+                    nu_2 = hamiltonian.bohr_freqs[i, k]
+                    @printf("---For j, k, i: %d, %d, %d\n", j, k, i)
+                    @printf("nu_1: %f, nu_2: %f\n", nu_1, nu_2)
+                    check_alpha_skew_symmetry(alpha, nu_1, nu_2, beta)
+
+                    if adjoint  # alpha^* A_nu_1^\dagger (.) A_nu_2
+                        if nu_1 != 0.0
+                            A_nu_1[j, i] = conj(jump.in_eigenbasis[i, j])  # A_nu_1^\dagger
+                        else
+                            A_nu_1 .= conj.(spdiagm(0 => jump_diag))
+                        end
+
+                        if nu_2 != 0.0
+                            A_nu_2[i, k] = jump.in_eigenbasis[i, k]        # A_nu_2
+                        else
+                            A_nu_2 .= spdiagm(0 => jump_diag)
+                        end
+                        
+                        # Their adjoint
+                        # A_nu_1[i, j] = jump.in_eigenbasis[i, j]         # A_nu_1
+                        # A_nu_2[k, i] = conj(jump.in_eigenbasis[i, k])   # A_nu_2^\dagger
+
+                        @printf("A_nu_1_dagger\n")
+                        display(A_nu_1)
+                        @printf("A_nu_2\n")
+                        display(A_nu_2)
+                    else  # alpha A_nu_1 (.) A_nu_2^\dagger
+                        if nu_1 != 0.0
+                            A_nu_1[i, j] = jump.in_eigenbasis[i, j]         # A_nu_1
+                        else
+                            A_nu_1 .= spdiagm(0 => jump_diag)
+                        end
+
+                        if nu_2 != 0.0
+                            A_nu_2[k, i] = conj(jump.in_eigenbasis[i, k])   # A_nu_2^\dagger
+                        else
+                            A_nu_2 .= conj.(spdiagm(0 => jump_diag))
+                        end
+
+                        @printf("A_nu_1\n")
+                        display(A_nu_1)
+                        @printf("A_nu_2_dagger\n")
+                        display(A_nu_2)
+                    end
+                    T_on_dm_temp = alpha(nu_1, nu_2) * A_nu_1 * dm * A_nu_2
+                    @printf("T_on_dm_temp\n")
+                    display(T_on_dm_temp)
+                    T_on_dm .+= T_on_dm_temp
+                end
+            end
+        end
+    end
+    return T_on_dm
+end
+
+
+function transition_bohr_gibbsed_vec(jumps::Vector{JumpOp}, hamiltonian::HamHam, beta::Float64)
     """adjoint=true, means it prepares the adjoint transition part wrt to the HS inner product."""
 
     dim = size(hamiltonian.data, 1)
@@ -29,6 +166,7 @@ function transition_bohr_gibbsed(jumps::Vector{JumpOp}, hamiltonian::HamHam, bet
     all_the_nu1s = []
     all_the_nu2s = []
     for jump in jumps
+        jump_diag = diag(jump.in_eigenbasis)
         for j in 1:dim
             for k in 1:dim
                 for i in 1:dim
@@ -38,26 +176,35 @@ function transition_bohr_gibbsed(jumps::Vector{JumpOp}, hamiltonian::HamHam, bet
                     nu_2 = hamiltonian.bohr_freqs[i, k]
                     check_alpha_skew_symmetry(alpha, nu_1, nu_2, beta)
 
-                    A_nu_1[i, j] = jump.in_eigenbasis[i, j]        # A_nu_1
-                    A_nu_2[k, i] = conj(jump.in_eigenbasis[i, k])  # A_nu_2^\dagger
+                    if nu_1 != 0.0
+                        A_nu_1[i, j] = jump.in_eigenbasis[i, j]         # A_nu_1
+                    else
+                        A_nu_1 .= spdiagm(0 => jump_diag)
+                    end
+
+                    if nu_2 != 0.0
+                        A_nu_2[k, i] = conj(jump.in_eigenbasis[i, k])   # A_nu_2^\dagger
+                    else
+                        A_nu_2 .= conj.(spdiagm(0 => jump_diag))
+                    end
                     
                     # Testing Gibbsing 
-                    @printf("Is Gibbsing A_nu1 what we expect?: %s\n", norm(A_nu_1*exp(beta * nu_1 / 2) - gibbs^(-0.5) * A_nu_1 * gibbs^(0.5))< 1e-15)
-                    @printf("Is Gibbsing A_nu2 what we expect?: %s\n", norm(A_nu_2*exp(beta * nu_2 / 2) - gibbs^(0.5) * A_nu_2 * gibbs^(-0.5))< 1e-15)
+                    # @printf("Is Gibbsing A_nu1 what we expect?: %s\n", norm(A_nu_1*exp(beta * nu_1 / 2) - gibbs^(-0.5) * A_nu_1 * gibbs^(0.5))< 1e-15)
+                    # @printf("Is Gibbsing A_nu2 what we expect?: %s\n", norm(A_nu_2*exp(beta * nu_2 / 2) - gibbs^(0.5) * A_nu_2 * gibbs^(-0.5))< 1e-15)
                     # Testin skew symmetry
-                    @printf("Is alpha skew symmetric?: %s\n", norm(alpha(nu_1, nu_2) * exp(beta*(nu_1 + nu_2)/2) - alpha(-nu_2, -nu_1)) < 1e-15)
+                    # @printf("Is alpha skew symmetric?: %s\n", norm(alpha(nu_1, nu_2) * exp(beta*(nu_1 + nu_2)/2) - alpha(-nu_2, -nu_1)) < 1e-15)
                     # Testing A dagger symmetry
-                    A_nu_1_dag::SparseMatrixCSC{ComplexF64} = spzeros(dim, dim)
-                    A_nu_1_dag[j, i] = conj(jump.in_eigenbasis[i, j])
-                    A_dag_minus_nu_1::SparseMatrixCSC{ComplexF64} = spzeros(dim, dim)
-                    A_dag_minus_nu_1[j, i] = adjoint(jump.in_eigenbasis)[j, i]
-                    @printf("Is A_nu_1 dagger what we expect?: %s\n", norm(A_nu_1_dag - A_dag_minus_nu_1) < 1e-15)
+                    # A_nu_1_dag::SparseMatrixCSC{ComplexF64} = spzeros(dim, dim)
+                    # A_nu_1_dag[j, i] = conj(jump.in_eigenbasis[i, j])
+                    # A_dag_minus_nu_1::SparseMatrixCSC{ComplexF64} = spzeros(dim, dim)
+                    # A_dag_minus_nu_1[j, i] = adjoint(jump.in_eigenbasis)[j, i]
+                    # @printf("Is A_nu_1 dagger what we expect?: %s\n", norm(A_nu_1_dag - A_dag_minus_nu_1) < 1e-15)
                     # all jumps had hermitian adjoint pairs.
                     # Checkking all the nus present
-                    push!(all_the_nu1s, nu_1)
-                    push!(all_the_nu2s, nu_2)
+                    # push!(all_the_nu1s, nu_1)
+                    # push!(all_the_nu2s, nu_2)
                     # alpha^* symmetry
-                    @printf("Is alpha^* what we expect?: %s\n", norm(conj(alpha(nu_1, nu_2)) - alpha(nu_2, nu_1)) < 1e-15)
+                    # @printf("Is alpha^* what we expect?: %s\n", norm(conj(alpha(nu_1, nu_2)) - alpha(nu_2, nu_1)) < 1e-15)
 
                     #! Gibbsing it
                     A_nu_1 = gibbs^(-0.5) * A_nu_1 * gibbs^(0.5)
@@ -76,8 +223,14 @@ function transition_bohr_gibbsed(jumps::Vector{JumpOp}, hamiltonian::HamHam, bet
 end
 
 
-function transition_bohr(jumps::Vector{JumpOp}, hamiltonian::HamHam, beta::Float64; adjoint::Bool=false)
+function transition_bohr_vec(jumps::Vector{JumpOp}, hamiltonian::HamHam, beta::Float64; adjoint::Bool=false)
     """adjoint=true, means it prepares the adjoint transition part wrt to the HS inner product."""
+
+    if adjoint
+        @printf("Adjoint transition part\n")
+    else
+        @printf("Transition part\n")
+    end
 
     dim = size(hamiltonian.data, 1)
 
@@ -86,6 +239,7 @@ function transition_bohr(jumps::Vector{JumpOp}, hamiltonian::HamHam, beta::Float
     
     T = zeros(ComplexF64, dim^2, dim^2)  # Vectorized transition part of the Liouvillian
     for jump in jumps
+        jump_diag = diag(jump.in_eigenbasis)
         for j in 1:dim
             for k in 1:dim
                 for i in 1:dim
@@ -93,23 +247,35 @@ function transition_bohr(jumps::Vector{JumpOp}, hamiltonian::HamHam, beta::Float
                     A_nu_2::SparseMatrixCSC{ComplexF64} = spzeros(dim, dim)
                     nu_1 = hamiltonian.bohr_freqs[i, j]
                     nu_2 = hamiltonian.bohr_freqs[i, k]
-                    check_alpha_skew_symmetry(alpha, nu_1, nu_2, beta)
 
                     if adjoint  # alpha^* A_nu_1^\dagger (.) A_nu_2
-                        A_nu_1[j, i] = conj(jump.in_eigenbasis[i, j])  # A_nu_1^\dagger
-                        A_nu_2[i, k] = jump.in_eigenbasis[i, k]        # A_nu_2
-                        
+                        if nu_1 != 0.0
+                            A_nu_1[j, i] = conj(jump.in_eigenbasis[i, j])  # A_nu_1^\dagger
+                        else
+                            A_nu_1 .= conj.(spdiagm(0 => jump_diag))
+                        end
+
+                        if nu_2 != 0.0
+                            A_nu_2[i, k] = jump.in_eigenbasis[i, k]        # A_nu_2
+                        else
+                            A_nu_2 .= spdiagm(0 => jump_diag)
+                        end
                         # Their adjoint
                         # A_nu_1[i, j] = jump.in_eigenbasis[i, j]         # A_nu_1
                         # A_nu_2[k, i] = conj(jump.in_eigenbasis[i, k])   # A_nu_2^\dagger
                     else  # alpha A_nu_1 (.) A_nu_2^\dagger
-                        A_nu_1[i, j] = jump.in_eigenbasis[i, j]         # A_nu_1
-                        A_nu_2[k, i] = conj(jump.in_eigenbasis[i, k])   # A_nu_2^\dagger
-                    end
+                        if nu_1 != 0.0
+                            A_nu_1[i, j] = jump.in_eigenbasis[i, j]         # A_nu_1
+                        else
+                            A_nu_1 .= spdiagm(0 => jump_diag)
+                        end
 
-                    # Vectorized
-                    # T .+= alpha(nu_1, nu_2) * kron(transpose(A_nu_2), A_nu_1) 
-                    # T .+= alpha(nu_1, nu_2) * kron(transpose(A_nu_1), A_nu_2)  # Theirs
+                        if nu_2 != 0.0
+                            A_nu_2[k, i] = conj(jump.in_eigenbasis[i, k])   # A_nu_2^\dagger
+                        else
+                            A_nu_2 .= conj.(spdiagm(0 => jump_diag))
+                        end
+                    end
 
                     #! Vectorized Watrous
                     T .+= alpha(nu_1, nu_2) * kron(A_nu_1, transpose(A_nu_2))
@@ -131,12 +297,13 @@ function construct_liouvillian_gauss_bohr(jumps::Vector{JumpOp}, hamiltonian::Ha
 
         # Coherent part
         if with_coherent
-            coherent_term = coherent_gaussian_bohr(hamiltonian, jump, beta)
+            coherent_term = coherent_gaussian_bohr_slow(hamiltonian, jump, beta)
             liouv .+= vectorize_liouvillian_coherent(coherent_term)
         end
 
         # Dissipative part
         #TODO: if slow, rearrange for loops, put j low and sum up all A_nu_1s while keeping nu2 fix, and vec the sum.
+        jump_diag = diag(jump.in_eigenbasis)
         for j in 1:dim
             for k in 1:dim
                 for i in 1:dim
@@ -145,10 +312,21 @@ function construct_liouvillian_gauss_bohr(jumps::Vector{JumpOp}, hamiltonian::Ha
                     nu_1 = hamiltonian.bohr_freqs[i, j]
                     nu_2 = hamiltonian.bohr_freqs[i, k]
                     check_alpha_skew_symmetry(alpha, nu_1, nu_2, beta)
-                    A_nu_1[i, j] = jump.in_eigenbasis[i, j] * alpha(nu_1, nu_2)  # Jump rates on one side
-                    A_nu_2_dagger[k, i] = adjoint(jump.in_eigenbasis[i, k])
 
-                    liouv .+= vectorize_liouvillian_diss(A_nu_1, A_nu_2_dagger)
+                    #!!!
+                    if nu_1 != 0.0
+                        A_nu_1[i, j] = jump.in_eigenbasis[i, j]         # A_nu_1
+                    else
+                        A_nu_1 .= spdiagm(0 => jump_diag)
+                    end
+
+                    if nu_2 != 0.0
+                        A_nu_2_dagger[k, i] = conj(jump.in_eigenbasis[i, k])   # A_nu_2^\dagger
+                    else
+                        A_nu_2_dagger .= conj.(spdiagm(0 => jump_diag))
+                    end
+
+                    liouv .+= vectorize_liouvillian_diss(alpha(nu_1, nu_2) * A_nu_1, A_nu_2_dagger)
                 end
             end
         end

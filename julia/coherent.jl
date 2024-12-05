@@ -34,7 +34,7 @@ function alpha_coeffs(hamiltonian::HamHam, beta::Float64)
 end
 
 function coherent_gaussian_bohr(hamiltonian::HamHam, jump::JumpOp, beta::Float64)
-
+    #TODO: Needs to be fixed since it was equal with the wrong implementation of the slow version
     dim = size(hamiltonian.data, 1)
     bohr_freqs_kj = - (hamiltonian.eigvals .+ transpose(hamiltonian.eigvals))
 
@@ -64,6 +64,7 @@ function coherent_gaussian_bohr_slow(hamiltonian::HamHam, jump::JumpOp, beta::Fl
     tanh_factor(nu_1, nu_2) = tanh(-beta * (nu_1 - nu_2) / 4) / (2 * im)
 
     B = zeros(ComplexF64, dim, dim)
+    jump_diag = diag(jump.in_eigenbasis)
     for j in 1:dim
         for k in 1:dim
             for i in 1:dim
@@ -75,8 +76,17 @@ function coherent_gaussian_bohr_slow(hamiltonian::HamHam, jump::JumpOp, beta::Fl
                 
                 A_nu_1::SparseMatrixCSC{ComplexF64} = spzeros(dim, dim)
                 A_nu_2_dagger::SparseMatrixCSC{ComplexF64} = spzeros(dim, dim)
-                A_nu_1[i, j] = jump.in_eigenbasis[i, j]
-                A_nu_2_dagger[k, i] = adjoint(jump.in_eigenbasis[i, k])
+                if nu_1 != 0.0
+                    A_nu_1[i, j] = jump.in_eigenbasis[i, j]         # A_nu_1
+                else
+                    A_nu_1 .= spdiagm(0 => jump_diag)
+                end
+
+                if nu_2 != 0.0
+                    A_nu_2_dagger[k, i] = conj(jump.in_eigenbasis[i, k])   # A_nu_2^\dagger
+                else
+                    A_nu_2_dagger .= conj.(spdiagm(0 => jump_diag))
+                end
                 @printf("A_nu_1\n")
                 display(A_nu_1)
                 @printf("A_nu_2_dagger\n")

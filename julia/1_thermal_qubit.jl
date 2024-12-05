@@ -21,7 +21,7 @@ delta = 0.1
 with_coherent = true
 
 #* System
-hamiltonian_terms = [["Z"]]
+hamiltonian_terms = [["X"]]
 hamiltonian_coeffs = fill(1.0, length(hamiltonian_terms))
 hamiltonian = create_hamham(hamiltonian_terms, hamiltonian_coeffs, num_qubits)
 hamiltonian.bohr_freqs = hamiltonian.eigvals .- transpose(hamiltonian.eigvals)
@@ -83,6 +83,8 @@ XplusTdag = X + Tdag
 
 # Have all adjoints in there too:
 jump_set = [[X], [Y], [Z], [H], [T], [Tdag], [SM], [SP]]
+# jump_set = [[H]]
+
 # Do we have all adjoints in the set too?
 for jump in jump_set
     if !(in(adjoint(jump[1]), vcat(jump_set...)))
@@ -153,20 +155,33 @@ end
 #     end
 # end
 
-#* Does T have DB?
-gibbsed(op) = gibbs^(-0.5) * op * gibbs^(0.5)
-jump = all_jumps_generated[1]
-gibbsed_jump = gibbsed(jump.data)
-gibbsed_jump_in_eigenbasis = hamiltonian.eigvecs' * gibbsed_jump * hamiltonian.eigvecs
-eigenbasis_jump_gibbsed = gibbsed(jump.in_eigenbasis)
+#* Does T have DB? = Its adjoint has the given form as in DBC? != T(gibbs) = 0 (which it isn't)
+# input_dm = gibbs
+# id = Matrix{ComplexF64}(I(2^num_qubits)) / 2^num_qubits
+# T_adjoint_on_id = transition_bohr(all_jumps_generated, hamiltonian, id, beta; adjoint=true)
+# @printf("T ADJOINT ON ID\n")
+# display(T_adjoint_on_id)
+# println()
+# id = Matrix{ComplexF64}(I(2^num_qubits)) / 2^num_qubits
+# T_gibbsed_on_id = transition_bohr_gibbsed(all_jumps_generated, hamiltonian, id, beta)
+# @printf("T GIBBSED ON ID\n")
+# display(T_gibbsed_on_id)
 
-T = transition_bohr(all_jumps_generated, hamiltonian, beta; adjoint=false)
-T_adjoint = transition_bohr(all_jumps_generated, hamiltonian, beta; adjoint=true)
-T_adjoint * gibbs_vec
+# norm(T_gibbsed_on_id - T_adjoint_on_id)
+# T_on_dm = transition_bohr(all_jumps_generated, hamiltonian, input_dm, beta; adjoint=false)
+# tr(T_on_dm)
 
-T_gibbsed = transition_bohr_gibbsed(all_jumps_generated, hamiltonian, beta)
-T_gibbsed * gibbs_vec
-#! No DB for now.
+# gibbsed(op) = gibbs^(-0.5) * op * gibbs^(0.5)
+# jump = all_jumps_generated[1]
+# gibbsed_jump = gibbsed(jump.data)
+# gibbsed_jump_in_eigenbasis = hamiltonian.eigvecs' * gibbsed_jump * hamiltonian.eigvecs
+# eigenbasis_jump_gibbsed = gibbsed(jump.in_eigenbasis)
+
+# T = transition_bohr_vec(all_jumps_generated, hamiltonian, beta; adjoint=true)
+
+# T_gibbsed = transition_bohr_gibbsed_vec(all_jumps_generated, hamiltonian, beta)
+# norm(T - T_gibbsed)
+#! YES
 
 #* Thermalize
 # for jump in all_jumps_generated[1:1]
@@ -205,19 +220,19 @@ T_gibbsed * gibbs_vec
 # @printf("Trace distance Gibbs - steady state: %s\n", trdist_fix_gibbs)
 
 #* Construct Liouvillian
-# liouvillian = construct_liouvillian_gauss_bohr(all_jumps_generated, hamiltonian, with_coherent, beta)
-# liouv_eigvals, liouv_eigvecs = eigen(liouvillian) 
-# steady_state_vec = liouv_eigvecs[:, end]
-# steady_state_dm = reshape(steady_state_vec, size(initial_dm_OG))
-# steady_state_dm /= tr(steady_state_dm)
-# steady_state_vec = vec(steady_state_dm)
+liouvillian = construct_liouvillian_gauss_bohr(all_jumps_generated, hamiltonian, with_coherent, beta)
+liouv_eigvals, liouv_eigvecs = eigen(liouvillian) 
+steady_state_vec = liouv_eigvecs[:, end]
+steady_state_dm = reshape(steady_state_vec, size(initial_dm_OG))
+steady_state_dm /= tr(steady_state_dm)
+steady_state_vec = vec(steady_state_dm)
 
 #* Steady state, Gibbs?
-# norm(gibbs_vec - steady_state_vec)
+norm(gibbs_vec - steady_state_vec)
 # trace_distance_h(Hermitian(gibbs), Hermitian(steady_state_dm))
 
 #* Liouvillian checks
-liouv_time_evolution(t) = exp(t * liouvillian)
+# liouv_time_evolution(t) = exp(t * liouvillian)
 # t = 1.0
 # initial_vec = vec(initial_dm_OG)
 # time_evolved_vec = liouv_time_evolution(t) * initial_vec
