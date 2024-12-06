@@ -31,16 +31,9 @@ function coherent_gaussian_bohr(hamiltonian::HamHam,
             A_nu_1[bohr_dict[nu_1]] .= jump.in_eigenbasis[bohr_dict[nu_1]]
             A_nu_2[bohr_dict[nu_2]] .= jump.in_eigenbasis[bohr_dict[nu_2]]
 
-            temp_B = tanh_factor(nu_1, nu_2) * alpha(nu_1, nu_2) * A_nu_2' * A_nu_1
-            # @printf("///// B part\n")
-            # display(temp_B)
-            # println()
-            B .+= temp_B
+            B .+= tanh_factor(nu_1, nu_2) * alpha(nu_1, nu_2) * A_nu_2' * A_nu_1
         end
     end
-    # @printf("Resulting total B\n")
-    # display(B)
-
     return B
 end
 

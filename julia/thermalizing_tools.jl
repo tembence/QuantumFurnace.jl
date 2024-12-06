@@ -14,74 +14,50 @@ include("structs.jl")
 
 #TODO: Struct for Configs / Initialization of the thermalizations
 #TODO: Compare this to other thermalizations
-
-function thermalize_bohr(jumps::Vector{JumpOp}, hamiltonian::HamHam, with_coherent::Bool, evolved_dm::Matrix{ComplexF64},
+#TODO: Figure out how to best structure the code
+function thermalize_bohr_gauss(jumps::Vector{JumpOp}, hamiltonian::HamHam, 
+    bohr_dict::Dict{Float64, Vector{CartesianIndex{2}}}, evolved_dm::Matrix{ComplexF64}, 
     delta::Float64, mixing_time::Float64, beta::Float64)
 
-    # num_liouv_steps = Int(round(mixing_time / delta, digits=0))
-    # gibbs = Hermitian(gibbs_state_in_eigen(hamiltonian, beta))
-    # distances_to_gibbs = [trace_distance_h(Hermitian(evolved_dm), gibbs)]
-
-    # time_steps = [0.0:delta:(num_liouv_steps * delta);]
-    # @showprogress dt=1 desc="Algorithm (Bohr)..." for step in 1:num_liouv_steps
-    #     for jump in jumps
-    #     end
-
-    # end
-
-end
-
-#TODO: Figure out how to best structure the code
-function dissipative_bohr(jump::JumpOp, hamiltonian::HamHam, evolved_dm::Matrix{ComplexF64}, delta::Float64, beta::Float64)
-
     dim = size(hamiltonian.data, 1)
-    # Transition Gaussian, 2 filter Gaussians
-    alpha(nu_1, nu_2) = exp(-beta^2 * (nu_1 + nu_2 + 2/beta)^2 / 16) * exp(-beta^2 * (nu_1 - nu_2)^2 / 8) / sqrt(8)
-    # Setup coherent part
-    # if with_coherent
-    #     coherent_term = coherent_gaussian_bohr(hamiltonian, jump, beta)
-    #     @printf("Coherent term\n")
-    #     display(coherent_term)
-    #     temp_coh = - im * delta * (coherent_term * evolved_dm - evolved_dm * coherent_term)
-    #     @printf("Coherently evolved part\n")
-    #     display(temp_coh)
-    #     evolved_dm .+= temp_coh
-    # else
-    #     @printf("Not adding coherent terms! \n")
-    # end
+    num_liouv_steps = Int(round(mixing_time / delta, digits=0))
+    gibbs = Hermitian(gibbs_state_in_eigen(hamiltonian, beta))
 
-    jump_dissipated_dm = zeros(ComplexF64, dim, dim)
-    for j in 1:dim
-        for k in 1:dim
-            for i in 1:dim
-                A_nu_1::SparseMatrixCSC{ComplexF64} = spzeros(dim, dim)
-                A_nu_2_dagger::SparseMatrixCSC{ComplexF64} = spzeros(dim, dim)
-                nu_1 = hamiltonian.bohr_freqs[i, j]
-                nu_2 = hamiltonian.bohr_freqs[i, k]  #! Could be (k, i)
-                @printf("---For j, k, i: %d, %d, %d\n", j, k, i)
-                @printf("nu_1: %f, nu_2: %f\n", nu_1, nu_2)
-                check_alpha_skew_symmetry(alpha, nu_1, nu_2, beta)
-                A_nu_1[i, j] = jump.in_eigenbasis[i, j]
-                A_nu_2_dagger[k, i] = adjoint(jump.in_eigenbasis[i, k])
-                @printf("A_nu_1\n")
-                display(A_nu_1)
-                @printf("A_nu_2_dagger\n")
-                display(A_nu_2_dagger)
-                temp_diss = alpha(nu_1, nu_2) * (A_nu_1 * evolved_dm * A_nu_2_dagger
-                    - 0.5 * (A_nu_2_dagger * A_nu_1 * evolved_dm + evolved_dm * A_nu_2_dagger * A_nu_1)) 
-                @printf("///// Dissipated part\n")
-                display(temp_diss)
-                println()
-                jump_dissipated_dm .+= temp_diss
+    # Transition Gaussian, 2 filter Gaussians:
+    alpha(nu_1, nu_2) = exp(-beta^2 * (nu_1 + nu_2 + 2/beta)^2 / 16) * exp(-beta^2 * (nu_1 - nu_2)^2 / 8) / sqrt(8)
+
+    distances_to_gibbs = [trace_distance_h(Hermitian(evolved_dm), gibbs)]
+    time_steps = [0.0:delta:(num_liouv_steps * delta);]
+    # This implementation applies all jumps at once for one Liouvillian step.
+    @showprogress dt=1 desc="Thermalize (Bohr Gaussian)..." for step in 1:num_liouv_steps
+        coherent_dm_part = zeros(ComplexF64, dim, dim)
+        dissipative_dm_part = zeros(ComplexF64, dim, dim)
+        for jump in jumps
+            # Coherent part
+            if with_coherent
+                coherent_term = coherent_gaussian_bohr(hamiltonian, bohr_dict, jump, beta)
+                coherent_dm_part .+= - 1im * delta * (coherent_term * evolved_dm - evolved_dm * coherent_term)
+            end
+
+            # Dissipative part
+            for nu_1 in keys(bohr_dict)
+                for nu_2 in keys(bohr_dict)
+                    A_nu_1::SparseMatrixCSC{ComplexF64} = spzeros(dim, dim)
+                    A_nu_2::SparseMatrixCSC{ComplexF64} = spzeros(dim, dim)
+                    A_nu_1[bohr_dict[nu_1]] .= jump.in_eigenbasis[bohr_dict[nu_1]]
+                    A_nu_2[bohr_dict[nu_2]] .= jump.in_eigenbasis[bohr_dict[nu_2]]
+
+                    dissipative_dm_part .+= alpha(nu_1, nu_2) * (A_nu_1 * evolved_dm * A_nu_2'
+                        - 0.5 * (A_nu_2' * A_nu_1 * evolved_dm + evolved_dm * A_nu_2' * A_nu_1))
+                end
             end
         end
+        #TODO: In other thermalizing fns I evolve with coherent earlier, which is wrong!
+        evolved_dm .+= delta * (dissipative_dm_part + coherent_dm_part) 
+        dist = trace_distance_h(Hermitian(evolved_dm), gibbs)
+        push!(distances_to_gibbs, dist)
     end
-    @printf("Resulting total dissipation part\n")
-    display(jump_dissipated_dm)
-    evolved_dm .+= delta * jump_dissipated_dm
-    @printf("Resulting delta evolved DM\n")
-    display(evolved_dm)
-    return evolved_dm
+    return HotAlgorithmResults(evolved_dm, distances_to_gibbs, time_steps)
 end
 
 function check_alpha_skew_symmetry(alpha::Function, nu_1::Float64, nu_2::Float64, beta::Float64)

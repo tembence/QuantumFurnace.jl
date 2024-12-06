@@ -31,14 +31,14 @@ function create_bohr_dict(hamiltonian::HamHam)
     return bohr_dict
 end
 
-function construct_liouvillian_gauss_bohr(jumps::Vector{JumpOp}, hamiltonian::HamHam, 
+function construct_liouvillian_bohr_gauss(jumps::Vector{JumpOp}, hamiltonian::HamHam, 
     bohr_dict::Dict{Float64, Vector{CartesianIndex{2}}}, with_coherent::Bool, beta::Float64)
 
     dim = size(hamiltonian.data, 1)
     alpha(nu_1, nu_2) = exp(-beta^2 * (nu_1 + nu_2 + 2/beta)^2 / 16) * exp(-beta^2 * (nu_1 - nu_2)^2 / 8) / sqrt(8)
 
     liouv = zeros(ComplexF64, dim^2, dim^2)
-    @showprogress dt=1 desc="Liouvillian (Bohr)..." for jump in jumps
+    @showprogress desc="Liouvillian (Bohr)..." for jump in jumps
 
         # Coherent part
         if with_coherent
@@ -49,6 +49,7 @@ function construct_liouvillian_gauss_bohr(jumps::Vector{JumpOp}, hamiltonian::Ha
         # Dissipative part
         for nu_1 in keys(bohr_dict)
             for nu_2 in keys(bohr_dict)
+                
                 A_nu_1::SparseMatrixCSC{ComplexF64} = spzeros(dim, dim)
                 A_nu_2::SparseMatrixCSC{ComplexF64} = spzeros(dim, dim)
                 A_nu_2_dagger::SparseMatrixCSC{ComplexF64} = spzeros(dim, dim)

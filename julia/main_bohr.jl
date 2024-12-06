@@ -14,8 +14,8 @@ include("spectral_analysis_tools.jl")
 
 #* Parameters
 num_qubits = 3
-delta = 0.01
-mixing_time = 1 * delta
+delta = 0.001
+mixing_time = 5.
 num_liouv_steps = Int(round(mixing_time / delta, digits=0))
 beta = 10.
 eta = 0.02  # Just don't make it smaller than 0.018
@@ -31,10 +31,11 @@ hamiltonian = load(ham_filename(num_qubits))["ideal_ham"]
 hamiltonian.bohr_freqs = hamiltonian.eigvals .- transpose(hamiltonian.eigvals)
 bohr_dict = create_bohr_dict(hamiltonian)
 
-initial_dm_OG = diagm([0.25, 0.75])
+# initial_dm_OG = Matrix{ComplexF64}(diagm([0.25, 0.75]))
 
-# maxmixed = hamiltonian.eigvecs' * I(2^num_qubits) / 2^num_qubits * hamiltonian.eigvecs
-# maxmixed /= tr(maxmixed)
+maxmixed = hamiltonian.eigvecs' * I(2^num_qubits) / 2^num_qubits * hamiltonian.eigvecs
+maxmixed /= tr(maxmixed)
+initial_dm_OG = maxmixed
 # ones_dm = ones(ComplexF64, 2^num_qubits, 2^num_qubits)
 # ones /= tr(ones)
 # initial_dm = ones
@@ -71,9 +72,18 @@ end
 
 #* The Press
 @printf("Number of qubits: %d\n", num_qubits)
+@printf("Mixing time: %s\n", mixing_time)
+@printf("Delta: %s\n", delta)
+
+#* Thermalize
+results = thermalize_bohr_gauss(all_jumps_generated, hamiltonian, bohr_dict, copy(initial_dm_OG), delta, mixing_time, beta)
+plot(results.time_steps, results.distances_to_gibbs, 
+    label="Distance to Gibbs", xlabel="Time", ylabel="Distance", title="Distance to Gibbs over time")
+
+results.distances_to_gibbs[end]
 
 #* Construct Bohr Liouvillian
-liouv_matrix = construct_liouvillian_gauss_bohr(all_jumps_generated, hamiltonian, bohr_dict, with_coherent, beta)
+@time liouv_matrix = construct_liouvillian_bohr_gauss(all_jumps_generated, hamiltonian, bohr_dict, with_coherent, beta)
 liouv_eigvals, liouv_eigvecs = eigen(liouv_matrix) 
 steady_state_vec = liouv_eigvecs[:, end]
 steady_state_dm = reshape(steady_state_vec, size(hamiltonian.data))
