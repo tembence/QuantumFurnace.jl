@@ -14,49 +14,8 @@ include("trotter.jl")
 include("qi_tools.jl")
 include("trotter.jl")
 
-#TODO: Test DB symmetry of alpha coeffs
-function alpha_coeffs(hamiltonian::HamHam, beta::Float64)
-    dim = size(hamiltonian.data, 1)
-    hamiltonian.bohr_freqs = hamiltonian.eigvals .- transpose(hamiltonian.eigvals)
-    bohr_freqs_kj = - (hamiltonian.eigvals .+ transpose(hamiltonian.eigvals))
-    alpha = exp.(-beta^2 * hamiltonian.bohr_freqs.^2 / 8)
-
-    for j in 1:dim
-        for k in 1:dim
-            bohr_freqs_kj_plus = bohr_freqs_kj[k, j] .+ 2 * hamiltonian.eigvals
-            sum_temp_kj = 0.
-            for i in 1:dim
-                sum_temp_kj += exp(-beta^2 * (bohr_freqs_kj_plus[i] + 2/beta)^2 / 16)
-            end
-            alpha[k, j] *= sum_temp_kj
-        end
-    end
-end
-
-function coherent_gaussian_bohr(hamiltonian::HamHam, jump::JumpOp, beta::Float64)
-    #TODO: Needs to be fixed since it was equal with the wrong implementation of the slow version
-    dim = size(hamiltonian.data, 1)
-    bohr_freqs_kj = - (hamiltonian.eigvals .+ transpose(hamiltonian.eigvals))
-
-    tanh_prefactor_kj = tanh.(-beta * hamiltonian.bohr_freqs / 4)
-    part_alpha_prefactor_kj = exp.(-beta^2 * hamiltonian.bohr_freqs.^2 / 8)
-
-    B = tanh_prefactor_kj .* part_alpha_prefactor_kj / (2 * im * sqrt(8))
-    for j in 1:dim
-        for k in 1:dim
-            bohr_freqs_plus_kj = bohr_freqs_kj[k, j] .+ 2 * hamiltonian.eigvals
-            sum_temp_kj = 0.
-            for i in 1:dim
-                sum_temp_kj += exp(-beta^2 * (bohr_freqs_plus_kj[i] + 2/beta)^2 / 16) * jump.in_eigenbasis'[k, i] * jump.in_eigenbasis[i, j]
-            end
-            B[k, j] *= sum_temp_kj
-        end
-    end
-    return B
-end
-
-# If you wanna speed this up you can drop all j=k terms, they are all zero.
-function coherent_gaussian_bohr_slow(hamiltonian::HamHam, jump::JumpOp, beta::Float64)
+function coherent_gaussian_bohr(hamiltonian::HamHam, 
+    bohr_dict::Dict{Float64, Vector{CartesianIndex{2}}}, jump::JumpOp, beta::Float64)
 
     dim = size(hamiltonian.data, 1)
     # Transition Gaussian, 2 filter Gaussians
@@ -64,44 +23,23 @@ function coherent_gaussian_bohr_slow(hamiltonian::HamHam, jump::JumpOp, beta::Fl
     tanh_factor(nu_1, nu_2) = tanh(-beta * (nu_1 - nu_2) / 4) / (2 * im)
 
     B = zeros(ComplexF64, dim, dim)
-    jump_diag = diag(jump.in_eigenbasis)
-    for j in 1:dim
-        for k in 1:dim
-            for i in 1:dim
-                nu_1 = hamiltonian.bohr_freqs[i, j]
-                nu_2 = hamiltonian.bohr_freqs[i, k]
-                @printf("---For j, k, i: %d, %d, %d\n", j, k, i)
-                @printf("nu_1: %f, nu_2: %f\n", nu_1, nu_2)
-                check_alpha_skew_symmetry(alpha, nu_1, nu_2, beta)
-                
-                A_nu_1::SparseMatrixCSC{ComplexF64} = spzeros(dim, dim)
-                A_nu_2_dagger::SparseMatrixCSC{ComplexF64} = spzeros(dim, dim)
-                if nu_1 != 0.0
-                    A_nu_1[i, j] = jump.in_eigenbasis[i, j]         # A_nu_1
-                else
-                    A_nu_1 .= spdiagm(0 => jump_diag)
-                end
+    for nu_1 in keys(bohr_dict)
+        for nu_2 in keys(bohr_dict)
+            A_nu_1::SparseMatrixCSC{ComplexF64} = spzeros(dim, dim)
+            A_nu_2::SparseMatrixCSC{ComplexF64} = spzeros(dim, dim)
 
-                if nu_2 != 0.0
-                    A_nu_2_dagger[k, i] = conj(jump.in_eigenbasis[i, k])   # A_nu_2^\dagger
-                else
-                    A_nu_2_dagger .= conj.(spdiagm(0 => jump_diag))
-                end
-                @printf("A_nu_1\n")
-                display(A_nu_1)
-                @printf("A_nu_2_dagger\n")
-                display(A_nu_2_dagger)
+            A_nu_1[bohr_dict[nu_1]] .= jump.in_eigenbasis[bohr_dict[nu_1]]
+            A_nu_2[bohr_dict[nu_2]] .= jump.in_eigenbasis[bohr_dict[nu_2]]
 
-                temp_B = tanh_factor(nu_1, nu_2) * alpha(nu_1, nu_2) * A_nu_2_dagger * A_nu_1
-                @printf("///// B part\n")
-                display(temp_B)
-                println()
-                B .+= temp_B
-            end
+            temp_B = tanh_factor(nu_1, nu_2) * alpha(nu_1, nu_2) * A_nu_2' * A_nu_1
+            # @printf("///// B part\n")
+            # display(temp_B)
+            # println()
+            B .+= temp_B
         end
     end
-    @printf("Resulting total B\n")
-    display(B)
+    # @printf("Resulting total B\n")
+    # display(B)
 
     return B
 end

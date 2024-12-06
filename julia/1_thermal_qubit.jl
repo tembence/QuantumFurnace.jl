@@ -14,17 +14,20 @@ include("structs.jl")
 include("coherent.jl")
 
 #* Parameters
-num_qubits = 1
+num_qubits = 4
 beta = 2.
 mixing_time = 5.
 delta = 0.1
 with_coherent = true
 
 #* System
-hamiltonian_terms = [["X"]]
+# hamiltonian_terms = [["Z"]]
+hamiltonian_terms = [["X","X"], ["Z"]]
 hamiltonian_coeffs = fill(1.0, length(hamiltonian_terms))
 hamiltonian = create_hamham(hamiltonian_terms, hamiltonian_coeffs, num_qubits)
 hamiltonian.bohr_freqs = hamiltonian.eigvals .- transpose(hamiltonian.eigvals)
+bohr_dict = create_bohr_dict(hamiltonian)
+
 @printf("Bohr freqs:\n")
 display(hamiltonian.bohr_freqs)
 
@@ -82,7 +85,7 @@ XplusT = X + T
 XplusTdag = X + Tdag
 
 # Have all adjoints in there too:
-jump_set = [[X], [Y], [Z], [H], [T], [Tdag], [SM], [SP]]
+jump_set = [[X], [Y], [Z], [H]] #[T], [Tdag], [SM], [SP]]
 # jump_set = [[H]]
 
 # Do we have all adjoints in the set too?
@@ -167,6 +170,8 @@ end
 # @printf("T GIBBSED ON ID\n")
 # display(T_gibbsed_on_id)
 
+# hamiltonian.eigvals
+# hamiltonian.bohr_freqs
 # norm(T_gibbsed_on_id - T_adjoint_on_id)
 # T_on_dm = transition_bohr(all_jumps_generated, hamiltonian, input_dm, beta; adjoint=false)
 # tr(T_on_dm)
@@ -220,10 +225,11 @@ end
 # @printf("Trace distance Gibbs - steady state: %s\n", trdist_fix_gibbs)
 
 #* Construct Liouvillian
-liouvillian = construct_liouvillian_gauss_bohr(all_jumps_generated, hamiltonian, with_coherent, beta)
+# liouvillian = construct_liouvillian_gauss_bohr(all_jumps_generated, hamiltonian, with_coherent, beta)
+liouvillian = construct_liouvillian_gauss_bohr_dict(all_jumps_generated, hamiltonian, bohr_dict, with_coherent, beta)
 liouv_eigvals, liouv_eigvecs = eigen(liouvillian) 
 steady_state_vec = liouv_eigvecs[:, end]
-steady_state_dm = reshape(steady_state_vec, size(initial_dm_OG))
+steady_state_dm = reshape(steady_state_vec, size(hamiltonian.data))
 steady_state_dm /= tr(steady_state_dm)
 steady_state_vec = vec(steady_state_dm)
 

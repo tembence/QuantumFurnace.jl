@@ -15,6 +15,57 @@ include("thermalizing_tools.jl")
 include("coherent.jl")
 include("structs.jl")
 
+function create_bohr_dict(hamiltonian::HamHam)
+    """Creates a dictionary, where the keys are the Bohr frequencies, and the values are a list of their sparse indices 
+    in the Bohr matrix. (With special care on the diagonal elements, that are identically 0.)"""
+
+    bohr_dict = Dict{Float64, Vector{CartesianIndex{2}}}()
+    dim = size(hamiltonian.data, 1)
+    bohr_dict[0.0] = CartesianIndex{2}.(1:dim, 1:dim) # nu = 0.0 is the diagonal
+    for j in 1:dim
+        for i in 1:(j - 1)
+            bohr_dict[hamiltonian.bohr_freqs[i, j]] = [CartesianIndex{2}(i, j)]
+            bohr_dict[-hamiltonian.bohr_freqs[i, j]] = [CartesianIndex{2}(j, i)]
+        end
+    end
+    return bohr_dict
+end
+
+function construct_liouvillian_gauss_bohr(jumps::Vector{JumpOp}, hamiltonian::HamHam, 
+    bohr_dict::Dict{Float64, Vector{CartesianIndex{2}}}, with_coherent::Bool, beta::Float64)
+
+    dim = size(hamiltonian.data, 1)
+    alpha(nu_1, nu_2) = exp(-beta^2 * (nu_1 + nu_2 + 2/beta)^2 / 16) * exp(-beta^2 * (nu_1 - nu_2)^2 / 8) / sqrt(8)
+
+    liouv = zeros(ComplexF64, dim^2, dim^2)
+    @showprogress dt=1 desc="Liouvillian (Bohr)..." for jump in jumps
+
+        # Coherent part
+        if with_coherent
+            coherent_term = coherent_gaussian_bohr(hamiltonian, bohr_dict, jump, beta)
+            liouv .+= vectorize_liouvillian_coherent(coherent_term)
+        end
+
+        # Dissipative part
+        for nu_1 in keys(bohr_dict)
+            for nu_2 in keys(bohr_dict)
+                A_nu_1::SparseMatrixCSC{ComplexF64} = spzeros(dim, dim)
+                A_nu_2::SparseMatrixCSC{ComplexF64} = spzeros(dim, dim)
+                A_nu_2_dagger::SparseMatrixCSC{ComplexF64} = spzeros(dim, dim)
+
+                A_nu_1[bohr_dict[nu_1]] .= jump.in_eigenbasis[bohr_dict[nu_1]]
+                A_nu_2[bohr_dict[nu_2]] .= jump.in_eigenbasis[bohr_dict[nu_2]]
+                A_nu_2_dagger .= A_nu_2'
+
+                liouv .+= vectorize_liouvillian_diss(alpha(nu_1, nu_2) * A_nu_1, A_nu_2_dagger)
+            end
+        end
+    end
+    return liouv
+end
+
+#TODO: Write transition_bohr_gibbsed_vec, transition_bohr_vec with new bohr way, and delete the rest
+
 function transition_bohr_gibbsed(jumps::Vector{JumpOp}, hamiltonian::HamHam, dm::Matrix{ComplexF64}, 
     beta::Float64)
     """This is the generator with an input density matrix, but not the evolution."""
@@ -285,54 +336,6 @@ function transition_bohr_vec(jumps::Vector{JumpOp}, hamiltonian::HamHam, beta::F
         end
     end
     return T
-end
-
-function construct_liouvillian_gauss_bohr(jumps::Vector{JumpOp}, hamiltonian::HamHam, with_coherent::Bool, beta::Float64)
-
-    dim = size(hamiltonian.data, 1)
-    alpha(nu_1, nu_2) = exp(-beta^2 * (nu_1 + nu_2 + 2/beta)^2 / 16) * exp(-beta^2 * (nu_1 - nu_2)^2 / 8) / sqrt(8)
-
-    liouv = zeros(ComplexF64, dim^2, dim^2)
-    @showprogress dt=1 desc="Liouvillian (Bohr)..." for jump in jumps
-
-        # Coherent part
-        if with_coherent
-            coherent_term = coherent_gaussian_bohr_slow(hamiltonian, jump, beta)
-            liouv .+= vectorize_liouvillian_coherent(coherent_term)
-        end
-
-        # Dissipative part
-        #TODO: if slow, rearrange for loops, put j low and sum up all A_nu_1s while keeping nu2 fix, and vec the sum.
-        jump_diag = diag(jump.in_eigenbasis)
-        for j in 1:dim
-            for k in 1:dim
-                for i in 1:dim
-                    A_nu_1::SparseMatrixCSC{ComplexF64} = spzeros(dim, dim)
-                    A_nu_2_dagger::SparseMatrixCSC{ComplexF64} = spzeros(dim, dim)
-                    nu_1 = hamiltonian.bohr_freqs[i, j]
-                    nu_2 = hamiltonian.bohr_freqs[i, k]
-                    check_alpha_skew_symmetry(alpha, nu_1, nu_2, beta)
-
-                    #!!!
-                    if nu_1 != 0.0
-                        A_nu_1[i, j] = jump.in_eigenbasis[i, j]         # A_nu_1
-                    else
-                        A_nu_1 .= spdiagm(0 => jump_diag)
-                    end
-
-                    if nu_2 != 0.0
-                        A_nu_2_dagger[k, i] = conj(jump.in_eigenbasis[i, k])   # A_nu_2^\dagger
-                    else
-                        A_nu_2_dagger .= conj.(spdiagm(0 => jump_diag))
-                    end
-
-                    liouv .+= vectorize_liouvillian_diss(alpha(nu_1, nu_2) * A_nu_1, A_nu_2_dagger)
-                end
-            end
-        end
-
-    end
-    return liouv
 end
 
 function construct_liouvillian_gauss(jumps::Vector{JumpOp}, hamiltonian::HamHam, with_coherent::Bool, 
