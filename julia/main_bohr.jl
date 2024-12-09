@@ -6,16 +6,13 @@ using JLD
 
 include("hamiltonian_tools.jl")
 include("jump_op_tools.jl")
-include("trotter.jl")
 include("qi_tools.jl")
-include("thermalizing_tools.jl")
-include("coherent.jl")
-include("spectral_analysis_tools.jl")
+include("bohr_gauss_tools.jl")
 
 #* Parameters
 num_qubits = 3
-delta = 0.001
-mixing_time = 5.
+delta = 0.1
+mixing_time = 10.
 num_liouv_steps = Int(round(mixing_time / delta, digits=0))
 beta = 10.
 eta = 0.02  # Just don't make it smaller than 0.018
@@ -29,13 +26,14 @@ with_coherent = true
 ham_filename(n) = @sprintf("/Users/bence/code/liouvillian_metro/julia/data/hamiltonian_n%d.jld", n)
 hamiltonian = load(ham_filename(num_qubits))["ideal_ham"]
 hamiltonian.bohr_freqs = hamiltonian.eigvals .- transpose(hamiltonian.eigvals)
-bohr_dict = create_bohr_dict(hamiltonian)
 
 # initial_dm_OG = Matrix{ComplexF64}(diagm([0.25, 0.75]))
 
 maxmixed = hamiltonian.eigvecs' * I(2^num_qubits) / 2^num_qubits * hamiltonian.eigvecs
 maxmixed /= tr(maxmixed)
 initial_dm_OG = maxmixed
+# random_dm::Matrix{ComplexF64} = random_density_matrix(num_qubits)
+# initial_dm_OG = random_dm
 # ones_dm = ones(ComplexF64, 2^num_qubits, 2^num_qubits)
 # ones /= tr(ones)
 # initial_dm = ones
@@ -76,19 +74,25 @@ end
 @printf("Delta: %s\n", delta)
 
 #* Thermalize
-results = thermalize_bohr_gauss(all_jumps_generated, hamiltonian, bohr_dict, copy(initial_dm_OG), delta, mixing_time, beta)
+results = thermalize_bohr_gauss(all_jumps_generated, hamiltonian, copy(initial_dm_OG), delta, mixing_time, beta)
 plot(results.time_steps, results.distances_to_gibbs, 
     label="Distance to Gibbs", xlabel="Time", ylabel="Distance", title="Distance to Gibbs over time")
-
 results.distances_to_gibbs[end]
 
 #* Construct Bohr Liouvillian
-@time liouv_matrix = construct_liouvillian_bohr_gauss(all_jumps_generated, hamiltonian, bohr_dict, with_coherent, beta)
+@time liouv_matrix = construct_liouvillian_bohr_gauss(all_jumps_generated, hamiltonian, with_coherent, beta)
 liouv_eigvals, liouv_eigvecs = eigen(liouv_matrix) 
 steady_state_vec = liouv_eigvecs[:, end]
 steady_state_dm = reshape(steady_state_vec, size(hamiltonian.data))
 steady_state_dm /= tr(steady_state_dm)
 steady_state_vec = vec(steady_state_dm)
 
+liouvillian_evolved_vec = exp(mixing_time * liouv_matrix) * vec(initial_dm_OG)  # This is indeed the Gibbs
+liouvillian_evolved_dm = reshape(liouvillian_evolved_vec, size(hamiltonian.data))
+norm(liouvillian_evolved_vec - gibbs_vec)
+
+#* Difference between perfect Liouvillian evolved dm vs Alg evolved dm
+norm(results.evolved_dm - liouvillian_evolved_dm)
+
 #* Steady state, Gibbs?
-norm(gibbs_vec - steady_state_vec)
+# norm(gibbs_vec - steady_state_vec)

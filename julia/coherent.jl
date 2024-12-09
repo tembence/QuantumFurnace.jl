@@ -14,29 +14,6 @@ include("trotter.jl")
 include("qi_tools.jl")
 include("trotter.jl")
 
-function coherent_gaussian_bohr(hamiltonian::HamHam, 
-    bohr_dict::Dict{Float64, Vector{CartesianIndex{2}}}, jump::JumpOp, beta::Float64)
-
-    dim = size(hamiltonian.data, 1)
-    # Transition Gaussian, 2 filter Gaussians
-    alpha(nu_1, nu_2) = exp(-beta^2 * (nu_1 + nu_2 + 2/beta)^2 / 16) * exp(-beta^2 * (nu_1 - nu_2)^2 / 8) / sqrt(8)
-    tanh_factor(nu_1, nu_2) = tanh(-beta * (nu_1 - nu_2) / 4) / (2 * im)
-
-    B = zeros(ComplexF64, dim, dim)
-    for nu_1 in keys(bohr_dict)
-        for nu_2 in keys(bohr_dict)
-            A_nu_1::SparseMatrixCSC{ComplexF64} = spzeros(dim, dim)
-            A_nu_2::SparseMatrixCSC{ComplexF64} = spzeros(dim, dim)
-
-            A_nu_1[bohr_dict[nu_1]] .= jump.in_eigenbasis[bohr_dict[nu_1]]
-            A_nu_2[bohr_dict[nu_2]] .= jump.in_eigenbasis[bohr_dict[nu_2]]
-
-            B .+= tanh_factor(nu_1, nu_2) * alpha(nu_1, nu_2) * A_nu_2' * A_nu_1
-        end
-    end
-    return B
-end
-
 # (3.1) and Proposition III.1
 # Has to be on a symmetric time domain, otherwise it can't be Hermitian.
 function coherent_term_from_timedomain(jump::JumpOp, hamiltonian::HamHam, 

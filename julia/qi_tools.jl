@@ -1,10 +1,52 @@
 using LinearAlgebra
+using SparseArrays
 using Random
 using Printf
 # using QuantumOptics # Add it back if needed
 using JLD
 
 include("hamiltonian_tools.jl")
+
+function vectorize_liouvillian_diss(jump_1::Union{SparseMatrixCSC{ComplexF64}, Matrix{ComplexF64}},
+    jump_2::Union{SparseMatrixCSC{ComplexF64}, Matrix{ComplexF64}})
+
+    """L = J1 * X * J2 - 0.5 * (J2 * J1 * X + X * J2 * J1)"""
+    dim = size(jump_1)[1]
+    spI = sparse(I, dim, dim)
+
+    jump_2_jump_1 = jump_2 * jump_1
+    # vectorized_diss_part = kron(transpose(jump_2), jump_1) - 0.5 * (kron(spI, jump_2_jump_1) + kron(transpose(jump_2_jump_1), spI))
+    
+    # Watrous
+    vectorized_diss_part = kron(jump_1, transpose(jump_2)) - 0.5 * (kron(jump_2_jump_1, spI) + kron(spI, transpose(jump_2_jump_1))) 
+    return vectorized_diss_part
+end
+
+function vectorize_liouvillian_coherent(coherent_term::Matrix{ComplexF64})
+    dim = size(coherent_term)[1]
+    spI = sparse(I, dim, dim)
+
+    # -i ((I ⊗ B) - (B^T ⊗ I))
+    # vecotrized_coherent_part = -1im * (kron(spI, coherent_term) - kron(transpose(coherent_term), spI))
+
+    # Watrous
+    vecotrized_coherent_part = -1im *(kron(coherent_term, spI) - kron(spI, transpose(coherent_term)))
+    return vecotrized_coherent_part
+end
+
+#! Rewrote it from jumps to jump, no for loop inside here
+function vectorize_liouvillian_diss(jump_op::Matrix{ComplexF64})
+    dim = size(jump_ops[1])[1]
+    spI = sparse(I, dim, dim)
+
+    vectorized_liouv = zeros(ComplexF64, dim^2, dim^2)
+    jump_dag_jump = jump' * jump
+
+    # Jump^\dag^T = Jump^*
+    # Watrous
+    vectorized_liouv .+= kron(jump, conj(jump)) - 0.5 * (kron(jump_dag_jump, spI) + kron(spI, transpose(jump_dag_jump))) 
+    return vectorized_liouv
+end
 
 function trace_distance_h(rho::Union{Hermitian{<:Real}, Hermitian{<:Complex}}, 
     sigma::Union{Hermitian{<:Real}, Hermitian{<:Complex}})
