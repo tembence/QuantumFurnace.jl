@@ -11,7 +11,7 @@ include("bohr_gauss_tools.jl")
 
 #* Parameters
 num_qubits = 3
-delta = 0.1
+delta = 0.001
 mixing_time = 10.
 num_liouv_steps = Int(round(mixing_time / delta, digits=0))
 beta = 10.
@@ -74,11 +74,11 @@ end
 @printf("Delta: %s\n", delta)
 
 #* Thermalize
-results = thermalize_bohr_gauss(all_jumps_generated, hamiltonian, copy(initial_dm_OG), delta, mixing_time, beta)
+results = thermalize_bohr_gauss(all_jumps_generated, hamiltonian, initial_dm_OG, delta, mixing_time, beta)
 plot(results.time_steps, results.distances_to_gibbs, 
     label="Distance to Gibbs", xlabel="Time", ylabel="Distance", title="Distance to Gibbs over time")
-results.distances_to_gibbs[end]
 
+results.distances_to_gibbs[end]
 #* Construct Bohr Liouvillian
 @time liouv_matrix = construct_liouvillian_bohr_gauss(all_jumps_generated, hamiltonian, with_coherent, beta)
 liouv_eigvals, liouv_eigvecs = eigen(liouv_matrix) 
@@ -89,10 +89,11 @@ steady_state_vec = vec(steady_state_dm)
 
 liouvillian_evolved_vec = exp(mixing_time * liouv_matrix) * vec(initial_dm_OG)  # This is indeed the Gibbs
 liouvillian_evolved_dm = reshape(liouvillian_evolved_vec, size(hamiltonian.data))
-norm(liouvillian_evolved_vec - gibbs_vec)
 
 #* Difference between perfect Liouvillian evolved dm vs Alg evolved dm
 norm(results.evolved_dm - liouvillian_evolved_dm)
+norm(results.evolved_dm - gibbs)
+norm(liouvillian_evolved_dm - gibbs)
 
 #* Steady state, Gibbs?
 # norm(gibbs_vec - steady_state_vec)

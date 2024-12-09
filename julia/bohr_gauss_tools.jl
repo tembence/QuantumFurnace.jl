@@ -43,6 +43,52 @@ function construct_liouvillian_bohr_gauss(jumps::Vector{JumpOp}, hamiltonian::Ha
     return liouv
 end
 
+function thermalize_bohr_gauss_vectorized(jumps::Vector{JumpOp}, hamiltonian::HamHam, initial_dm::Matrix{ComplexF64}, 
+    delta::Float64, mixing_time::Float64, beta::Float64)
+    
+    dim = size(hamiltonian.data, 1)
+    num_liouv_steps = Int(round(mixing_time / delta, digits=0))
+    gibbs = gibbs_state_in_eigen(hamiltonian, beta)
+    gibbs_vec = vec(gibbs)
+
+    # Bohr dictionary
+    bohr_dict::Dict{Float64, Vector{CartesianIndex{2}}} = create_bohr_dict(hamiltonian)
+    
+    time_steps = [0.0:delta:(mixing_time);]
+    evolved_dm_vec = vec(copy(initial_dm))
+    distances_to_gibbs = [norm(evolved_dm_vec - gibbs_vec)]
+
+    # This implementation applies all jumps at once for one Liouvillian step.
+    @showprogress dt=1 desc="Thermalize (Bohr Gaussian)..." for step in 1:num_liouv_steps
+
+        liouv_matrix_for_step = zeros(ComplexF64, dim^2, dim^2)
+        for jump in jumps
+            # Coherent part
+            if with_coherent
+                coherent_term = coherent_gaussian_bohr(hamiltonian, bohr_dict, jump, beta)
+                liouv_matrix_for_step .+= vectorize_liouvillian_coherent(coherent_term)
+            end
+
+            # Dissipative part
+            for nu_2 in keys(bohr_dict)
+                A_nu_2::SparseMatrixCSC{ComplexF64} = spzeros(dim, dim)
+                A_nu_2[bohr_dict[nu_2]] .= jump.in_eigenbasis[bohr_dict[nu_2]]
+                A_nu_2_dagger::SparseMatrixCSC{ComplexF64} = A_nu_2'
+
+                alpha_nu1_matrix = create_alpha_nu1_matrix(hamiltonian.bohr_freqs, nu_2, beta)
+
+                liouv_matrix_for_step .+= vectorize_liouvillian_diss(alpha_nu1_matrix .* jump.in_eigenbasis, A_nu_2_dagger)
+            end
+        end
+
+        # evolved_dm_vec = exp(delta * liouv_matrix_for_step) * evolved_dm_vec # Perfect Liouvillian evolution
+        evolved_dm_vec = evolved_dm_vec + delta * liouv_matrix_for_step * evolved_dm_vec # Trotterized Liouvillian evolution
+        dist = norm(evolved_dm_vec - gibbs_vec)
+        push!(distances_to_gibbs, dist)
+    end
+    return HotAlgorithmResults(reshape(evolved_dm_vec, size(hamiltonian.data)), distances_to_gibbs, time_steps)
+end
+
 function thermalize_bohr_gauss(jumps::Vector{JumpOp}, hamiltonian::HamHam, initial_dm::Matrix{ComplexF64}, 
     delta::Float64, mixing_time::Float64, beta::Float64)
     
@@ -65,7 +111,7 @@ function thermalize_bohr_gauss(jumps::Vector{JumpOp}, hamiltonian::HamHam, initi
             # Coherent part
             if with_coherent
                 coherent_term = coherent_gaussian_bohr(hamiltonian, bohr_dict, jump, beta)
-                coherent_dm_part .+= - 1im * delta * (coherent_term * evolved_dm - evolved_dm * coherent_term)
+                coherent_dm_part .+= - 1im * (coherent_term * evolved_dm - evolved_dm * coherent_term)
             end
 
             # Dissipative part
