@@ -176,16 +176,16 @@ function find_ideal_heisenberg(num_qubits::Int64,
             hamiltonian.symbreak_coeffs = rescaled_symbreak_coeffs
             hamiltonian.eigvals = rescaled_eigvals
             hamiltonian.eigvecs = rescaled_eigvecs
-            hamiltonian.w0 = smallest_bohr_freq
+            hamiltonian.nu_min = smallest_bohr_freq
             hamiltonian.shift = shift
             hamiltonian.rescaling_factor = rescaling_factor
 
-            next!(p, showvalues = [(:w0, hamiltonian.w0)])
+            next!(p, showvalues = [(:nu_min, hamiltonian.nu_min)])
         end
         symbroken_ham = nothing
     end
     println("\nBest Bohr frequency:")
-    println(hamiltonian.w0)
+    println(hamiltonian.nu_min)
 
     return hamiltonian
 end
@@ -304,7 +304,7 @@ end
 
 # load jld
 # ideal_ham = load("/Users/bence/code/liouvillian_metro/julia/data/hamiltonian_n11.jld")["ideal_ham"]
-# display(ideal_ham.w0)
+# display(ideal_ham.nu_min)
 
-# ideal_r = ceil(Int64, log2(1 / ideal_ham.w0))
+# ideal_r = ceil(Int64, log2(1 / ideal_ham.nu_min))
 # @printf("Ideal r: %d\n", ideal_r)

@@ -108,21 +108,21 @@ jump = JumpOp(jump_op,
 construct_A_nus(jump, hamiltonian)
 
 #* Fourier labels
-num_energy_bits = ceil(Int64, log2((0.45 * 2) / hamiltonian.w0)) + 1
+num_energy_bits = ceil(Int64, log2((0.45 * 2) / hamiltonian.nu_min)) + 1
 N = 2^(num_energy_bits)
-t0 = 2 * pi / (N * hamiltonian.w0)
+t0 = 2 * pi / (N * hamiltonian.nu_min)
 
 N_labels = [0:1:Int(N/2)-1; -Int(N/2):1:-1]
 time_labels = t0 * N_labels
-energy_labels = hamiltonian.w0 * N_labels
+energy_labels = hamiltonian.nu_min * N_labels
 some_integer = 90
-an_energy = hamiltonian.w0 * some_integer
+an_energy = hamiltonian.nu_min * some_integer
 phase = an_energy * N / (2 * pi)
 a_time = (N / 2 + 3) * t0
 
 @printf("Number of qubits: %d\n", num_qubits)
 @printf("Number of energy bits: %d\n", num_energy_bits)
-@printf("Energy unit: %e\n", hamiltonian.w0)
+@printf("Energy unit: %e\n", hamiltonian.nu_min)
 @printf("Time unit: %e\n", t0)
 @printf("\nEnergy: %f\n", an_energy)
 

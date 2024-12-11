@@ -234,10 +234,10 @@ end
 # #* Hamiltonian
 # hamiltonian = load("/Users/bence/code/liouvillian_metro/julia/data/hamiltonian_n3.jld")["ideal_ham"]
 # random_dm = random_density_matrix(num_qubits)
-# num_energy_bits = ceil(Int64, log2((0.45 * 4 + 2/beta) / hamiltonian.w0)) - 3 # Under Fig. 5. with secular approx.
+# num_energy_bits = ceil(Int64, log2((0.45 * 4 + 2/beta) / hamiltonian.nu_min)) - 3 # Under Fig. 5. with secular approx.
 # N = 2^(num_energy_bits)
 # N_labels = [0:1:Int(N/2)-1; -Int(N/2):1:-1]
-# t0 = 2 * pi / (N * hamiltonian.w0)
+# t0 = 2 * pi / (N * hamiltonian.nu_min)
 # factor = -4 
 # num_steps = 10
 
@@ -260,13 +260,13 @@ end
 # @printf("After 3t0 evolution: %f\n", trdist2)
 
 # # #* Fourier labels
-# # num_energy_bits = ceil(Int64, log2((0.45 * 2) / hamiltonian.w0)) + 1  # paper (above 3.7.), later will be β dependent
+# # num_energy_bits = ceil(Int64, log2((0.45 * 2) / hamiltonian.nu_min)) + 1  # paper (above 3.7.), later will be β dependent
 # # N = 2^(num_energy_bits)
 # # N_labels = [0:1:Int(N/2)-1; -Int(N/2):1:-1]
 
-# # t0 = 2 * pi / (N * hamiltonian.w0)
+# # t0 = 2 * pi / (N * hamiltonian.nu_min)
 # # time_labels = t0 * N_labels
-# # energy_labels = hamiltonian.w0 * N_labels
+# # energy_labels = hamiltonian.nu_min * N_labels
 
 # # int_multiple = Int(N / 2)
 # # T_plus = int_multiple * t0
@@ -296,7 +296,7 @@ end
 # # # @printf("Distance 2nd order with diag: %s\n", dist2_diag)
 
 # # #* Testing fix number of trotter steps / t0, for different T
-# # @printf("w0: %f\n", hamiltonian.w0)
+# # @printf("w0: %f\n", hamiltonian.nu_min)
 # # @printf("T: %f\n", T_plus)
 # # @printf("t0: %f\n", t0)
 # # num_trotter_steps_per_t0 = 10

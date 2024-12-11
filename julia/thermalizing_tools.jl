@@ -25,7 +25,7 @@ function thermalize_gaussian(jumps::Vector{JumpOp}, hamiltonian::HamHam, with_co
     num_qubits = Int(log2(size(hamiltonian.data)[1]))
     N = 2^(num_energy_bits)
     N_labels = [0:1:Int(N/2)-1; -Int(N/2):1:-1]
-    energy_labels = hamiltonian.w0 * N_labels
+    energy_labels = hamiltonian.nu_min * N_labels
 
     num_liouv_steps = Int(round(mixing_time / delta, digits=0))
     gibbs = Hermitian(gibbs_state_in_eigen(hamiltonian, beta))
@@ -45,7 +45,7 @@ function thermalize_gaussian(jumps::Vector{JumpOp}, hamiltonian::HamHam, with_co
     # Setup coherent part
     # if with_coherent
         # Time labels for coherent
-        # t0 = 2 * pi / (N * hamiltonian.w0)
+        # t0 = 2 * pi / (N * hamiltonian.nu_min)
         # time_labels = t0 * N_labels
 
         # atol = 1e-12
@@ -118,7 +118,7 @@ function thermalize_gaussian_nh(jumps::Vector{JumpOp}, hamiltonian::HamHam, with
     num_qubits = Int(log2(size(hamiltonian.data)[1]))
     N = 2^(num_energy_bits)
     N_labels = [0:1:Int(N/2)-1; -Int(N/2):1:-1]
-    energy_labels = hamiltonian.w0 * N_labels
+    energy_labels = hamiltonian.nu_min * N_labels
 
     num_liouv_steps = Int(round(mixing_time / delta, digits=0))
     gibbs = gibbs_state_in_eigen(hamiltonian, beta)
@@ -137,7 +137,7 @@ function thermalize_gaussian_nh(jumps::Vector{JumpOp}, hamiltonian::HamHam, with
     # Setup coherent part
     if with_coherent
         # Time labels for coherent
-        t0 = 2 * pi / (N * hamiltonian.w0)
+        t0 = 2 * pi / (N * hamiltonian.nu_min)
         time_labels = t0 * N_labels
 
         atol = 1e-12
@@ -193,7 +193,7 @@ function thermalize_gaussian_random(jumps::Vector{JumpOp}, hamiltonian::HamHam, 
     num_qubits = Int(log2(size(hamiltonian.data)[1]))
     N = 2^(num_energy_bits)
     N_labels = [0:1:Int(N/2)-1; -Int(N/2):1:-1]
-    energy_labels = hamiltonian.w0 * N_labels
+    energy_labels = hamiltonian.nu_min * N_labels
 
     num_liouv_steps = Int(round(mixing_time / delta, digits=0))
     gibbs = gibbs_state_in_eigen(hamiltonian, beta)
@@ -213,7 +213,7 @@ function thermalize_gaussian_random(jumps::Vector{JumpOp}, hamiltonian::HamHam, 
     # Setup coherent part
     if with_coherent
         # Time labels for coherent
-        t0 = 2 * pi / (N * hamiltonian.w0)
+        t0 = 2 * pi / (N * hamiltonian.nu_min)
         time_labels = t0 * N_labels
 
         atol = 1e-12
@@ -283,8 +283,8 @@ function thermalize_gaussian_ideal_time(jumps::Vector{JumpOp}, hamiltonian::HamH
     num_qubits = Int(log2(size(hamiltonian.data)[1]))
     N = 2^(num_energy_bits)
     N_labels = [0:1:Int(N/2)-1; -Int(N/2):1:-1]
-    energy_labels = hamiltonian.w0 * N_labels
-    t0 = 2 * pi / (N * hamiltonian.w0)
+    energy_labels = hamiltonian.nu_min * N_labels
+    t0 = 2 * pi / (N * hamiltonian.nu_min)
     time_labels = t0 * N_labels
 
     filter_gauss_t_values = filter_gauss_t.(time_labels)  # exp.(- time_labels.^2 / beta^2)
@@ -372,7 +372,7 @@ function thermalize_gaussian_trotter(jumps::Vector{JumpOp}, hamiltonian::HamHam,
     num_qubits = Int(log2(size(hamiltonian.data)[1]))
     N = 2^(num_energy_bits)
     N_labels = [0:1:Int(N/2)-1; -Int(N/2):1:-1]
-    energy_labels = hamiltonian.w0 * N_labels
+    energy_labels = hamiltonian.nu_min * N_labels
     time_labels = trotter.t0 * N_labels
 
     filter_gauss_t_values = filter_gauss_t.(time_labels)  # exp.(- time_labels.^2 / beta^2)
@@ -459,7 +459,7 @@ function thermalize_metro(jumps::Vector{JumpOp}, hamiltonian::HamHam, with_coher
     num_qubits = Int(log2(size(hamiltonian.data)[1]))
     N = 2^(num_energy_bits)
     N_labels = [0:1:Int(N/2)-1; -Int(N/2):1:-1]
-    energy_labels = hamiltonian.w0 * N_labels
+    energy_labels = hamiltonian.nu_min * N_labels
 
     num_liouv_steps = Int(round(mixing_time / delta, digits=0))
     gibbs = gibbs_state_in_eigen(hamiltonian, beta)
@@ -475,7 +475,7 @@ function thermalize_metro(jumps::Vector{JumpOp}, hamiltonian::HamHam, with_coher
     # Setup coherent part
     if with_coherent
         # Time labels for coherent
-        t0 = 2 * pi / (N * hamiltonian.w0)
+        t0 = 2 * pi / (N * hamiltonian.nu_min)
         time_labels = t0 * N_labels
 
         coherent_terms_atol = 1e-12
@@ -542,7 +542,7 @@ function thermalize_metro_trotter(jumps::Vector{JumpOp}, hamiltonian::HamHam, tr
     num_qubits = Int(log2(size(hamiltonian.data)[1]))
     N = 2^(num_energy_bits)
     N_labels = [0:1:Int(N/2)-1; -Int(N/2):1:-1]
-    energy_labels = hamiltonian.w0 * N_labels
+    energy_labels = hamiltonian.nu_min * N_labels
     time_labels = trotter.t0 * N_labels
 
     filter_gauss_t_values = filter_gauss_t.(time_labels)  # exp.(- time_labels.^2 / beta^2)
@@ -775,18 +775,18 @@ end
 # #         zeros(0))
 
 # #* Fourier labels
-# num_energy_bits = ceil(Int64, log2((0.45 * 2) / hamiltonian.w0)) + 1 # paper (above 3.7.), later will be β dependent
+# num_energy_bits = ceil(Int64, log2((0.45 * 2) / hamiltonian.nu_min)) + 1 # paper (above 3.7.), later will be β dependent
 # num_energy_bits = 9
 # N = 2^(num_energy_bits)
 # N_labels = [0:1:Int(N/2)-1; -Int(N/2):1:-1]
 
-# t0 = 2 * pi / (N * hamiltonian.w0)
+# t0 = 2 * pi / (N * hamiltonian.nu_min)
 # time_labels = t0 * N_labels
-# energy_labels = hamiltonian.w0 * N_labels
+# energy_labels = hamiltonian.nu_min * N_labels
 
 # @printf("Number of qubits: %d\n", num_qubits)
 # @printf("Number of energy bits: %d\n", num_energy_bits)
-# @printf("Energy unit: %e\n", hamiltonian.w0)
+# @printf("Energy unit: %e\n", hamiltonian.nu_min)
 # @printf("Time unit: %e\n", t0)
 
 # # Bohr freqs rounded

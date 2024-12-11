@@ -39,15 +39,15 @@ Z::Matrix{ComplexF64} = [1 0; 0 -1]
 jump_paulis = [X, Y, Z]
 
 #* Fourier labels
-# num_energy_bits = ceil(Int64, log2((0.45 * 2) / hamiltonian.w0)) + 1 # paper (above 3.7.), later will be β dependent
-num_energy_bits = ceil(Int64, log2((0.45 * 4 + 2/beta) / hamiltonian.w0))# Under Fig. 5. with secular approx.
+# num_energy_bits = ceil(Int64, log2((0.45 * 2) / hamiltonian.nu_min)) + 1 # paper (above 3.7.), later will be β dependent
+num_energy_bits = ceil(Int64, log2((0.45 * 4 + 2/beta) / hamiltonian.nu_min))# Under Fig. 5. with secular approx.
 # num_energy_bits = 1
 N = 2^(num_energy_bits)
 N_labels = [0:1:Int(N/2)-1; -Int(N/2):1:-1]
 
-t0 = 2 * pi / (N * hamiltonian.w0)
+t0 = 2 * pi / (N * hamiltonian.nu_min)
 time_labels = t0 * N_labels
-energy_labels = hamiltonian.w0 * N_labels
+energy_labels = hamiltonian.nu_min * N_labels
 
 energy_labels = energy_labels[abs.(energy_labels) .<= 0.45]
     
@@ -56,7 +56,7 @@ Fw_norm = sqrt(sum(Fw.^2))
 
 @printf("Number of qubits: %d\n", num_qubits)
 @printf("Number of energy bits: %d\n", num_energy_bits)
-@printf("Energy unit: %e\n", hamiltonian.w0)
+@printf("Energy unit: %e\n", hamiltonian.nu_min)
 @printf("Time unit: %e\n", t0)
 
 #* Gibbs

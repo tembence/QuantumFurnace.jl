@@ -26,7 +26,7 @@ function coherent_term_from_timedomain(jump::JumpOp, hamiltonian::HamHam,
     diag_time_evolve(t) = Diagonal(exp.(1im * hamiltonian.eigvals * t))
     jump_op_in_eigenbasis_dag = jump.in_eigenbasis'
 
-    # Inner b2 integral
+    # Inner b2 sum
     b2_integral = zeros(ComplexF64, size(hamiltonian.data))
     for s in keys(b2)
         time_evolution_inner = diag_time_evolve(beta * s)
@@ -35,7 +35,7 @@ function coherent_term_from_timedomain(jump::JumpOp, hamiltonian::HamHam,
         time_evolution_inner
     end
 
-    # Outer b1 integral
+    # Outer b1 sum
     B = zeros(ComplexF64, size(hamiltonian.data))
     for t in keys(b1)
         time_evolution_outer = diag_time_evolve(beta * t)
@@ -51,7 +51,7 @@ function coherent_term_trotter(jump::JumpOp, hamiltonian::HamHam, trotter::Trott
 
     jump_op_in_trotter_basis_dag = jump.in_trotter_basis'
     eigvals_t0_diag = Diagonal(trotter.eigvals_t0)
-    #! What about negative times?
+
     # Inner b2 integral
     b2_integral = zeros(ComplexF64, size(hamiltonian.data))
     for s in keys(b2)
@@ -249,13 +249,13 @@ end
 # hamiltonian.bohr_freqs = hamiltonian.eigvals .- transpose(hamiltonian.eigvals)
 
 # # # #* Fourier labels
-# num_energy_bits = ceil(Int64, log2((0.45 * 4 + 2/beta) / hamiltonian.w0)) + 3  # For good integral approx we might need more r than expected
+# num_energy_bits = ceil(Int64, log2((0.45 * 4 + 2/beta) / hamiltonian.nu_min)) + 3  # For good integral approx we might need more r than expected
 # # num_energy_bits = 11
 # N = 2^(num_energy_bits)
 # N_labels = [0:1:Int(N/2)-1; -Int(N/2):1:-1]
-# t0 = 2 * pi / (N * hamiltonian.w0)
+# t0 = 2 * pi / (N * hamiltonian.nu_min)
 # time_labels = t0 * N_labels
-# energy_labels = hamiltonian.w0 * N_labels
+# energy_labels = hamiltonian.nu_min * N_labels
 
 # #* Trotter
 # #TODO: Where is the Trotter scaling? Why does it get worse if r is higher = smaller t0, but more B terms.
@@ -290,7 +290,7 @@ end
 
 # @printf("Number of qubits: %d\n", num_qubits)
 # @printf("Number of energy bits: %d\n", num_energy_bits)
-# @printf("Energy unit: %e\n", hamiltonian.w0)
+# @printf("Energy unit: %e\n", hamiltonian.nu_min)
 # @printf("Time unit: %e\n", t0)
 
 # atol = 1e-12

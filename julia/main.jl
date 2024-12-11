@@ -56,7 +56,7 @@ gibbs_largest_eigval = real(eigen(gibbs).values[1])
 
 #* Fourier labels
 # Coherent terms only become significant if we take r + 1 at least. Only matches with energy domain version if r + 3 or more
-num_energy_bits = ceil(Int64, log2((0.45 * 4 + 2/beta) / hamiltonian.w0)) + 3 # Under Fig. 5. with secular approx.
+num_energy_bits = ceil(Int64, log2((0.45 * 4 + 2/beta) / hamiltonian.nu_min)) + 3 # Under Fig. 5. with secular approx.
 
 # Transition weights in the liouv // Jump rate squared
 if furnace == GAUSS || furnace == TROTT_GAUSS || furnace == TIME_GAUSS
@@ -70,7 +70,7 @@ end
 #* Trotter
 if furnace == TROTT_GAUSS || furnace == TROTT_METRO 
     filter_gauss_t(t) = exp(- t^2 / beta^2)
-    t0 = 2 * pi / (hamiltonian.w0 * 2^num_energy_bits)
+    t0 = 2 * pi / (hamiltonian.nu_min * 2^num_energy_bits)
     num_trotter_steps_per_t0 = 1000
     trotter = create_trotter(hamiltonian, t0, num_trotter_steps_per_t0)
     trotter_error_T = compute_trotter_error(hamiltonian, trotter, 2^num_energy_bits * t0)
@@ -131,7 +131,7 @@ end
 #* The Press
 @printf("Number of qubits: %d\n", num_qubits)
 @printf("Number of energy bits: %d\n", num_energy_bits)
-@printf("Energy unit: %e\n", hamiltonian.w0)
+@printf("Energy unit: %e\n", hamiltonian.nu_min)
 @printf("Mixing time: %s\n", mixing_time)
 @printf("Delta: %s\n", delta)
 

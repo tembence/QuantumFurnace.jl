@@ -250,13 +250,13 @@ end
 # initial_state = hamiltonian.eigvecs[:, eig_index]
 # hamiltonian.bohr_freqs = hamiltonian.eigvals .- transpose(hamiltonian.eigvals)
 
-# num_energy_bits = ceil(Int64, log2((0.45 * 4 + 2/beta) / hamiltonian.w0)) + 3  # Under Fig. 5. with secular approx.
+# num_energy_bits = ceil(Int64, log2((0.45 * 4 + 2/beta) / hamiltonian.nu_min)) + 3  # Under Fig. 5. with secular approx.
 # N = 2^(num_energy_bits)
 # N_labels = [0:1:Int(N/2)-1; -Int(N/2):1:-1]
 
-# t0 = 2 * pi / (N * hamiltonian.w0)
+# t0 = 2 * pi / (N * hamiltonian.nu_min)
 # time_labels = t0 * N_labels
-# energy_labels = hamiltonian.w0 * N_labels
+# energy_labels = hamiltonian.nu_min * N_labels
 # # OFT normalizations for energy basis
 # Fw = exp.(- beta^2 * (energy_labels).^2 / 4)
 # Fw_norm = sqrt(sum(Fw.^2))
@@ -320,7 +320,7 @@ end
 
 # # @printf("Number of qubits: %d\n", num_qubits)
 # # @printf("Number of energy bits: %d\n", num_energy_bits)
-# # @printf("Energy unit: %e\n", hamiltonian.w0)
+# # @printf("Energy unit: %e\n", hamiltonian.nu_min)
 # # @printf("Time unit: %e\n", t0)
 # # @printf("Energy")
 

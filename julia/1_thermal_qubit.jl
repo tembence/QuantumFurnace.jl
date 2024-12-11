@@ -33,7 +33,7 @@ display(hamiltonian.bohr_freqs)
 
 ham_in_eigenbasis = hamiltonian.eigvecs' * hamiltonian.data * hamiltonian.eigvecs
 
-num_energy_bits = ceil(Int64, log2((0.45 * 4 + 2/beta) / hamiltonian.w0)) + 3
+num_energy_bits = ceil(Int64, log2((0.45 * 4 + 2/beta) / hamiltonian.nu_min)) + 3
 
 # initial_dm = ones(ComplexF64, size(hamiltonian.data)) # In eigenbasis
 # initial_dm_OG = zeros(ComplexF64, size(hamiltonian.data))
@@ -59,7 +59,7 @@ gibbs_largest_eigval = real(eigen(gibbs).values[1])
 #* Fourier labels, Gaussians
 # N = 2^(num_energy_bits)
 # N_labels = [0:1:Int(N/2)-1; -Int(N/2):1:-1]
-# energy_labels = hamiltonian.w0 * N_labels
+# energy_labels = hamiltonian.nu_min * N_labels
 transition(energy) = exp(-(beta * energy + 1)^2 / 2)
 filter_gauss_w(energy) = exp.(- beta^2 * (energy).^2 / 4)
 
@@ -123,7 +123,7 @@ end
 # The Press
 @printf("Number of qubits: %d\n", num_qubits)
 @printf("Number of energy bits: %d\n", num_energy_bits)
-@printf("Energy unit: %e\n", hamiltonian.w0)
+@printf("Energy unit: %e\n", hamiltonian.nu_min)
 @printf("Mixing time: %s\n", mixing_time)
 @printf("Delta: %s\n", delta)
 

@@ -41,9 +41,9 @@ distance_to_gibbs = trace_distance(Hermitian(initial_dm), Hermitian(gibbs))
 
 #* Labels
 # Ideal - takes way more time evolution since t0 = 2pi/ (N w0)
-num_energy_bits = ceil(Int64, log2(1 / hamiltonian.w0))
+num_energy_bits = ceil(Int64, log2(1 / hamiltonian.nu_min))
 N = 2^num_energy_bits
-energy_labels = get_energy_labels(hamiltonian.w0)
+energy_labels = get_energy_labels(hamiltonian.nu_min)
 
 # - Or Not
 # num_energy_bits = 8

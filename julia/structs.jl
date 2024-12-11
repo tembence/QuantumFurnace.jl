@@ -24,7 +24,7 @@ mutable struct HamHam
     symbreak_coeffs::Union{Vector{Float64}, Nothing}
     eigvals::Vector{Float64}
     eigvecs::Matrix{ComplexF64}
-    w0::Float64  # Smallest bohr frequency
+    nu_min::Float64  # Smallest bohr frequency
     shift::Float64
     rescaling_factor::Float64
 end

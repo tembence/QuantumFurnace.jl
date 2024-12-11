@@ -28,7 +28,7 @@ function construct_liouvillian_gauss(jumps::Vector{JumpOp}, hamiltonian::HamHam,
     num_qubits = Int(log2(size(hamiltonian.data)[1]))
     N = 2^(num_energy_bits)
     N_labels = [0:1:Int(N/2)-1; -Int(N/2):1:-1]
-    energy_labels = hamiltonian.w0 * N_labels
+    energy_labels = hamiltonian.nu_min * N_labels
 
     # Square root of transition 
     sqrt_transition_gauss(w) = sqrt(transition_gauss(w))
@@ -48,7 +48,7 @@ function construct_liouvillian_gauss(jumps::Vector{JumpOp}, hamiltonian::HamHam,
     # Setup coherent part
     if with_coherent
         # Time labels for coherent
-        t0 = 2 * pi / (N * hamiltonian.w0)
+        t0 = 2 * pi / (N * hamiltonian.nu_min)
         time_labels = t0 * N_labels
 
         coherent_terms_atol = 1e-12
@@ -100,8 +100,8 @@ function construct_liouvillian_gauss_ideal_time(jumps::Vector{JumpOp}, hamiltoni
     num_qubits = Int(log2(size(hamiltonian.data)[1]))
     N = 2^(num_energy_bits)
     N_labels = [0:1:Int(N/2)-1; -Int(N/2):1:-1]
-    energy_labels = hamiltonian.w0 * N_labels
-    t0 = 2 * pi / (N * hamiltonian.w0)
+    energy_labels = hamiltonian.nu_min * N_labels
+    t0 = 2 * pi / (N * hamiltonian.nu_min)
     time_labels = t0 * N_labels
 
     # Square root of transition 
@@ -169,7 +169,7 @@ function construct_liouvillian_gauss_trotter(jumps::Vector{JumpOp}, hamiltonian:
     num_qubits = Int(log2(size(hamiltonian.data)[1]))
     N = 2^(num_energy_bits)
     N_labels = [0:1:Int(N/2)-1; -Int(N/2):1:-1]
-    energy_labels = hamiltonian.w0 * N_labels
+    energy_labels = hamiltonian.nu_min * N_labels
     time_labels = trotter.t0 * N_labels
 
     # Square root of transition 
@@ -236,7 +236,7 @@ function construct_liouvillian_metro(jumps::Vector{JumpOp}, hamiltonian::HamHam,
     num_qubits = Int(log2(size(hamiltonian.data)[1]))
     N = 2^(num_energy_bits)
     N_labels = [0:1:Int(N/2)-1; -Int(N/2):1:-1]
-    energy_labels = hamiltonian.w0 * N_labels
+    energy_labels = hamiltonian.nu_min * N_labels
 
     # Square root of transition 
     sqrt_transition_metro(w) = sqrt(transition_metro(w))
@@ -252,7 +252,7 @@ function construct_liouvillian_metro(jumps::Vector{JumpOp}, hamiltonian::HamHam,
     # Setup coherent part
     if with_coherent
         # Time labels for coherent
-        t0 = 2 * pi / (N * hamiltonian.w0)
+        t0 = 2 * pi / (N * hamiltonian.nu_min)
         time_labels = t0 * N_labels
 
         coherent_terms_atol = 1e-12
@@ -301,7 +301,7 @@ function construct_liouvillian_metro_trotter(jumps::Vector{JumpOp}, hamiltonian:
     num_qubits = Int(log2(size(hamiltonian.data)[1]))
     N = 2^(num_energy_bits)
     N_labels = [0:1:Int(N/2)-1; -Int(N/2):1:-1]
-    energy_labels = hamiltonian.w0 * N_labels
+    energy_labels = hamiltonian.nu_min * N_labels
     time_labels = trotter.t0 * N_labels
 
     # Square root of transition 
@@ -363,7 +363,7 @@ function construct_liouvillian_nh(jumps::Vector{JumpOp}, hamiltonian::HamHam, wi
     num_qubits = Int(log2(size(hamiltonian.data)[1]))
     N = 2^(num_energy_bits)
     N_labels = [0:1:Int(N/2)-1; -Int(N/2):1:-1]
-    energy_labels = hamiltonian.w0 * N_labels
+    energy_labels = hamiltonian.nu_min * N_labels
 
     # Square root of transition
     sqrt_transition_gauss(w) = sqrt(transition_gauss(w))
@@ -381,7 +381,7 @@ function construct_liouvillian_nh(jumps::Vector{JumpOp}, hamiltonian::HamHam, wi
     # Setup coherent part
     if with_coherent
         # Time labels for coherent
-        t0 = 2 * pi / (N * hamiltonian.w0)
+        t0 = 2 * pi / (N * hamiltonian.nu_min)
         time_labels = t0 * N_labels
 
         atol = 1e-12
