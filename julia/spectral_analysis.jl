@@ -7,11 +7,11 @@ using Distributed
 using BenchmarkTools
 using Roots
 
-include("hamiltonian_tools.jl")
-include("jump_op_tools.jl")
+include("hamiltonian.jl")
+include("ofts.jl")
 include("trotter.jl")
 include("qi_tools.jl")
-include("thermalizing_tools.jl")
+include("thermalize_with_alg.jl")
 include("coherent.jl")
 include("structs.jl")
 
@@ -135,7 +135,7 @@ function construct_liouvillian_gauss_ideal_time(jumps::Vector{JumpOp}, hamiltoni
     @showprogress dt=1 desc="Liouvillian..." for jump in jumps
         # Coherent part
         if with_coherent
-            coherent_term = coherent_term_from_timedomain(jump, hamiltonian, b1, b2, t0, beta)
+            coherent_term = coherent_term_time(jump, hamiltonian, b1, b2, t0, beta)
             # coherent_term = coherent_term_timedomain_integrated(jump, hamiltonian, beta)
             liouv .+= vectorize_liouvillian_coherent(coherent_term)
         end
@@ -269,7 +269,7 @@ function construct_liouvillian_metro(jumps::Vector{JumpOp}, hamiltonian::HamHam,
     @showprogress dt=1 desc="Liouvillian..." for jump in jumps
         # Coherent part
         if with_coherent
-            coherent_term = coherent_term_from_timedomain(jump, hamiltonian, b1, b2, t0, beta)
+            coherent_term = coherent_term_time(jump, hamiltonian, b1, b2, t0, beta)
             # coherent_term = coherent_term_timedomain_integrated(jump, hamiltonian, beta)
             liouv .+= vectorize_liouvillian_coherent(coherent_term)
         end
@@ -398,7 +398,7 @@ function construct_liouvillian_nh(jumps::Vector{JumpOp}, hamiltonian::HamHam, wi
     
         # Coherent part
         if with_coherent
-            coherent_term = coherent_term_from_timedomain(jump, hamiltonian, b1, b2, t0, beta)
+            coherent_term = coherent_term_time(jump, hamiltonian, b1, b2, t0, beta)
             # coherent_term = coherent_term_timedomain_integrated(jump, hamiltonian, beta)
             liouv .+= vectorize_liouvillian_coherent(coherent_term)
         end

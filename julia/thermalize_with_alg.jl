@@ -6,8 +6,8 @@ using ProgressMeter
 using Distributed
 using LaTeXStrings
 
-include("jump_op_tools.jl")
-include("hamiltonian_tools.jl")
+include("ofts.jl")
+include("hamiltonian.jl")
 include("qi_tools.jl")
 include("trotter.jl")
 include("structs.jl")
@@ -156,7 +156,7 @@ function thermalize_gaussian_nh(jumps::Vector{JumpOp}, hamiltonian::HamHam, with
         for jump in jumps
             # Coherent part
             if with_coherent
-                coherent_term = coherent_term_from_timedomain(jump, hamiltonian, b1, b2, t0, beta)
+                coherent_term = coherent_term_time(jump, hamiltonian, b1, b2, t0, beta)
                 evolved_dm .+= - im * delta * (coherent_term * evolved_dm - evolved_dm * coherent_term)
     
                 if step == 1 && jump == jumps[1]
@@ -234,7 +234,7 @@ function thermalize_gaussian_random(jumps::Vector{JumpOp}, hamiltonian::HamHam, 
 
         # Coherent term
         if with_coherent
-            coherent_term = coherent_term_from_timedomain(jump, hamiltonian, b1, b2, t0, beta)
+            coherent_term = coherent_term_time(jump, hamiltonian, b1, b2, t0, beta)
             evolved_dm .+= - im * delta * (coherent_term * evolved_dm - evolved_dm * coherent_term)
 
             if step == 1 && jump == jumps[1]
@@ -321,7 +321,7 @@ function thermalize_gaussian_ideal_time(jumps::Vector{JumpOp}, hamiltonian::HamH
         for jump in jumps
             # Coherent term 
             if with_coherent
-                coherent_term = coherent_term_from_timedomain(jump, hamiltonian, b1, b2, t0, beta)
+                coherent_term = coherent_term_time(jump, hamiltonian, b1, b2, t0, beta)
                 evolved_dm .+= - im * delta * (coherent_term * evolved_dm - evolved_dm * coherent_term)
     
                 if step == 1 && jump == jumps[1]
@@ -495,7 +495,7 @@ function thermalize_metro(jumps::Vector{JumpOp}, hamiltonian::HamHam, with_coher
         for jump in jumps
             # Coherent term
             if with_coherent
-                coherent_term = coherent_term_from_timedomain(jump, hamiltonian, b1, b2, t0, beta)
+                coherent_term = coherent_term_time(jump, hamiltonian, b1, b2, t0, beta)
                 evolved_dm .+= - im * delta * (coherent_term * evolved_dm - evolved_dm * coherent_term)
     
                 if step == 1 && jump == jumps[1]

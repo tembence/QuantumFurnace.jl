@@ -5,7 +5,7 @@ using Printf
 # using QuantumOptics # Add it back if needed
 using JLD
 
-include("hamiltonian_tools.jl")
+include("hamiltonian.jl")
 
 function vectorize_liouvillian_diss(jump_1::Union{SparseMatrixCSC{ComplexF64}, Matrix{ComplexF64}},
     jump_2::Union{SparseMatrixCSC{ComplexF64}, Matrix{ComplexF64}})
@@ -35,8 +35,9 @@ function vectorize_liouvillian_coherent(coherent_term::Matrix{ComplexF64})
 end
 
 #! Rewrote it from jumps to jump, no for loop inside here
-function vectorize_liouvillian_diss(jump_op::Matrix{ComplexF64})
-    dim = size(jump_ops[1])[1]
+function vectorize_liouvillian_diss(jump::Matrix{ComplexF64})
+
+    dim = size(jump, 1)
     spI = sparse(I, dim, dim)
 
     vectorized_liouv = zeros(ComplexF64, dim^2, dim^2)

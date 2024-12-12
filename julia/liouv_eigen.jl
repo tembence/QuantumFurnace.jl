@@ -7,8 +7,8 @@ using Distributed
 using QuantumOptics
 using BenchmarkTools
 
-include("hamiltonian_tools.jl")
-include("jump_op_tools.jl")
+include("hamiltonian.jl")
+include("ofts.jl")
 include("trotter.jl")
 include("qi_tools.jl")
 include("liouvillian_tools.jl")
@@ -85,7 +85,7 @@ end
 b1_vals, b1_times = compute_truncated_b1(time_labels)
 b2_vals, b2_times = compute_truncated_b2(time_labels)
 
-coherent_terms::Vector{Matrix{ComplexF64}} = coherent_term_from_timedomain.(all_jumps_generated, 
+coherent_terms::Vector{Matrix{ComplexF64}} = coherent_term_time.(all_jumps_generated, 
 Ref(hamiltonian), Ref(b1_vals), Ref(b1_times), Ref(b2_vals), Ref(b2_times), Ref(beta))
 
 tspan =[0.0:delta:mixing_time;]

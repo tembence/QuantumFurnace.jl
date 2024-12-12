@@ -184,9 +184,8 @@ function find_ideal_heisenberg(num_qubits::Int64,
         end
         symbroken_ham = nothing
     end
-    println("\nBest Bohr frequency:")
-    println(hamiltonian.nu_min)
-
+    # println("\nBest Bohr frequency:")
+    # println(hamiltonian.nu_min)
     return hamiltonian
 end
 

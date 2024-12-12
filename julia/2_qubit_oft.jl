@@ -8,9 +8,9 @@ using TensorOperations
 using JLD
 using Plots
 
-include("hamiltonian_tools.jl")
+include("hamiltonian.jl")
 include("qi_tools.jl")
-include("jump_op_tools.jl")
+include("ofts.jl")
 
 num_qubits = 2
 sigma = 5.

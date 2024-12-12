@@ -8,16 +8,53 @@ using BenchmarkTools
 using Roots
 using QuadGK
 
-include("hamiltonian_tools.jl")
-include("jump_op_tools.jl")
+include("hamiltonian.jl")
 include("qi_tools.jl")
 include("structs.jl")
-include("bohr_gauss_tools.jl")
+include("bohr_gauss.jl")
+include("ofts.jl")
 
+function construct_liouvillian_gauss(jumps::Vector{JumpOp}, hamiltonian::HamHam, energy_labels::Vector{Float64}, 
+    with_coherent::Bool, beta::Float64)
 
-function oft(jump::JumpOp, w::Float64, hamiltonian::HamHam, beta::Float64)
-    """sigma_E = 1 / beta. Subnormalized."""
-    return jump.in_eigenbasis .* exp.(-beta^2 * (w .- hamiltonian.bohr_freqs).^2 / 4) #/ sqrt(sqrt(8 * pi) / beta)
+    dim = size(hamiltonian.data, 1)
+    w0 = energy_labels[2] - energy_labels[1]
+    bohr_dict::Dict{Float64, Vector{CartesianIndex{2}}} = create_bohr_dict(hamiltonian)
+    transition_gauss(w) = exp(-beta^2 * (w + 1/beta)^2 /2)
+
+    total_liouv_coherent_part = zeros(ComplexF64, dim^2, dim^2)
+    total_liouv_diss_part = zeros(ComplexF64, dim^2, dim^2)
+
+    @showprogress desc="Liouvillian (Energy)..." for jump in jumps
+        if with_coherent  # There is no energy formulation of the coherent term, only Bohr and time.
+            coherent_term = coherent_gaussian_bohr(hamiltonian, bohr_dict, jump, beta)
+            total_liouv_coherent_part .+= vectorize_liouvillian_coherent(coherent_term)
+        end
+
+        for w in energy_labels
+            jump_oft = oft(jump, w, hamiltonian, beta)
+            total_liouv_diss_part .+= transition_gauss(w) * vectorize_liouvillian_diss(jump_oft)
+        end
+    end
+    oft_norm_squared = beta / sqrt(2 * pi)  #! sqrt(8 * pi) -> sqrt(2 * pi)
+    return total_liouv_coherent_part .+ w0 * oft_norm_squared * total_liouv_diss_part
+end
+
+function transition_gauss_vectorized(jumps::Vector{JumpOp}, hamiltonian::HamHam, energy_labels::Vector{Float64}, 
+    beta::Float64)
+
+    dim = size(hamiltonian.data, 1)
+    w0 = energy_labels[2] - energy_labels[1]
+    transition_gauss(w) = exp(-beta^2 * (w + 1/beta)^2 /2)
+
+    T = zeros(ComplexF64, dim^2, dim^2)
+    for jump in jumps
+        for w in energy_labels
+            jump_oft = oft(jump, w, hamiltonian, beta)
+            T .+= transition_gauss(w) * kron(jump_oft, conj(jump_oft))
+        end
+    end
+    return w0 * beta * T / sqrt(8 * pi)  # with OFT normalizations
 end
 
 function transition_bohr_gauss_from_energy_vectorized(jumps::Vector{JumpOp}, hamiltonian::HamHam, 
@@ -45,22 +82,7 @@ function transition_bohr_gauss_from_energy_vectorized(jumps::Vector{JumpOp}, ham
     return beta * w0 * T / sqrt(8 * pi)
 end
 
-function transition_gauss_vectorized(jumps::Vector{JumpOp}, hamiltonian::HamHam, energy_labels::Vector{Float64}, 
-    beta::Float64)
 
-    dim = size(hamiltonian.data, 1)
-    w0 = energy_labels[2] - energy_labels[1]
-    transition_gauss(w) = exp(-beta^2 * (w + 1/beta)^2 /2)
-
-    T = zeros(ComplexF64, dim^2, dim^2)
-    for jump in jumps
-        for w in energy_labels
-            jump_oft = oft(jump, w, hamiltonian, beta)
-            T .+= transition_gauss(w) * kron(jump_oft, conj(jump_oft))
-        end
-    end
-    return w0 * beta * T / sqrt(8 * pi)  # with OFT normalizations
-end
 
 function create_alpha_from_gaussians_as_for_real(energy_labels::Vector{Float64}, hamiltonian::HamHam, beta::Float64)
 

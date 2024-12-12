@@ -7,12 +7,11 @@ using Distributed
 using BenchmarkTools
 using Roots
 
-include("hamiltonian_tools.jl")
-include("jump_op_tools.jl")
+include("hamiltonian.jl")
 include("qi_tools.jl")
 include("structs.jl")
-include("bohr_gauss_tools.jl")
-include("energy_gauss_tools.jl")
+include("bohr_gauss.jl")
+include("energy_gauss.jl")
 
 num_qubits = 4
 dim = 2^num_qubits
@@ -22,13 +21,19 @@ Random.seed!(666)
 with_coherent = true
 
 #* Hamiltonian
-hamiltonian_terms = [["X", "X"], ["Z"]]
-hamiltonian_coeffs = fill(1.0, length(hamiltonian_terms))
-hamiltonian = create_hamham(hamiltonian_terms, hamiltonian_coeffs, num_qubits)
+# hamiltonian_terms = [["X", "X"], ["Z"]]
+# hamiltonian_coeffs = fill(1.0, length(hamiltonian_terms))
+# hamiltonian = create_hamham(hamiltonian_terms, hamiltonian_coeffs, num_qubits)
+hamiltonian = find_ideal_heisenberg(num_qubits, fill(1.0, 3); batch_size=100)
 hamiltonian.bohr_freqs = hamiltonian.eigvals .- transpose(hamiltonian.eigvals)
+gibbs = gibbs_state_in_eigen(hamiltonian, beta)
 
 N = 2^(num_energy_bits)
-w0 = 2 / N
+# w0 = 0.08
+w0 = 2/N
+# w0 = hamiltonian.nu_min
+@printf("Smallest Bohr frequency: %s\n", hamiltonian.nu_min)
+@printf("Chosen w0: %s\n", w0)
 N_labels = [0:1:Int(N/2)-1; -Int(N/2):1:-1]
 energy_labels = w0 * N_labels
 maximum(energy_labels)
@@ -93,9 +98,22 @@ end
 # end
 
 #* Transition part of Liouvillian
-T_energy = transition_gauss_vectorized(all_jumps_generated, hamiltonian, energy_labels, beta)
-T_bohr = transition_bohr_gauss_vectorized(all_jumps_generated, hamiltonian, beta)
-norm(T_bohr - T_energy)
+# T_energy = transition_gauss_vectorized(all_jumps_generated, hamiltonian, energy_labels, beta)
+# T_bohr = transition_bohr_gauss_vectorized(all_jumps_generated, hamiltonian, beta)
+# norm(T_bohr - T_energy)
+
+#* Full Liouvillian match
+liouv_energy = @time construct_liouvillian_gauss(all_jumps_generated, hamiltonian, energy_labels, with_coherent, beta)
+liouv_bohr = @time construct_liouvillian_bohr_gauss(all_jumps_generated, hamiltonian, with_coherent, beta)
+@printf("Deviation between Liouvillians (Bohr - Energy): %s\n", norm(liouv_bohr - liouv_energy))
+
+# Energy
+liouv_eigvals, liouv_eigvecs = eigen(liouv_energy) 
+steady_state_vec = liouv_eigvecs[:, end]
+steady_state_dm = reshape(steady_state_vec, size(hamiltonian.data))
+steady_state_dm /= tr(steady_state_dm)
+
+@printf("Steady state closeness to Gibbs for Liouvillian (Energy): %s\n", norm(steady_state_dm - gibbs))
 
 #* Other comparison for integral
 # Energy side

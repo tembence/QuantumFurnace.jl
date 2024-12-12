@@ -8,8 +8,7 @@ using BenchmarkTools
 using Roots
 using DataStructures
 
-include("hamiltonian_tools.jl")
-include("jump_op_tools.jl")
+include("hamiltonian.jl")
 include("qi_tools.jl")
 include("structs.jl")
 
@@ -273,14 +272,14 @@ end
 
 function create_alpha_nu1_matrix(bohr_freqs::Matrix{Float64}, nu_2::Float64, beta::Float64)
     """Gaussian parameters = 1/β"""
-    alpha_fn(nu_1) = exp(-beta^2 * (nu_1 + nu_2 + 2/beta)^2/16) * exp(-beta^2 * (nu_1 - nu_2)^2/8) / sqrt(8)
+    alpha_fn(nu_1) = exp(-beta^2 * (nu_1 + nu_2 + 2/beta)^2/16) * exp(-beta^2 * (nu_1 - nu_2)^2/8) / sqrt(2) #! sqrt(8)->sqrt(2)
     return alpha_fn.(bohr_freqs)
 end
 
 function create_f_nu1_matrix(bohr_freqs::Matrix{Float64}, nu_2::Float64, beta::Float64)
     """Tanh * alpha. Gaussian parameters = 1/β"""
     f_fn(nu_1) = (tanh(-beta * (nu_1 - nu_2) / 4) * exp(-beta^2 * (nu_1 + nu_2 + 2/beta)^2/16) 
-                                                    * exp(-beta^2 * (nu_1 - nu_2)^2/8) / (sqrt(8) * (2 * im)))
+                                                    * exp(-beta^2 * (nu_1 - nu_2)^2/8) / (sqrt(2) * (2 * im))) #! 8->2
     return f_fn.(bohr_freqs)
 end
 

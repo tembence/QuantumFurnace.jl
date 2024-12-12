@@ -4,10 +4,10 @@ using Printf
 using ProgressMeter
 using JLD
 
-include("hamiltonian_tools.jl")
-include("jump_op_tools.jl")
+include("hamiltonian.jl")
+include("ofts.jl")
 include("qi_tools.jl")
-include("bohr_gauss_tools.jl")
+include("bohr_gauss.jl")
 
 #* Parameters
 num_qubits = 3

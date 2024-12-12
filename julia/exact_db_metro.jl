@@ -7,8 +7,8 @@ using Distributed
 using QuantumOptics
 using BenchmarkTools
 
-include("hamiltonian_tools.jl")
-include("jump_op_tools.jl")
+include("hamiltonian.jl")
+include("ofts.jl")
 include("trotter.jl")
 include("qi_tools.jl")
 include("liouvillian_tools.jl")

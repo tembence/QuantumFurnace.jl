@@ -3,13 +3,13 @@ using Random
 using Printf
 using JLD
 
-include("hamiltonian_tools.jl")
-include("jump_op_tools.jl")
+include("hamiltonian.jl")
+include("ofts.jl")
 include("trotter.jl")
 include("qi_tools.jl")
-include("thermalizing_tools.jl")
+include("thermalize_with_alg.jl")
 include("coherent.jl")
-include("spectral_analysis_tools.jl")
+include("spectral_analysis.jl")
 include("structs.jl")
 include("coherent.jl")
 

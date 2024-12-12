@@ -8,15 +8,14 @@ using Plots
 using QuadGK
 using SparseArrays
 
-include("hamiltonian_tools.jl")
-include("jump_op_tools.jl")
+include("hamiltonian.jl")
+include("ofts.jl")
 include("trotter.jl")
 include("qi_tools.jl")
-include("trotter.jl")
 
 # (3.1) and Proposition III.1
 # Has to be on a symmetric time domain, otherwise it can't be Hermitian.
-function coherent_term_from_timedomain(jump::JumpOp, hamiltonian::HamHam, 
+function coherent_term_time(jump::JumpOp, hamiltonian::HamHam, 
     b1::Dict{Float64, ComplexF64}, b2::Dict{Float64, ComplexF64}, t0::Float64, beta::Float64)
     """Coherent term for the Gaussian AND Metropolis case IF jump op is [A Adag, H] = 0 (X, Y, Z)
     written in timedomain and using ideal time evolution.
@@ -24,15 +23,13 @@ function coherent_term_from_timedomain(jump::JumpOp, hamiltonian::HamHam,
         sigma_E = sigma_gamma = w_gamma = 1 / beta"""
     
     diag_time_evolve(t) = Diagonal(exp.(1im * hamiltonian.eigvals * t))
-    jump_op_in_eigenbasis_dag = jump.in_eigenbasis'
 
     # Inner b2 sum
     b2_integral = zeros(ComplexF64, size(hamiltonian.data))
     for s in keys(b2)
         time_evolution_inner = diag_time_evolve(beta * s)
-        b2_integral .+= b2[s] * time_evolution_inner * 
-        (jump_op_in_eigenbasis_dag * (time_evolution_inner')^2 * jump.in_eigenbasis) *
-        time_evolution_inner
+        b2_integral .+= b2[s] * (time_evolution_inner * jump.in_eigenbasis' 
+                            * (time_evolution_inner')^2 * jump.in_eigenbasis * time_evolution_inner)
     end
 
     # Outer b1 sum
@@ -41,10 +38,10 @@ function coherent_term_from_timedomain(jump::JumpOp, hamiltonian::HamHam,
         time_evolution_outer = diag_time_evolve(beta * t)
         B .+= b1[t] * time_evolution_outer' * b2_integral * time_evolution_outer
     end
-    return B * t0^2
+    return B * t0^2 * 2 #!
 end
 
-function coherent_term_trotter(jump::JumpOp, hamiltonian::HamHam, trotter::TrottTrott, 
+function coherent_term_trotter(jump::JumpOp, trotter::TrottTrott, 
     b1::Dict{Float64, ComplexF64}, b2::Dict{Float64, ComplexF64}, beta::Float64)
 
     # diag_time_evolve(t) = Diagonal(trotter.eigvals_t0.^Int(ceil(t / trotter.t0))) # Trotter steps
@@ -53,7 +50,7 @@ function coherent_term_trotter(jump::JumpOp, hamiltonian::HamHam, trotter::Trott
     eigvals_t0_diag = Diagonal(trotter.eigvals_t0)
 
     # Inner b2 integral
-    b2_integral = zeros(ComplexF64, size(hamiltonian.data))
+    b2_integral = zeros(ComplexF64, size(trotter.eigvecs))
     for s in keys(b2)
         num_t0_steps = ceil((abs(s) * beta / trotter.t0))
         trott_U_plus = eigvals_t0_diag^num_t0_steps
@@ -77,7 +74,7 @@ function coherent_term_trotter(jump::JumpOp, hamiltonian::HamHam, trotter::Trott
     # end
 
     # Outer b1 integral
-    B = zeros(ComplexF64, size(hamiltonian.data))
+    B = zeros(ComplexF64, size(trotter.eigvecs))
     for t in keys(b1)
         num_t0_steps = ceil((abs(t) * beta / trotter.t0))
         trott_U_plus = eigvals_t0_diag^num_t0_steps
@@ -94,7 +91,7 @@ function coherent_term_trotter(jump::JumpOp, hamiltonian::HamHam, trotter::Trott
     #     B .+= b1[t] * time_evolution_outer' * b2_integral * time_evolution_outer
     # end
 
-    return B * trotter.t0^2
+    return B * trotter.t0^2 * 2
 end
 
 function coherent_term_timedomain_integrated_gauss(jump::JumpOp, hamiltonian::HamHam, beta::Float64, 

@@ -5,7 +5,7 @@ using Printf
 using ProgressMeter
 using Distributed
 
-include("hamiltonian_tools.jl")
+include("hamiltonian.jl")
 include("qi_tools.jl")
 include("structs.jl")
 
@@ -28,8 +28,8 @@ function compute_trotter_error(hamiltonian::HamHam, trotter::TrottTrott, T::Floa
     num_t0_steps = Int(ceil(T / trotter.t0))
     exact_time_evolution = Diagonal(exp.(1im * hamiltonian.eigvals * T))  # In energy eigenbasis
     trotter_time_evolution = Diagonal(trotter.eigvals_t0.^num_t0_steps)
-    trotter_time_evolution = 
-        hamiltonian.eigvecs' * trotter.eigvecs * trotter_time_evolution * trotter.eigvecs' * hamiltonian.eigvecs
+    trotter_time_evolution = ( hamiltonian.eigvecs' * trotter.eigvecs 
+                                * trotter_time_evolution * trotter.eigvecs' * hamiltonian.eigvecs)
     return norm(exact_time_evolution - trotter_time_evolution)
 end
 

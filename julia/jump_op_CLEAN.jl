@@ -8,7 +8,7 @@ using TensorOperations
 using JLD
 using Plots
 
-include("hamiltonian_tools.jl")
+include("hamiltonian.jl")
 include("qi_tools.jl")
 
 mutable struct JumpOp
