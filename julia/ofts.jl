@@ -20,7 +20,9 @@ function trotter_oft(jump::JumpOp, energy::Float64, trotter::TrottTrott, time_la
     prefactors = @fastmath exp.(- time_labels.^2 / beta^2 .- 1im * energy * time_labels) # Gauss and Fourier factors
 
     mid_point = Int(length(time_labels) / 2) # Up to positive times
-    num_t0_steps = ceil.((abs.(time_labels) ./ trotter.t0))
+    N = length(time_labels)
+    N_labels = [0:1:Int(N/2)-1; -Int(N/2):1:-1]
+    num_t0_steps = abs.(N_labels)
     eigvals_t0_diag = Diagonal(trotter.eigvals_t0)
 
     jump_oft = zeros(ComplexF64, size(jump.data))

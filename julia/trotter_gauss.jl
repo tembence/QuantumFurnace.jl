@@ -31,11 +31,13 @@ function construct_liouvillian_gauss_trotter(jumps::Vector{JumpOp}, trotter::Tro
     @showprogress desc="Liouvillian (Trotter)..." for jump in jumps
         if with_coherent  # There is no energy formulation of the coherent term, only Bohr and time.
             coherent_term = coherent_term_trotter(jump, trotter, b1, b2, beta)
+            coherent_term = hamiltonian.eigvecs' * trotter.eigvecs * coherent_term * trotter.eigvecs' * hamiltonian.eigvecs  #!
             total_liouv_coherent_part .+= vectorize_liouvillian_coherent(coherent_term)
         end
 
         for w in energy_labels
             jump_oft = trotter_oft(jump, w, trotter, time_labels, beta) # t0 * sqrt((sqrt(2 / pi)/beta) / (2 * pi))
+            jump_oft = hamiltonian.eigvecs' * trotter.eigvecs * jump_oft * trotter.eigvecs' * hamiltonian.eigvecs  #!
             # jump_oft_actually = oft(jump, w, hamiltonian, beta) * sqrt(beta / sqrt(2 * pi))
             # @printf("Jump oft norm: %s\n", norm(jump_oft - jump_oft_actually))
             total_liouv_diss_part .+= transition_gauss(w) * vectorize_liouvillian_diss(jump_oft)

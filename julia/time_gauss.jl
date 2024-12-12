@@ -19,10 +19,10 @@ function construct_liouvillian_gauss_time(jumps::Vector{JumpOp}, hamiltonian::Ha
 
     dim = size(hamiltonian.data, 1)
     w0 = energy_labels[2] - energy_labels[1]
+    t0 = time_labels[2] - time_labels[1]
     transition_gauss(w) = exp(-beta^2 * (w + 1/beta)^2 /2)
 
     if with_coherent  # Steup for coherent term in time domain
-        t0 = time_labels[2] - time_labels[1]
         b1 = compute_truncated_b1(time_labels)
         b2 = compute_truncated_b2(time_labels)
     end

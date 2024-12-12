@@ -22,9 +22,8 @@ dim = 2^num_qubits
 num_energy_bits = 10
 beta = 10.
 Random.seed!(666)
-with_coherent = true
+with_coherent = false
 
-#FIXME: TROTTTTTER OFT
 #* Hamiltonian
 # hamiltonian_terms = [["X", "X"], ["Z"]]
 # hamiltonian_coeffs = fill(1.0, length(hamiltonian_terms))
@@ -52,7 +51,7 @@ energy_labels = energy_labels[abs.(energy_labels) .<= energy_cutoff_for_alpha]
 maximum(energy_labels)
 
 #* Trotter
-num_trotter_steps_per_t0 = 10
+num_trotter_steps_per_t0 = 1000
 trotter = create_trotter(hamiltonian, t0, num_trotter_steps_per_t0)
 trotter_error_T = compute_trotter_error(hamiltonian, trotter, 2^num_energy_bits * t0)
 gibbs_in_trotter = trotter.eigvecs' * gibbs_state(hamiltonian, beta) * trotter.eigvecs
@@ -85,29 +84,30 @@ for pauli in jump_paulis
 end
 
 #* Liouvillians
-# liouv_bohr = construct_liouvillian_bohr_gauss(all_jumps_generated, hamiltonian, with_coherent, beta)
-# liouv_time = construct_liouvillian_gauss_time(all_jumps_generated, hamiltonian, time_labels, energy_labels, 
-#     with_coherent, beta)
-# liouv_trotter = construct_liouvillian_gauss_trotter(all_jumps_generated, trotter, time_labels, energy_labels, 
-#     with_coherent, beta)
+#! They are different bases!!!
+liouv_bohr = construct_liouvillian_bohr_gauss(all_jumps_generated, hamiltonian, with_coherent, beta)
+liouv_time = construct_liouvillian_gauss_time(all_jumps_generated, hamiltonian, time_labels, energy_labels, 
+    with_coherent, beta)
+liouv_trotter = construct_liouvillian_gauss_trotter(all_jumps_generated, trotter, time_labels, energy_labels, 
+    with_coherent, beta)
 
-# @printf("Deviation Time - Bohr Liouvillian: %s\n", norm(liouv_time - liouv_bohr))
-# @printf("Deviation Trotter - Time Liouvillian: %s\n", norm(liouv_trotter - liouv_time))
-# @printf("Deviation Trotter - Bohr Liouvillian: %s\n", norm(liouv_trotter - liouv_bohr))
+@printf("Deviation Time - Bohr Liouvillian: %s\n", norm(liouv_time - liouv_bohr))
+@printf("Deviation Trotter - Time Liouvillian: %s\n", norm(liouv_trotter - liouv_time))
+@printf("Deviation Trotter - Bohr Liouvillian: %s\n", norm(liouv_trotter - liouv_bohr))
 
 #* A(t)
-jump = all_jumps_generated[4]
-oft_t_norm = t0 * sqrt(sqrt(2 / pi)/beta) / sqrt(2 * pi)
-total_oft_error = 0.0
-for w in energy_labels[2]
-    # @printf("Energy: %s\n", w)
-    jump_oft_trotter = trotter_oft(jump, w, trotter, time_labels, beta)
-    jump_oft_trotter_in_eigenbasis = hamiltonian.eigvecs' * trotter.eigvecs * jump_oft_trotter * trotter.eigvecs' * hamiltonian.eigvecs
-    jump_oft_time = time_oft(jump, w, hamiltonian, time_labels, beta)
-    # jump_oft_energy = oft(jump, w, hamiltonian, beta) / Fw_norm
-    # jump_oft_time = time_oft(jump, w, hamiltonian, time_labels, beta) / (ft_norm * sqrt(length(time_labels)))
-    err = norm(jump_oft_trotter_in_eigenbasis - jump_oft_time)
-    total_oft_error += err
-    # @printf("OFT energy vs time deviation: %s\n", err)
-end
-@printf("Total error: %s\n", total_oft_error)
+# jump = all_jumps_generated[2]
+# oft_t_norm = t0 * sqrt(sqrt(2 / pi)/beta) / sqrt(2 * pi)
+# total_oft_error = 0.0
+# for w in energy_labels[2]
+#     # @printf("Energy: %s\n", w)
+#     jump_oft_trotter = trotter_oft(jump, w, trotter, time_labels, beta)
+#     jump_oft_trotter_in_eigenbasis = hamiltonian.eigvecs' * trotter.eigvecs * jump_oft_trotter * trotter.eigvecs' * hamiltonian.eigvecs
+#     jump_oft_time = time_oft(jump, w, hamiltonian, time_labels, beta)
+#     # jump_oft_energy = oft(jump, w, hamiltonian, beta) / Fw_norm
+#     # jump_oft_time = time_oft(jump, w, hamiltonian, time_labels, beta) / (ft_norm * sqrt(length(time_labels)))
+#     err = norm(jump_oft_trotter_in_eigenbasis - jump_oft_time)
+#     total_oft_error += err
+#     # @printf("OFT energy vs time deviation: %s\n", err)
+# end
+# @printf("Total error: %s\n", total_oft_error)
