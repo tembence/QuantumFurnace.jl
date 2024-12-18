@@ -16,12 +16,18 @@ include("energy_gauss.jl")
 include("time_gauss.jl")
 include("ofts.jl")
 
-num_qubits = 4
+# (n, r, w0, tmix) = (3, 10, 32/N, 15.0) -> 1e-13
+#* Configs
+num_qubits = 3
 dim = 2^num_qubits
 num_energy_bits = 10
 beta = 10.
 Random.seed!(666)
 with_coherent = true
+
+# Config for algorithmic thermalization
+mixing_time = 15.0
+delta = 0.01
 
 #* Hamiltonian
 # hamiltonian_terms = [["X", "X"], ["Z"]]
@@ -30,9 +36,13 @@ with_coherent = true
 hamiltonian = find_ideal_heisenberg(num_qubits, fill(1.0, 3); batch_size=100)
 hamiltonian.bohr_freqs = hamiltonian.eigvals .- transpose(hamiltonian.eigvals)
 gibbs = gibbs_state_in_eigen(hamiltonian, beta)
+initial_dm = Matrix{ComplexF64}(I(dim) / dim)
+@assert norm(real(tr(initial_dm)) - 1.) < 1e-15 "Trace is not 1.0"
+@assert norm(initial_dm - initial_dm') < 1e-15 "Not Hermitian"
 
 N = 2^(num_energy_bits)
 w0 = 32 / N  #! Increasing this not always makes OFT better, why?
+# w0 = 0.04
 t0 = 2 * pi / (N * w0)
 @printf("Smallest Bohr frequency: %s\n", hamiltonian.nu_min)
 @printf("Chosen w0: %s\n", w0)
@@ -40,15 +50,13 @@ t0 = 2 * pi / (N * w0)
 N_labels = [0:1:Int(N/2)-1; -Int(N/2):1:-1]
 energy_labels = w0 * N_labels
 time_labels = t0 * N_labels  #? Truncating energy domain should concern time domain?
-maximum(time_labels)
-maximum(energy_labels)
 
-get_energy_cutoff_for_alpha(beta, nu_max, eps) = nu_max + sqrt(4 * log(1/eps) / beta^2)
-# nu_max = 0.45
-energy_cutoff_epsilon = 1e-4
-energy_cutoff_for_alpha = get_energy_cutoff_for_alpha(beta, 0.45, energy_cutoff_epsilon)
+# Energy labels truncation
+alpha_cutoff(beta, nu_max, eps) = (-(1/beta - nu_max) + sqrt((1/beta - nu_max)^2 
+                                                - 4 * (1/(2*beta^2) + nu_max^2/2 - log(beta/(sqrt(2*pi)*eps))/beta^2))) / 2
+gaussians_cutoff_epsilon = 1e-16  # Makes the result only worse sometimes at 1e-14
+energy_cutoff_for_alpha = alpha_cutoff(beta, 0.45, gaussians_cutoff_epsilon)
 energy_labels = energy_labels[abs.(energy_labels) .<= energy_cutoff_for_alpha]
-maximum(energy_labels)
 
 #* Jumps
 X::Matrix{ComplexF64} = [0 1; 1 0]
@@ -74,6 +82,19 @@ for pauli in jump_paulis
     push!(all_jumps_generated, jump)
     end
 end
+
+#* Thermalization
+# results = @time thermalize_gauss(all_jumps_generated, hamiltonian, initial_dm, energy_labels, with_coherent, 
+# delta, mixing_time, beta)
+# results_time = @time thermalize_gauss_time(all_jumps_generated, hamiltonian, initial_dm, energy_labels, time_labels,
+# with_coherent, delta, mixing_time, beta)
+
+# evolved_dm = results.evolved_dm
+# evolved_dm_time = results_time.evolved_dm
+# @printf("Difference between evolved dms: %s\n", norm(evolved_dm - evolved_dm_time))
+
+# @printf("Last distance to Gibbs in TIME: %s\n", results_time.distances_to_gibbs[end])
+# @printf("Last distance to Gibbs: %s\n", results.distances_to_gibbs[end])
 
 #* Time vs Bohr Liouvillians
 liouv_bohr = @time construct_liouvillian_bohr_gauss(all_jumps_generated, hamiltonian, with_coherent, beta)

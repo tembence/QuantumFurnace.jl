@@ -46,11 +46,13 @@ mutable struct LiouvLiouv
     mixing_time_bound::Float64
 end
 
+#TODO: add unitary that transforms from energy to trotter basis
 mutable struct TrottTrott
     t0::Float64
     num_trotter_steps_per_t0::Rational{Int64}
     eigvals_t0::Vector{ComplexF64}
     eigvecs::Matrix{ComplexF64}
+    trafo_from_eigen_to_trotter::Matrix{ComplexF64}
 end
 
 mutable struct HotAlgorithmResults

@@ -13,12 +13,18 @@ include("structs.jl")
 include("bohr_gauss.jl")
 include("energy_gauss.jl")
 
-num_qubits = 4
+#* Config
+num_qubits = 3
 dim = 2^num_qubits
 num_energy_bits = 6
 beta = 10.
 Random.seed!(666)
 with_coherent = true
+@printf("B was added: %s\n", with_coherent)
+
+# Config for algorithmic thermalization
+mixing_time = 15.0
+delta = 0.01
 
 #* Hamiltonian
 # hamiltonian_terms = [["X", "X"], ["Z"]]
@@ -27,20 +33,29 @@ with_coherent = true
 hamiltonian = find_ideal_heisenberg(num_qubits, fill(1.0, 3); batch_size=100)
 hamiltonian.bohr_freqs = hamiltonian.eigvals .- transpose(hamiltonian.eigvals)
 gibbs = gibbs_state_in_eigen(hamiltonian, beta)
+initial_dm = Matrix{ComplexF64}(I(dim) / dim)
+@assert norm(real(tr(initial_dm)) - 1.) < 1e-15 "Trace is not 1.0"
+@assert norm(initial_dm - initial_dm') < 1e-15 "Not Hermitian"
 
 N = 2^(num_energy_bits)
-# w0 = 0.08
-w0 = 2/N
+# w0 = 4/N
+w0 = 0.04
 # w0 = hamiltonian.nu_min
 @printf("Smallest Bohr frequency: %s\n", hamiltonian.nu_min)
 @printf("Chosen w0: %s\n", w0)
 N_labels = [0:1:Int(N/2)-1; -Int(N/2):1:-1]
 energy_labels = w0 * N_labels
+(maximum(energy_labels) - minimum(energy_labels) )/ (N - 1) == w0
 maximum(energy_labels)
-get_energy_cutoff_for_alpha(beta, nu_max, eps) = nu_max + sqrt(4 * log(1/eps) / beta^2)
-# nu_max = 0.45
-energy_cutoff_epsilon = 1e-4
-energy_cutoff_for_alpha = get_energy_cutoff_for_alpha(beta, 0.45, energy_cutoff_epsilon)
+
+# Energy labels truncation
+alpha_cutoff(beta, nu_max, eps) = (-(1/beta - nu_max) + sqrt((1/beta - nu_max)^2 
+                                                - 4 * (1/(2*beta^2) + nu_max^2/2 - log(beta/(sqrt(2*pi)*eps))/beta^2))) / 2
+gaussians_cutoff_epsilon = 1e-16  # Makes the result only worse sometimes at 1e-14 from 1e-16
+energy_cutoff_for_alpha = alpha_cutoff(beta, 0.45, gaussians_cutoff_epsilon)
+
+# check_alpha_fn(w, beta, nu_max) = beta * exp(-beta^2*(w + 1/beta)^2 / 2) * exp(-beta^2 * (w - nu_max)^2 / 4)^2 / sqrt(2 * pi)
+# alpha_at_energy_cutoff = check_alpha_fn(energy_cutoff_for_alpha, beta, 0.45)
 energy_labels = energy_labels[abs.(energy_labels) .<= energy_cutoff_for_alpha]
 maximum(energy_labels)
 
@@ -69,51 +84,29 @@ for pauli in jump_paulis
     end
 end
 
-# bohr_dict::Dict{Float64, Vector{CartesianIndex{2}}} = create_bohr_dict(hamiltonian)
-# the_jump = all_jumps_generated[1]
-# round.(real.(the_jump.in_eigenbasis), digits=4)
-# bohr_dict[0.0]
-# nu_2 = hamiltonian.bohr_freqs[1, 2]
-# alpha_fn(nu_1, nu_2) = exp(-beta^2 * (nu_1 + nu_2 + 2/beta)^2/16) * exp(-beta^2 * (nu_1 - nu_2)^2/8) / sqrt(8)
-# alpha_nu1_matrix = create_alpha_nu1_matrix(hamiltonian.bohr_freqs, nu_2, beta)
+#* Thermalization
+results_bohr = @time thermalize_bohr_gauss(all_jumps_generated, hamiltonian, initial_dm, delta, mixing_time, beta)
+results = @time thermalize_gauss(all_jumps_generated, hamiltonian, initial_dm, energy_labels, with_coherent, 
+delta, mixing_time, beta)
 
-# A_nu1s = alpha_nu1_matrix .* the_jump.in_eigenbasis
-# A_nu1s_constructed = zeros(ComplexF64, size(hamiltonian.data))
-# for nu_1 in keys(bohr_dict)
-#     @printf("nu_1: %s\n", nu_1)
-#     @printf("Bohr dict nu_1: %s\n", bohr_dict[nu_1])
-#     A_nu_1::SparseMatrixCSC{ComplexF64} = spzeros(dim, dim)
-#     A_nu_1[bohr_dict[nu_1]] .= the_jump.in_eigenbasis[bohr_dict[nu_1]]
-#     A_nu1s_constructed .+= alpha_fn(nu_1, nu_2) * A_nu_1
-# end
-# norm(A_nu1s - A_nu1s_constructed)
-
-
-# for nu_2 in keys(bohr_dict)
-#     alpha_nu1_matrix = create_alpha_nu1_matrix(hamiltonian.bohr_freqs, nu_2, beta)
-#     A_nu_2::SparseMatrixCSC{ComplexF64} = spzeros(dim, dim)
-#     A_nu_2[bohr_dict[nu_2]] .= jump.in_eigenbasis[bohr_dict[nu_2]]
-#     A_nu_2_dagger::SparseMatrixCSC{ComplexF64} = A_nu_2'
-#     A_nu1s = alpha_nu1_matrix .* the_jump.in_eigenbasis
-# end
-
-#* Transition part of Liouvillian
-# T_energy = transition_gauss_vectorized(all_jumps_generated, hamiltonian, energy_labels, beta)
-# T_bohr = transition_bohr_gauss_vectorized(all_jumps_generated, hamiltonian, beta)
-# norm(T_bohr - T_energy)
+@printf("Last distance to Gibbs in BOHR: %s\n", results_bohr.distances_to_gibbs[end])
+@printf("Last distance to Gibbs: %s\n", results.distances_to_gibbs[end])
 
 #* Full Liouvillian match
-liouv_energy = @time construct_liouvillian_gauss(all_jumps_generated, hamiltonian, energy_labels, with_coherent, beta)
-liouv_bohr = @time construct_liouvillian_bohr_gauss(all_jumps_generated, hamiltonian, with_coherent, beta)
-@printf("Deviation between Liouvillians (Bohr - Energy): %s\n", norm(liouv_bohr - liouv_energy))
+# liouv_energy = @time construct_liouvillian_gauss(all_jumps_generated, hamiltonian, energy_labels, with_coherent, beta)
+# liouv_bohr = @time construct_liouvillian_bohr_gauss(all_jumps_generated, hamiltonian, with_coherent, beta)
+# @printf("Deviation between Liouvillians (Bohr - Energy): %s\n", norm(liouv_bohr - liouv_energy))
 
-# Energy
-liouv_eigvals, liouv_eigvecs = eigen(liouv_energy) 
-steady_state_vec = liouv_eigvecs[:, end]
-steady_state_dm = reshape(steady_state_vec, size(hamiltonian.data))
-steady_state_dm /= tr(steady_state_dm)
+# # Energy
+# liouv_eigvals, liouv_eigvecs = eigen(liouv_energy) 
+# steady_state_vec = liouv_eigvecs[:, end]
+# steady_state_dm = reshape(steady_state_vec, size(hamiltonian.data))
+# steady_state_dm /= tr(steady_state_dm)
 
-@printf("Steady state closeness to Gibbs for Liouvillian (Energy): %s\n", norm(steady_state_dm - gibbs))
+# lambda2 = liouv_eigvals[end] - liouv_eigvals[end-1]
+# @printf("Lambda2: %s\n", lambda2)
+
+# @printf("Steady state closeness to Gibbs for Liouvillian (Energy): %s\n", norm(steady_state_dm - gibbs))
 
 #* Other comparison for integral
 # Energy side
@@ -192,3 +185,36 @@ steady_state_dm /= tr(steady_state_dm)
 
 # @printf("Max deviation between alphas (nu by nu): %s\n", max_deviation)
 
+
+# bohr_dict::Dict{Float64, Vector{CartesianIndex{2}}} = create_bohr_dict(hamiltonian)
+# the_jump = all_jumps_generated[1]
+# round.(real.(the_jump.in_eigenbasis), digits=4)
+# bohr_dict[0.0]
+# nu_2 = hamiltonian.bohr_freqs[1, 2]
+# alpha_fn(nu_1, nu_2) = exp(-beta^2 * (nu_1 + nu_2 + 2/beta)^2/16) * exp(-beta^2 * (nu_1 - nu_2)^2/8) / sqrt(8)
+# alpha_nu1_matrix = create_alpha_nu1_matrix(hamiltonian.bohr_freqs, nu_2, beta)
+
+# A_nu1s = alpha_nu1_matrix .* the_jump.in_eigenbasis
+# A_nu1s_constructed = zeros(ComplexF64, size(hamiltonian.data))
+# for nu_1 in keys(bohr_dict)
+#     @printf("nu_1: %s\n", nu_1)
+#     @printf("Bohr dict nu_1: %s\n", bohr_dict[nu_1])
+#     A_nu_1::SparseMatrixCSC{ComplexF64} = spzeros(dim, dim)
+#     A_nu_1[bohr_dict[nu_1]] .= the_jump.in_eigenbasis[bohr_dict[nu_1]]
+#     A_nu1s_constructed .+= alpha_fn(nu_1, nu_2) * A_nu_1
+# end
+# norm(A_nu1s - A_nu1s_constructed)
+
+
+# for nu_2 in keys(bohr_dict)
+#     alpha_nu1_matrix = create_alpha_nu1_matrix(hamiltonian.bohr_freqs, nu_2, beta)
+#     A_nu_2::SparseMatrixCSC{ComplexF64} = spzeros(dim, dim)
+#     A_nu_2[bohr_dict[nu_2]] .= jump.in_eigenbasis[bohr_dict[nu_2]]
+#     A_nu_2_dagger::SparseMatrixCSC{ComplexF64} = A_nu_2'
+#     A_nu1s = alpha_nu1_matrix .* the_jump.in_eigenbasis
+# end
+
+#* Transition part of Liouvillian
+# T_energy = transition_gauss_vectorized(all_jumps_generated, hamiltonian, energy_labels, beta)
+# T_bohr = transition_bohr_gauss_vectorized(all_jumps_generated, hamiltonian, beta)
+# norm(T_bohr - T_energy)

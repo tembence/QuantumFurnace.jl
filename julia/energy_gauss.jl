@@ -40,6 +40,49 @@ function construct_liouvillian_gauss(jumps::Vector{JumpOp}, hamiltonian::HamHam,
     return total_liouv_coherent_part .+ w0 * oft_norm_squared * total_liouv_diss_part
 end
 
+function thermalize_gauss(jumps::Vector{JumpOp}, hamiltonian::HamHam, initial_dm::Matrix{ComplexF64},
+    energy_labels::Vector{Float64}, with_coherent::Bool, delta::Float64, mixing_time::Float64, beta::Float64)
+
+    w0 = energy_labels[2] - energy_labels[1]
+    dim = size(hamiltonian.data, 1)
+    num_liouv_steps = Int(round(mixing_time / delta, digits=0))
+    gibbs = Hermitian(gibbs_state_in_eigen(hamiltonian, beta))
+    transition_gauss(w) = exp(-beta^2 * (w + 1/beta)^2 /2)
+
+    bohr_dict::Dict{Float64, Vector{CartesianIndex{2}}} = create_bohr_dict(hamiltonian)
+
+    distances_to_gibbs = [trace_distance_h(Hermitian(initial_dm), gibbs)]
+    time_steps = [0.0:delta:(mixing_time);]
+    evolved_dm = copy(initial_dm)
+    # This implementation applies all jumps at once for one Liouvillian step.
+    @showprogress dt=1 desc="Thermalize (Gaussian)..." for step in 1:num_liouv_steps
+        coherent_dm_part = zeros(ComplexF64, dim, dim)
+        dissipative_dm_part = zeros(ComplexF64, dim, dim)
+
+        for jump in jumps
+            # Coherent part
+            if with_coherent
+                coherent_term = coherent_gaussian_bohr(hamiltonian, bohr_dict, jump, beta)
+                coherent_dm_part .+= - 1im * (coherent_term * evolved_dm - evolved_dm * coherent_term)
+            end
+
+            # Dissipative part
+            for w in energy_labels
+                jump_oft = oft(jump, w, hamiltonian, beta)
+                jump_dag_jump = jump_oft' * jump_oft
+                dissipative_dm_part .+= transition_gauss(w) * (jump_oft * evolved_dm * jump_oft' 
+                                                                - 0.5 * (jump_dag_jump * evolved_dm 
+                                                                        + evolved_dm * jump_dag_jump))
+            end
+        end
+        oft_prefactor = w0 * beta / sqrt(2 * pi)  # discrete sum w0 + OFT normalization^2 + Fourier factor
+        evolved_dm .+= delta * (coherent_dm_part + oft_prefactor * dissipative_dm_part)
+        dist = trace_distance_h(Hermitian(evolved_dm), gibbs)
+        push!(distances_to_gibbs, dist)
+    end
+    return HotAlgorithmResults(evolved_dm, distances_to_gibbs, time_steps)
+end
+
 function transition_gauss_vectorized(jumps::Vector{JumpOp}, hamiltonian::HamHam, energy_labels::Vector{Float64}, 
     beta::Float64)
 

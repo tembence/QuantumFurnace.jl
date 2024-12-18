@@ -15,7 +15,8 @@ function create_trotter(hamiltonian::HamHam, t0::Float64, num_trotter_steps_per_
     trott2_1step_of_t0 = trotterize2(hamiltonian, t0/num_trotter_steps_per_t0, 1)
     trott_eigvals, trott_eigvecs = eigen(trott2_1step_of_t0)
     trott2_t0_eigvals = trott_eigvals.^num_trotter_steps_per_t0
-    return TrottTrott(t0, num_trotter_steps_per_t0, trott2_t0_eigvals, trott_eigvecs)
+    unitary_from_eigen_to_trotter = trott_eigvecs' * hamiltonian.eigvecs
+    return TrottTrott(t0, num_trotter_steps_per_t0, trott2_t0_eigvals, trott_eigvecs, unitary_from_eigen_to_trotter)
 end
 
 function trotttrotterize2(trotter::TrottTrott, T::Float64)
