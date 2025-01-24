@@ -11,7 +11,7 @@ using QuadGK
 include("hamiltonian.jl")
 include("qi_tools.jl")
 include("structs.jl")
-include("bohr_gauss.jl")
+include("bohr.jl")
 include("ofts.jl")
 
 function construct_liouvillian_gauss(jumps::Vector{JumpOp}, hamiltonian::HamHam, energy_labels::Vector{Float64}, 

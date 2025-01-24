@@ -7,7 +7,7 @@ using JLD
 include("hamiltonian.jl")
 include("ofts.jl")
 include("qi_tools.jl")
-include("bohr_gauss.jl")
+include("bohr.jl")
 
 #* Parameters
 num_qubits = 3
@@ -23,8 +23,7 @@ save_it = false
 with_coherent = true
 
 #* Hamiltonian
-ham_filename(n) = @sprintf("/Users/bence/code/liouvillian_metro/julia/data/hamiltonian_n%d.jld", n)
-hamiltonian = load(ham_filename(num_qubits))["ideal_ham"]
+hamiltonian = find_ideal_heisenberg(num_qubits, fill(1.0, 3); batch_size=10)
 hamiltonian.bohr_freqs = hamiltonian.eigvals .- transpose(hamiltonian.eigvals)
 
 # initial_dm_OG = Matrix{ComplexF64}(diagm([0.25, 0.75]))
@@ -74,11 +73,12 @@ end
 @printf("Delta: %s\n", delta)
 
 #* Thermalize
-results = thermalize_bohr_gauss(all_jumps_generated, hamiltonian, initial_dm_OG, delta, mixing_time, beta)
-plot(results.time_steps, results.distances_to_gibbs, 
-    label="Distance to Gibbs", xlabel="Time", ylabel="Distance", title="Distance to Gibbs over time")
+# results = thermalize_bohr_gauss(all_jumps_generated, hamiltonian, initial_dm_OG, delta, mixing_time, beta)
+# plot(results.time_steps, results.distances_to_gibbs, 
+#     label="Distance to Gibbs", xlabel="Time", ylabel="Distance", title="Distance to Gibbs over time")
 
-results.distances_to_gibbs[end]
+# results.distances_to_gibbs[end]
+
 #* Construct Bohr Liouvillian
 @time liouv_matrix = construct_liouvillian_bohr_gauss(all_jumps_generated, hamiltonian, with_coherent, beta)
 liouv_eigvals, liouv_eigvecs = eigen(liouv_matrix) 
@@ -91,9 +91,9 @@ liouvillian_evolved_vec = exp(mixing_time * liouv_matrix) * vec(initial_dm_OG)  
 liouvillian_evolved_dm = reshape(liouvillian_evolved_vec, size(hamiltonian.data))
 
 #* Difference between perfect Liouvillian evolved dm vs Alg evolved dm
-norm(results.evolved_dm - liouvillian_evolved_dm)
-norm(results.evolved_dm - gibbs)
-norm(liouvillian_evolved_dm - gibbs)
+# norm(results.evolved_dm - liouvillian_evolved_dm)
+# norm(results.evolved_dm - gibbs)
+# norm(liouvillian_evolved_dm - gibbs)
 
 #* Steady state, Gibbs?
-# norm(gibbs_vec - steady_state_vec)
+norm(gibbs_vec - steady_state_vec)

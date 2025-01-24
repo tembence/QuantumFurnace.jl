@@ -12,6 +12,7 @@ include("qi_tools.jl")
 include("structs.jl")
 include("bohr_gauss.jl")
 include("energy_gauss.jl")
+include("energy_metro.jl")
 
 #* Config
 num_qubits = 3
@@ -56,8 +57,8 @@ energy_cutoff_for_alpha = alpha_cutoff(beta, 0.45, gaussians_cutoff_epsilon)
 
 # check_alpha_fn(w, beta, nu_max) = beta * exp(-beta^2*(w + 1/beta)^2 / 2) * exp(-beta^2 * (w - nu_max)^2 / 4)^2 / sqrt(2 * pi)
 # alpha_at_energy_cutoff = check_alpha_fn(energy_cutoff_for_alpha, beta, 0.45)
-energy_labels = energy_labels[abs.(energy_labels) .<= energy_cutoff_for_alpha]
-maximum(energy_labels)
+
+# energy_labels = energy_labels[abs.(energy_labels) .<= energy_cutoff_for_alpha] #! Undo for Gauss
 
 #* Jumps
 X::Matrix{ComplexF64} = [0 1; 1 0]
@@ -85,28 +86,31 @@ for pauli in jump_paulis
 end
 
 #* Thermalization
-results_bohr = @time thermalize_bohr_gauss(all_jumps_generated, hamiltonian, initial_dm, delta, mixing_time, beta)
-results = @time thermalize_gauss(all_jumps_generated, hamiltonian, initial_dm, energy_labels, with_coherent, 
-delta, mixing_time, beta)
+# results_bohr = @time thermalize_bohr_gauss(all_jumps_generated, hamiltonian, initial_dm, delta, mixing_time, beta)
+# results = @time thermalize_gauss(all_jumps_generated, hamiltonian, initial_dm, energy_labels, with_coherent, 
+# delta, mixing_time, beta)
 
-@printf("Last distance to Gibbs in BOHR: %s\n", results_bohr.distances_to_gibbs[end])
-@printf("Last distance to Gibbs: %s\n", results.distances_to_gibbs[end])
+# @printf("Last distance to Gibbs in BOHR: %s\n", results_bohr.distances_to_gibbs[end])
+# @printf("Last distance to Gibbs: %s\n", results.distances_to_gibbs[end])
 
 #* Full Liouvillian match
-# liouv_energy = @time construct_liouvillian_gauss(all_jumps_generated, hamiltonian, energy_labels, with_coherent, beta)
-# liouv_bohr = @time construct_liouvillian_bohr_gauss(all_jumps_generated, hamiltonian, with_coherent, beta)
-# @printf("Deviation between Liouvillians (Bohr - Energy): %s\n", norm(liouv_bohr - liouv_energy))
+liouv_energy = @time construct_liouvillian_gauss(all_jumps_generated, hamiltonian, energy_labels, with_coherent, beta)
+liouv_energy_metro = @time construct_liouvillian_metro(all_jumps_generated, hamiltonian, energy_labels, with_coherent, beta)
+liouv_bohr = @time construct_liouvillian_bohr_gauss(all_jumps_generated, hamiltonian, with_coherent, beta)
+@printf("Deviation between Liouvillians (Bohr - Energy): %s\n", norm(liouv_bohr - liouv_energy))
+@printf("Deviation between Liouvillians (Bohr - Energy METRO): %s\n", norm(liouv_bohr - liouv_energy_metro))
 
-# # Energy
-# liouv_eigvals, liouv_eigvecs = eigen(liouv_energy) 
-# steady_state_vec = liouv_eigvecs[:, end]
-# steady_state_dm = reshape(steady_state_vec, size(hamiltonian.data))
-# steady_state_dm /= tr(steady_state_dm)
 
-# lambda2 = liouv_eigvals[end] - liouv_eigvals[end-1]
-# @printf("Lambda2: %s\n", lambda2)
+# Energy
+liouv_eigvals, liouv_eigvecs = eigen(liouv_energy_metro) 
+steady_state_vec = liouv_eigvecs[:, end]
+steady_state_dm = reshape(steady_state_vec, size(hamiltonian.data))
+steady_state_dm /= tr(steady_state_dm)
 
-# @printf("Steady state closeness to Gibbs for Liouvillian (Energy): %s\n", norm(steady_state_dm - gibbs))
+lambda2 = liouv_eigvals[end] - liouv_eigvals[end-1]
+@printf("Lambda2: %s\n", lambda2)
+
+@printf("Steady state closeness to Gibbs for Liouvillian (Energy): %s\n", norm(steady_state_dm - gibbs))
 
 #* Other comparison for integral
 # Energy side
