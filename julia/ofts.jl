@@ -10,8 +10,7 @@ include("qi_tools.jl")
 include("structs.jl")
 
 function oft(jump::JumpOp, energy::Float64, hamiltonian::HamHam, beta::Float64)
-    """sigma_E = 1 / beta. Subnormalized, multiply by sqrt(beta / sqrt(8 * pi))"""
-    # /sqrt(sqrt(8 * pi) / beta)
+    """sigma_E = 1 / beta. Subnormalized, multiply by sqrt(beta / sqrt(2 * pi))"""
     return jump.in_eigenbasis .* exp.(-beta^2 * (energy .- hamiltonian.bohr_freqs).^2 / 4) 
 end
 

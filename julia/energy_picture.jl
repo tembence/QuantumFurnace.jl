@@ -11,9 +11,11 @@ using QuadGK
 include("hamiltonian.jl")
 include("qi_tools.jl")
 include("structs.jl")
-include("bohr.jl")
+include("bohr_picture.jl")
 include("ofts.jl")
 
+
+#* BOHR 
 function construct_liouvillian_gauss(jumps::Vector{JumpOp}, hamiltonian::HamHam, energy_labels::Vector{Float64}, 
     with_coherent::Bool, beta::Float64)
 
@@ -97,7 +99,7 @@ function transition_gauss_vectorized(jumps::Vector{JumpOp}, hamiltonian::HamHam,
             T .+= transition_gauss(w) * kron(jump_oft, conj(jump_oft))
         end
     end
-    return w0 * beta * T / sqrt(8 * pi)  # with OFT normalizations
+    return w0 * beta * T / sqrt(2 * pi)  # with OFT normalizations
 end
 
 function transition_bohr_gauss_from_energy_vectorized(jumps::Vector{JumpOp}, hamiltonian::HamHam, 
@@ -122,7 +124,7 @@ function transition_bohr_gauss_from_energy_vectorized(jumps::Vector{JumpOp}, ham
             end
         end
     end
-    return beta * w0 * T / sqrt(8 * pi)
+    return beta * w0 * T / sqrt(2 * pi)
 end
 
 
@@ -189,4 +191,51 @@ function create_alpha_from_gaussians_integrated(nu_1::Float64, nu_2::Float64, nu
     alpha_nu1_nu2, _ = quadgk(alpha_integrand, energy_domain[1], energy_domain[2]; atol=1e-12, rtol=1e-12)
 
     return alpha_nu1_nu2
+end
+
+#* METRO
+function construct_liouvillian_metro(jumps::Vector{JumpOp}, hamiltonian::HamHam, energy_labels::Vector{Float64}, 
+    with_coherent::Bool, beta::Float64)
+
+    dim = size(hamiltonian.data, 1)
+    w0 = energy_labels[2] - energy_labels[1]
+    bohr_dict::Dict{Float64, Vector{CartesianIndex{2}}} = create_bohr_dict(hamiltonian)
+    transition_metro(w) = exp(-beta * max(w + 1/(2*beta), 0.0))
+
+    total_liouv_coherent_part = zeros(ComplexF64, dim^2, dim^2)
+    total_liouv_diss_part = zeros(ComplexF64, dim^2, dim^2)
+
+    @showprogress desc="Liouvillian (Energy)..." for jump in jumps
+        if with_coherent  # There is no energy formulation of the coherent term, only Bohr and time.
+            coherent_term = coherent_metro_bohr(hamiltonian, bohr_dict, jump, beta)
+            @printf("Is B METRO Hermitian?:%s\n", norm(coherent_term - coherent_term'))
+            total_liouv_coherent_part .+= vectorize_liouvillian_coherent(coherent_term)
+        end
+
+        for w in energy_labels
+            jump_oft = oft(jump, w, hamiltonian, beta)
+            total_liouv_diss_part .+= transition_metro(w) * vectorize_liouvillian_diss(jump_oft)
+        end
+    end
+    oft_norm_squared = beta / sqrt(2 * pi) #! sqrt(8 * pi) -> sqrt(2 * pi)
+    return total_liouv_coherent_part .+ w0 * oft_norm_squared * total_liouv_diss_part
+end
+
+function transition_metro(jumps::Vector{JumpOp}, hamiltonian::HamHam, energy_labels::Vector{Float64}, 
+    beta::Float64)
+
+    dim = size(hamiltonian.data, 1)
+    w0 = energy_labels[2] - energy_labels[1]
+    transition_metro(w) = exp(-beta * max(w + 1/(2 * beta), 0.0))
+
+    total_liouv_transition = zeros(ComplexF64, dim^2, dim^2)
+    for jump in jumps
+        for w in energy_labels
+            jump_oft = oft(jump, w, hamiltonian, beta)
+
+            vectorized_transition = transition_metro(w) * kron(jump_oft, conj(jump_oft))
+            total_liouv_transition .+=  vectorized_transition 
+        end
+    end
+    return w0 * beta * total_liouv_transition / sqrt(2 * pi)
 end

@@ -20,7 +20,7 @@ function construct_liouvillian_bohr_gauss(jumps::Vector{JumpOp}, hamiltonian::Ha
 
     # Bohr dictionary
     bohr_dict::Dict{Float64, Vector{CartesianIndex{2}}} = create_bohr_dict(hamiltonian)
-    unique_freqs = Set(keys(bohr_dict))
+    unique_freqs = keys(bohr_dict)
 
     liouv = zeros(ComplexF64, dim^2, dim^2)
     @showprogress desc="Liouvillian (Bohr)..." for jump in jumps
@@ -32,7 +32,6 @@ function construct_liouvillian_bohr_gauss(jumps::Vector{JumpOp}, hamiltonian::Ha
 
         # Dissipative part
         for nu_2 in unique_freqs
-            # mask_matrix = exact_mask(hamiltonian.bohr_freqs, nu_2, unique_freqs)
             alpha_nu1_matrix = create_alpha_nu1_matrix(hamiltonian.bohr_freqs, nu_2, beta)
 
             A_nu_2::SparseMatrixCSC{ComplexF64} = spzeros(dim, dim)
@@ -97,15 +96,13 @@ function coherent_gaussian_bohr(hamiltonian::HamHam,
     bohr_dict::Dict{Float64, Vector{CartesianIndex{2}}}, jump::JumpOp, beta::Float64)
 
     dim = size(hamiltonian.data, 1)
-    unique_freqs = Set(keys(bohr_dict))
+    unique_freqs = keys(bohr_dict)
 
     B = zeros(ComplexF64, dim, dim)
     for nu_2 in unique_freqs
-        mask_matrix = exact_mask(hamiltonian.bohr_freqs, nu_2, unique_freqs)
-
         A_nu_2::SparseMatrixCSC{ComplexF64} = spzeros(dim, dim)
         A_nu_2[bohr_dict[nu_2]] .= jump.in_eigenbasis[bohr_dict[nu_2]]
-        f_nu1_matrix = mask_matrix .* create_f_nu1_matrix(hamiltonian.bohr_freqs, nu_2, beta)
+        f_nu1_matrix = create_f_nu1_matrix(hamiltonian.bohr_freqs, nu_2, beta)
 
         B .+= A_nu_2' * (f_nu1_matrix .* jump.in_eigenbasis)
     end
@@ -303,7 +300,7 @@ function construct_liouvillian_bohr_metro(jumps::Vector{JumpOp}, hamiltonian::Ha
 
     # Bohr dictionary
     bohr_dict::Dict{Float64, Vector{CartesianIndex{2}}} = create_bohr_dict(hamiltonian)
-    unique_freqs = Set(keys(bohr_dict))
+    unique_freqs = keys(bohr_dict)
 
     liouv = zeros(ComplexF64, dim^2, dim^2)
     @showprogress desc="Liouvillian (Bohr)..." for jump in jumps
@@ -315,11 +312,7 @@ function construct_liouvillian_bohr_metro(jumps::Vector{JumpOp}, hamiltonian::Ha
 
         # Dissipative part
         for nu_2 in unique_freqs
-            #FIXME: Wait can it happen here still that there is liouv contribution and this is not a proper mask??
-            #! I dont think we have to enforce the condition here for R and also T, only for B
-            #! But it leads to always a better result...
-            mask_matrix = exact_mask(hamiltonian.bohr_freqs, nu_2, unique_freqs)  # Mask to have nu_1 - nu_2 = Bohr 
-            alpha_nu1_matrix = mask_matrix .* create_alpha_nu1_matrix_metro(hamiltonian.bohr_freqs, nu_2, beta)
+            alpha_nu1_matrix = create_alpha_nu1_matrix_metro(hamiltonian.bohr_freqs, nu_2, beta)
 
             A_nu_2::SparseMatrixCSC{ComplexF64} = spzeros(dim, dim)
             A_nu_2_dagger::SparseMatrixCSC{ComplexF64} = spzeros(dim, dim)
@@ -337,16 +330,14 @@ function coherent_metro_bohr(hamiltonian::HamHam,
     bohr_dict::Dict{Float64, Vector{CartesianIndex{2}}}, jump::JumpOp, beta::Float64)
 
     dim = size(hamiltonian.data, 1)
-    unique_freqs = Set(keys(bohr_dict))
+    unique_freqs = keys(bohr_dict)
 
     B = zeros(ComplexF64, dim, dim)
     for nu_2 in unique_freqs
-        # Mask to have nu_1 - nu_2 = nu for 
-        mask_matrix = exact_mask(hamiltonian.bohr_freqs, nu_2, unique_freqs)
 
         A_nu_2::SparseMatrixCSC{ComplexF64} = spzeros(dim, dim)
         A_nu_2[bohr_dict[nu_2]] .= jump.in_eigenbasis[bohr_dict[nu_2]]
-        f_nu1_matrix = mask_matrix .* create_f_nu1_matrix_metro(hamiltonian.bohr_freqs, nu_2, beta)  #! Masked
+        f_nu1_matrix = create_f_nu1_matrix_metro(hamiltonian.bohr_freqs, nu_2, beta)
 
         B .+= A_nu_2' * (f_nu1_matrix .* jump.in_eigenbasis)
     end
@@ -395,13 +386,12 @@ function transition_bohr_metro(jumps::Vector{JumpOp}, hamiltonian::HamHam, beta:
 
     dim = size(hamiltonian.data, 1)
     bohr_dict::Dict{Float64, Vector{CartesianIndex{2}}} = create_bohr_dict(hamiltonian)
-    unique_freqs = Set(keys(bohr_dict))
+    unique_freqs = keys(bohr_dict)
 
     T = zeros(ComplexF64, dim^2, dim^2)
     for jump in jumps
         for nu_2 in unique_freqs
-            mask_matrix = exact_mask(hamiltonian.bohr_freqs, nu_2, unique_freqs)
-            alpha_nu1_matrix = mask_matrix .* create_alpha_nu1_matrix_metro(hamiltonian.bohr_freqs, nu_2, beta)
+            alpha_nu1_matrix = create_alpha_nu1_matrix_metro(hamiltonian.bohr_freqs, nu_2, beta)
 
             A_nu_2::SparseMatrixCSC{ComplexF64} = spzeros(dim, dim)
             A_nu_2[bohr_dict[nu_2]] .= jump.in_eigenbasis[bohr_dict[nu_2]]
@@ -422,13 +412,12 @@ function transition_bohr_metro_gibbsed(jumps::Vector{JumpOp}, hamiltonian::HamHa
     dim = size(hamiltonian.data, 1)
     gibbs = gibbs_state_in_eigen(hamiltonian, beta)
     bohr_dict::Dict{Float64, Vector{CartesianIndex{2}}} = create_bohr_dict(hamiltonian)
-    unique_freqs = Set(keys(bohr_dict))
+    unique_freqs = keys(bohr_dict)
 
     T = zeros(ComplexF64, dim^2, dim^2)
     for jump in jumps
         for nu_2 in unique_freqs
-            mask_matrix = exact_mask(hamiltonian.bohr_freqs, nu_2, unique_freqs)
-            alpha_nu1_matrix = mask_matrix .* create_alpha_nu1_matrix_metro(hamiltonian.bohr_freqs, nu_2, beta)
+            alpha_nu1_matrix = create_alpha_nu1_matrix_metro(hamiltonian.bohr_freqs, nu_2, beta)
 
             A_nu_2::SparseMatrixCSC{ComplexF64} = spzeros(dim, dim)
             A_nu_2[bohr_dict[nu_2]] .= jump.in_eigenbasis[bohr_dict[nu_2]]
@@ -456,33 +445,51 @@ function create_alpha_metro(nu_1::Float64, nu_2::Float64, beta::Float64)
     return alpha_fn(nu_1)
 end
 
-function exact_mask(bohr_freqs::Matrix{Float64}, nu_2::Float64, unique_freqs::Set{Float64})
-    nu1s_minus_nu_2 = bohr_freqs .- nu_2
-    return in.(nu1s_minus_nu_2, Ref(unique_freqs)) .+ 0
-end
-
-function approx_mask(bohr_freqs::Matrix{Float64}, nu_2::Float64, unique_freqs::Set{Float64})
-    eps = 1e-14
-    nu1s_minus_nu_2 = bohr_freqs .- nu_2
-    return map(x -> any(abs.(unique_freqs .- x) .< eps), nu1s_minus_nu_2) .+ 0
-end
-
 function create_f_nu1_matrix_metro(bohr_freqs::Matrix{Float64}, nu_2::Float64, beta::Float64)
     """Tanh * alpha. Gaussian parameters = 1/β"""
-
-    f_fn(nu_1) = (tanh(-beta * (nu_1 - nu_2) / 4) * exp(-beta^2 * (nu_1 - nu_2)^2/8) / (2 * (2 * im)) 
-    * (erfc((1 + beta * (nu_1 + nu_2))/sqrt(8)) + exp(-beta * (nu_1 + nu_2)/2) * erfc((1 - beta * (nu_1 + nu_2))/sqrt(8))))
-
-    return f_fn.(bohr_freqs)
+    tanh_matrix = tanh.(-beta * (bohr_freqs .- nu_2) / 4) / (2im)
+    alpha_matrix = create_alpha_nu1_matrix_metro(bohr_freqs, nu_2, beta)
+    return tanh_matrix .* alpha_matrix  # f
 end
 
 function create_f_metro(nu_1::Float64, nu_2::Float64, beta::Float64)
     """Tanh * alpha. Gaussian parameters = 1/β"""
-    f_fn(nu_1) = (tanh(-beta * (nu_1 - nu_2) / 4) * exp(-beta^2 * (nu_1 - nu_2)^2/8) / (2 * (2 * im)) 
-    * (erfc((1 + beta * (nu_1 + nu_2))/sqrt(8)) + exp(-beta * (nu_1 + nu_2)/2) * erfc((1 - beta * (nu_1 + nu_2))/sqrt(8))))
-
-    return f_fn(nu_1)
+    alpha_nu1_nu2 = create_alpha_metro(nu_1, nu_2, beta)
+    return tanh(-beta * (nu_1 - nu_2) / 4) * alpha_nu1_nu2 / (2im)
 end
+
+#* TOOLS
+function check_alpha_skew_symmetry(alpha::Function, nu_1::Float64, nu_2::Float64, beta::Float64)
+    @assert norm(alpha(nu_1, nu_2) - alpha(-nu_2, -nu_1) * exp(-beta * (nu_1 + nu_2) / 2)) < 1e-14
+end
+
+function create_bohr_dict(hamiltonian::HamHam)
+    """Creates a dictionary, where the keys are the Bohr frequencies, and the values are a list of their sparse indices 
+    in the Bohr matrix. (With special care on the diagonal elements, that are identically 0.)"""
+
+    bohr_dict = DefaultDict{Float64, Vector{CartesianIndex{2}}}(() -> CartesianIndex{2}[])
+    dim = size(hamiltonian.data, 1)
+    bohr_dict[0.0] = CartesianIndex{2}.(1:dim, 1:dim) # nu = 0.0 is the diagonal and might be other offdiags
+    for j in 1:dim
+        for i in 1:(j - 1)
+            push!(bohr_dict[hamiltonian.bohr_freqs[i, j]], CartesianIndex{2}(i, j))
+            push!(bohr_dict[-hamiltonian.bohr_freqs[i, j]], CartesianIndex{2}(j, i))
+        end
+    end
+    return bohr_dict
+end
+
+#* Some good code techniques to remember, but are not used
+# function exact_mask(bohr_freqs::Matrix{Float64}, nu_2::Float64, unique_freqs::Set{Float64})
+#     nu1s_minus_nu_2 = bohr_freqs .- nu_2
+#     return in.(nu1s_minus_nu_2, Ref(unique_freqs)) .+ 0
+# end
+
+# function approx_mask(bohr_freqs::Matrix{Float64}, nu_2::Float64, unique_freqs::Set{Float64})
+#     eps = 1e-14
+#     nu1s_minus_nu_2 = bohr_freqs .- nu_2
+#     return map(x -> any(abs.(unique_freqs .- x) .< eps), nu1s_minus_nu_2) .+ 0
+# end
 
 
 # function create_alpha_nu1_matrix_metro_integrated(bohr_freqs::Matrix{Float64}, nu_2::Float64, beta::Float64)
@@ -498,28 +505,3 @@ end
 #     weighed_gaussian(x) = exp(-beta^2*(energy + x)^2 / (4*x*beta - 2)) / sqrt(2 * pi * (2*x/beta - 1/beta^2))
 #     return quadgk(weighed_gaussian, 1/(2*beta), Inf)[1]
 # end
-
-
-#* TOOLS
-function check_alpha_skew_symmetry(alpha::Function, nu_1::Float64, nu_2::Float64, beta::Float64)
-    @assert norm(alpha(nu_1, nu_2) - alpha(-nu_2, -nu_1) * exp(-beta * (nu_1 + nu_2) / 2)) < 1e-14
-end
-
-function create_bohr_dict(hamiltonian::HamHam)
-    """Creates a dictionary, where the keys are the Bohr frequencies, and the values are a list of their sparse indices 
-    in the Bohr matrix. (With special care on the diagonal elements, that are identically 0.)"""
-
-    # bohr_dict = Dict{Float64, Vector{CartesianIndex{2}}}()
-    bohr_dict = DefaultDict{Float64, Vector{CartesianIndex{2}}}(() -> CartesianIndex{2}[])
-    dim = size(hamiltonian.data, 1)
-    bohr_dict[0.0] = CartesianIndex{2}.(1:dim, 1:dim) # nu = 0.0 is the diagonal and might be other offdiags
-    for j in 1:dim
-        for i in 1:(j - 1)
-            # bohr_dict[hamiltonian.bohr_freqs[i, j]] = [CartesianIndex{2}(i, j)]
-            # bohr_dict[-hamiltonian.bohr_freqs[i, j]] = [CartesianIndex{2}(j, i)]
-            push!(bohr_dict[hamiltonian.bohr_freqs[i, j]], CartesianIndex{2}(i, j))
-            push!(bohr_dict[-hamiltonian.bohr_freqs[i, j]], CartesianIndex{2}(j, i))
-        end
-    end
-    return bohr_dict
-end

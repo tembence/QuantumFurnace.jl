@@ -7,10 +7,10 @@ using JLD
 include("hamiltonian.jl")
 include("ofts.jl")
 include("qi_tools.jl")
-include("bohr.jl")
+include("bohr_picture.jl")
 
 #* Parameters
-num_qubits = 3
+num_qubits = 4
 dim = 2^num_qubits
 beta = 10.
 Random.seed!(666)

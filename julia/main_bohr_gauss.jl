@@ -7,7 +7,7 @@ using JLD
 include("hamiltonian.jl")
 include("ofts.jl")
 include("qi_tools.jl")
-include("bohr.jl")
+include("bohr_picture.jl")
 
 #* Parameters
 num_qubits = 3

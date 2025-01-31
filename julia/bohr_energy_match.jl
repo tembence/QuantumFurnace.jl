@@ -10,14 +10,16 @@ using Roots
 include("hamiltonian.jl")
 include("qi_tools.jl")
 include("structs.jl")
-include("bohr_gauss.jl")
-include("energy_gauss.jl")
-include("energy_metro.jl")
+include("bohr_picture.jl")
+include("energy_picture.jl")
+
+ENV["COLUMNS"] = "128"
+ENV["ROWS"] = "128"
 
 #* Config
-num_qubits = 3
+num_qubits = 2
 dim = 2^num_qubits
-num_energy_bits = 6
+num_energy_bits = 10
 beta = 10.
 Random.seed!(666)
 with_coherent = true
@@ -40,20 +42,21 @@ initial_dm = Matrix{ComplexF64}(I(dim) / dim)
 
 N = 2^(num_energy_bits)
 # w0 = 4/N
-w0 = 0.04
+w0 = 0.01
+E_max = w0 * 2^num_energy_bits
 # w0 = hamiltonian.nu_min
 @printf("Smallest Bohr frequency: %s\n", hamiltonian.nu_min)
 @printf("Chosen w0: %s\n", w0)
 N_labels = [0:1:Int(N/2)-1; -Int(N/2):1:-1]
 energy_labels = w0 * N_labels
-(maximum(energy_labels) - minimum(energy_labels) )/ (N - 1) == w0
+norm((maximum(energy_labels) - minimum(energy_labels) )/ (N - 1) - w0) <= 1e-15
 maximum(energy_labels)
 
 # Energy labels truncation
-alpha_cutoff(beta, nu_max, eps) = (-(1/beta - nu_max) + sqrt((1/beta - nu_max)^2 
-                                                - 4 * (1/(2*beta^2) + nu_max^2/2 - log(beta/(sqrt(2*pi)*eps))/beta^2))) / 2
-gaussians_cutoff_epsilon = 1e-16  # Makes the result only worse sometimes at 1e-14 from 1e-16
-energy_cutoff_for_alpha = alpha_cutoff(beta, 0.45, gaussians_cutoff_epsilon)
+# alpha_cutoff(beta, nu_max, eps) = (-(1/beta - nu_max) + sqrt((1/beta - nu_max)^2 
+#                                                 - 4 * (1/(2*beta^2) + nu_max^2/2 - log(beta/(sqrt(2*pi)*eps))/beta^2))) / 2
+# gaussians_cutoff_epsilon = 1e-16  # Makes the result only worse sometimes at 1e-14 from 1e-16
+# energy_cutoff_for_alpha = alpha_cutoff(beta, 0.45, gaussians_cutoff_epsilon)
 
 # check_alpha_fn(w, beta, nu_max) = beta * exp(-beta^2*(w + 1/beta)^2 / 2) * exp(-beta^2 * (w - nu_max)^2 / 4)^2 / sqrt(2 * pi)
 # alpha_at_energy_cutoff = check_alpha_fn(energy_cutoff_for_alpha, beta, 0.45)
@@ -65,12 +68,12 @@ X::Matrix{ComplexF64} = [0 1; 1 0]
 Y::Matrix{ComplexF64} = [0.0 -im; im 0.0]
 Z::Matrix{ComplexF64} = [1 0; 0 -1]
 H::Matrix{ComplexF64} = [1 1; 1 -1] / sqrt(2)
-jump_paulis = [[X], [Y], [Z]]
+jump_paulis = [[X]] #, [Y], [Z]]
 
 # All jumps once
 all_jumps_generated::Vector{JumpOp} = []
 for pauli in jump_paulis
-    for site in 1:num_qubits
+    for site in 1:1  #! ON 1 SITE
     jump_op = Matrix(pad_term(pauli, num_qubits, site))
     jump_op_in_eigenbasis = hamiltonian.eigvecs' * jump_op * hamiltonian.eigvecs
     jump_in_trotter_basis = zeros(0, 0)
@@ -94,23 +97,42 @@ end
 # @printf("Last distance to Gibbs: %s\n", results.distances_to_gibbs[end])
 
 #* Full Liouvillian match
-liouv_energy = @time construct_liouvillian_gauss(all_jumps_generated, hamiltonian, energy_labels, with_coherent, beta)
-liouv_energy_metro = @time construct_liouvillian_metro(all_jumps_generated, hamiltonian, energy_labels, with_coherent, beta)
-liouv_bohr = @time construct_liouvillian_bohr_gauss(all_jumps_generated, hamiltonian, with_coherent, beta)
-@printf("Deviation between Liouvillians (Bohr - Energy): %s\n", norm(liouv_bohr - liouv_energy))
-@printf("Deviation between Liouvillians (Bohr - Energy METRO): %s\n", norm(liouv_bohr - liouv_energy_metro))
+# liouv_energy = @time construct_liouvillian_gauss(all_jumps_generated, hamiltonian, energy_labels, with_coherent, beta)
+# liouv_energy_metro = @time construct_liouvillian_metro(all_jumps_generated, hamiltonian, energy_labels, with_coherent, beta)
+# liouv_bohr = @time construct_liouvillian_bohr_gauss(all_jumps_generated, hamiltonian, with_coherent, beta)
+# liouv_bohr_metro = construct_liouvillian_bohr_metro(all_jumps_generated, hamiltonian, with_coherent, beta)
+# @printf("Deviation between Liouvillians (Bohr - Energy): %s\n", norm(liouv_bohr - liouv_energy))
+# @printf("Deviation between Liouvillians (Bohr - Energy METRO): %s\n", norm(liouv_bohr_metro - liouv_energy_metro))
 
 
 # Energy
-liouv_eigvals, liouv_eigvecs = eigen(liouv_energy_metro) 
-steady_state_vec = liouv_eigvecs[:, end]
-steady_state_dm = reshape(steady_state_vec, size(hamiltonian.data))
-steady_state_dm /= tr(steady_state_dm)
+# liouv_eigvals, liouv_eigvecs = eigen(liouv_energy_metro) 
+# steady_state_vec = liouv_eigvecs[:, end]
+# steady_state_dm = reshape(steady_state_vec, size(hamiltonian.data))
+# steady_state_dm /= tr(steady_state_dm)
 
-lambda2 = liouv_eigvals[end] - liouv_eigvals[end-1]
-@printf("Lambda2: %s\n", lambda2)
+# lambda2 = liouv_eigvals[end] - liouv_eigvals[end-1]
+# @printf("Lambda2: %s\n", lambda2)
 
-@printf("Steady state closeness to Gibbs for Liouvillian (Energy): %s\n", norm(steady_state_dm - gibbs))
+# @printf("Steady state closeness to Gibbs for Liouvillian (Energy): %s\n", norm(steady_state_dm - gibbs))
+
+#* Transition part of Liouvillian
+T_energy_gauss = transition_gauss_vectorized(all_jumps_generated, hamiltonian, energy_labels, beta)
+T_bohr_gauss = transition_bohr_gauss_vectorized(all_jumps_generated, hamiltonian, beta)
+@printf("Distance between Bohr and Energy pictures (T GAUSS): %s\n", norm(T_bohr_gauss - T_energy_gauss))
+
+T_energy_metro = transition_metro(all_jumps_generated, hamiltonian, energy_labels, beta)
+T_bohr_metro = transition_bohr_metro(all_jumps_generated, hamiltonian, beta)
+@printf("Distance between Bohr and Energy pictures (T METRO): %s\n", norm(T_bohr_metro - T_energy_metro))
+
+# show(IOContext(stdout, :limit=>false), MIME"text/plain"(), round.(real.(T_energy_metro), digits=4))
+# show(IOContext(stdout, :limit=>false), MIME"text/plain"(), round.(real.(T_bohr_metro), digits=4))
+
+# T_bohr_metro[1, 1] / T_energy_metro[1, 1]
+# T_bohr_metro[1, 3] / T_energy_metro[1, 3]
+# T_bohr_metro[3, 1] / T_energy_metro[3, 1]
+
+
 
 #* Other comparison for integral
 # Energy side
@@ -217,8 +239,3 @@ lambda2 = liouv_eigvals[end] - liouv_eigvals[end-1]
 #     A_nu_2_dagger::SparseMatrixCSC{ComplexF64} = A_nu_2'
 #     A_nu1s = alpha_nu1_matrix .* the_jump.in_eigenbasis
 # end
-
-#* Transition part of Liouvillian
-# T_energy = transition_gauss_vectorized(all_jumps_generated, hamiltonian, energy_labels, beta)
-# T_bohr = transition_bohr_gauss_vectorized(all_jumps_generated, hamiltonian, beta)
-# norm(T_bohr - T_energy)
