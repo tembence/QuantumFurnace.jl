@@ -14,6 +14,7 @@ include("qi_tools.jl")
 include("structs.jl")
 include("coherent.jl")
 
+#* GAUSS
 function construct_liouvillian_gauss_time(jumps::Vector{JumpOp}, hamiltonian::HamHam, time_labels::Vector{Float64},
     energy_labels::Vector{Float64}, with_coherent::Bool, beta::Float64)
 
@@ -93,3 +94,5 @@ function thermalize_gauss_time(jumps::Vector{JumpOp}, hamiltonian::HamHam, initi
     end
     return HotAlgorithmResults(evolved_dm, distances_to_gibbs, time_steps)
 end
+
+#* METRO

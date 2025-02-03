@@ -127,8 +127,6 @@ function transition_bohr_gauss_from_energy_vectorized(jumps::Vector{JumpOp}, ham
     return beta * w0 * T / sqrt(2 * pi)
 end
 
-
-
 function create_alpha_from_gaussians_as_for_real(energy_labels::Vector{Float64}, hamiltonian::HamHam, beta::Float64)
 
     w0 = energy_labels[2] - energy_labels[1]
@@ -238,4 +236,35 @@ function transition_metro(jumps::Vector{JumpOp}, hamiltonian::HamHam, energy_lab
         end
     end
     return w0 * beta * total_liouv_transition / sqrt(2 * pi)
+end
+
+function integrate_gamma_M(nu_1::Float64, nu_2::Float64, energy_labels::Vector{Float64}, beta::Float64)
+
+    transition_metro(w) = exp(-beta * max(w + 1/(2 * beta), 0.0))
+    integrand(w) = transition_metro(w) * exp(-beta^2 * (w - nu_1)^2 / 4) * exp(-beta^2 * (w - nu_2)^2 / 4)
+    # integrand(w) = exp(-beta^2 * (w - nu_1)^2 / 4) * exp(-beta^2 * (w - nu_2)^2 / 4)
+    w0 = energy_labels[2] - energy_labels[1]
+
+    resulting_alpha_M = 0.0
+    for w in energy_labels
+        integrand_w = integrand(w)
+        resulting_alpha_M += integrand_w
+    end
+
+    return w0 * beta * resulting_alpha_M / sqrt(2*pi)
+end
+
+function integrate_gamma_gauss(nu_1::Float64, nu_2::Float64, energy_labels::Vector{Float64}, beta::Float64)
+
+    transition_gauss(w) = exp(-beta^2 * (w + 1/beta)^2 /2)
+    integrand(w) = transition_gauss(w) * exp(-beta^2 * (w - nu_1)^2 / 4) * exp(-beta^2 * (w - nu_2)^2 / 4)
+    w0 = energy_labels[2] - energy_labels[1]
+
+    resulting_alpha_gauss = 0.0
+    for w in energy_labels
+        integrand_w = integrand(w)
+        resulting_alpha_gauss += integrand_w
+    end
+
+    return w0 * beta * resulting_alpha_gauss / sqrt(2*pi)
 end

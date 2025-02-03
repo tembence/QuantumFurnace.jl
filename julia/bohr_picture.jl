@@ -433,15 +433,15 @@ function transition_bohr_metro_gibbsed(jumps::Vector{JumpOp}, hamiltonian::HamHa
 end
 
 function create_alpha_nu1_matrix_metro(bohr_freqs::Matrix{Float64}, nu_2::Float64, beta::Float64)
-    alpha_fn(nu_1) = exp(-beta^2 * (nu_1 - nu_2)^2 / 8) * (erfc((1 + beta * (nu_1 + nu_2) / sqrt(8))) 
-    + exp(-beta * (nu_1 + nu_2) / 2) * erfc((1 - beta * (nu_1 + nu_2) / sqrt(8)))) / 2
+    alpha_fn(nu_1) = exp(-beta^2 * (nu_1 - nu_2)^2 / 8) * (erfc((1 + beta * (nu_1 + nu_2)) / sqrt(8))
+    + exp(-beta * (nu_1 + nu_2) / 2) * erfc((1 - beta * (nu_1 + nu_2)) / sqrt(8))) / 2
 
     return alpha_fn.(bohr_freqs)
 end
 
 function create_alpha_metro(nu_1::Float64, nu_2::Float64, beta::Float64)
-    alpha_fn(nu_1) = exp(-beta^2 * (nu_1 - nu_2)^2 / 8) * (erfc((1 + beta * (nu_1 + nu_2) / sqrt(8))) 
-    + exp(-beta * (nu_1 + nu_2) / 2) * erfc((1 - beta * (nu_1 + nu_2) / sqrt(8)))) / 2
+    alpha_fn(nu_1) = exp(-beta^2 * (nu_1 - nu_2)^2 / 8) * (erfc((1 + beta * (nu_1 + nu_2)) / sqrt(8)) 
+    + exp(-beta * (nu_1 + nu_2) / 2) * erfc((1 - beta * (nu_1 + nu_2)) / sqrt(8))) / 2
     return alpha_fn(nu_1)
 end
 
@@ -477,6 +477,19 @@ function create_bohr_dict(hamiltonian::HamHam)
         end
     end
     return bohr_dict
+end
+
+function find_all_nu1s_to_nu2(nu_2::Float64, nu::Float64, unique_freqs::Set{Float64})
+    good_nu1s::Set{Float64} = Set()
+    for nu_1 in unique_freqs
+        # if round(nu_1 - nu_2, digits=15) == nu
+        if (nu_1 - nu_2 == nu)
+            push!(good_nu1s, nu_1)
+        else
+            continue
+        end
+    end
+    return good_nu1s
 end
 
 #* Some good code techniques to remember, but are not used

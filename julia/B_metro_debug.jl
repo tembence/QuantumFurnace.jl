@@ -141,19 +141,6 @@ function R_nu_metro(nu::Float64, hamiltonian::HamHam, bohr_dict::Dict{Float64, V
     return R_nu
 end
 
-function find_all_nu1s_to_nu2(nu_2::Float64, nu::Float64, unique_freqs::Set{Float64})
-    good_nu1s::Set{Float64} = Set()
-    for nu_1 in unique_freqs
-        # if round(nu_1 - nu_2, digits=15) == nu
-        if (nu_1 - nu_2 == nu)
-            push!(good_nu1s, nu_1)
-        else
-            continue
-        end
-    end
-    return good_nu1s
-end
-
 #* Parameters
 num_qubits = 4
 dim = 2^num_qubits
