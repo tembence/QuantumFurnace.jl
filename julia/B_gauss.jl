@@ -44,23 +44,6 @@ function construct_liouvillian_bohr_gauss_explicit(jumps::Vector{JumpOp}, hamilt
     return liouv
 end
 
-function coherent_gaussian_bohr(hamiltonian::HamHam, 
-    bohr_dict::Dict{Float64, Vector{CartesianIndex{2}}}, jump::JumpOp, beta::Float64)
-
-    dim = size(hamiltonian.data, 1)
-    unique_freqs = Set(keys(bohr_dict))
-
-    B = zeros(ComplexF64, dim, dim)
-    for nu_2 in unique_freqs
-        A_nu_2::SparseMatrixCSC{ComplexF64} = spzeros(dim, dim)
-        A_nu_2[bohr_dict[nu_2]] .= jump.in_eigenbasis[bohr_dict[nu_2]]
-        f_nu1_matrix = create_f_nu1_matrix(hamiltonian.bohr_freqs, nu_2, beta)
-
-        B .+= A_nu_2' * (f_nu1_matrix .* jump.in_eigenbasis)
-    end
-    return B
-end
-
 function coherent_gauss_bohr_explicit(hamiltonian::HamHam, 
     bohr_dict::Dict{Float64, Vector{CartesianIndex{2}}}, jump::JumpOp, beta::Float64)
 

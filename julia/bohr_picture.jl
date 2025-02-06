@@ -13,7 +13,7 @@ include("hamiltonian.jl")
 include("qi_tools.jl")
 include("structs.jl")
 
-#* GAUSS
+#* GAUSS --------------------------------------------------------------------------------------------------------------------
 function construct_liouvillian_bohr_gauss(jumps::Vector{JumpOp}, hamiltonian::HamHam, with_coherent::Bool, beta::Float64)
 
     dim = size(hamiltonian.data, 1)
@@ -242,17 +242,15 @@ function create_alpha_gauss(nu_1::Float64, nu_2::Float64, beta::Float64)
 end
 
 function create_f_nu1_matrix(bohr_freqs::Matrix{Float64}, nu_2::Float64, beta::Float64)
-    """Tanh * alpha. Gaussian parameters = 1/β"""
-    f_fn(nu_1) = (tanh(-beta * (nu_1 - nu_2) / 4) * exp(-beta^2 * (nu_1 + nu_2 + 2/beta)^2/16) 
-                                                    * exp(-beta^2 * (nu_1 - nu_2)^2/8) / (sqrt(2) * (2 * im))) #! 8->2
-    return f_fn.(bohr_freqs)
+    tanh_matrix = tanh.(-beta * (bohr_freqs .- nu_2) / 4) / (2im)
+    alpha_matrix = create_alpha_nu1_matrix(bohr_freqs, nu_2, beta)
+    return tanh_matrix .* alpha_matrix  # f
 end
 
 function create_f_gauss(nu_1::Float64, nu_2::Float64, beta::Float64)
     """Tanh * alpha. Gaussian parameters = 1/β"""
-    f_fn(nu_1) = (tanh(-beta * (nu_1 - nu_2) / 4) * exp(-beta^2 * (nu_1 + nu_2 + 2/beta)^2/16) 
-                                                    * exp(-beta^2 * (nu_1 - nu_2)^2/8) / (sqrt(2) * (2 * im))) #! 8->2
-    return f_fn(nu_1)
+    alpha_nu1_nu2 = create_alpha_gauss(nu_1, nu_2, beta)
+    return tanh(-beta * (nu_1 - nu_2) / 4) * alpha_nu1_nu2 / (2im)
 end
 
 function B_nu_gauss(nu::Float64, nu_2::Float64, hamiltonian::HamHam, bohr_dict::Dict{Float64, Vector{CartesianIndex{2}}}, 
@@ -293,7 +291,7 @@ function R_nu_gauss(nu::Float64, nu_2::Float64, hamiltonian::HamHam, bohr_dict::
     return R_nu
 end
 
-#* METRO
+#* METRO --------------------------------------------------------------------------------------------------------------------
 function construct_liouvillian_bohr_metro(jumps::Vector{JumpOp}, hamiltonian::HamHam, with_coherent::Bool, beta::Float64)
 
     dim = size(hamiltonian.data, 1)
@@ -458,7 +456,7 @@ function create_f_metro(nu_1::Float64, nu_2::Float64, beta::Float64)
     return tanh(-beta * (nu_1 - nu_2) / 4) * alpha_nu1_nu2 / (2im)
 end
 
-#* TOOLS
+#* TOOLS --------------------------------------------------------------------------------------------------------------------
 function check_alpha_skew_symmetry(alpha::Function, nu_1::Float64, nu_2::Float64, beta::Float64)
     @assert norm(alpha(nu_1, nu_2) - alpha(-nu_2, -nu_1) * exp(-beta * (nu_1 + nu_2) / 2)) < 1e-14
 end
@@ -491,6 +489,8 @@ function find_all_nu1s_to_nu2(nu_2::Float64, nu::Float64, unique_freqs::Set{Floa
     end
     return good_nu1s
 end
+#* --------------------------------------------------------------------------------------------------------------------------
+#* --------------------------------------------------------------------------------------------------------------------------
 
 #* Some good code techniques to remember, but are not used
 # function exact_mask(bohr_freqs::Matrix{Float64}, nu_2::Float64, unique_freqs::Set{Float64})

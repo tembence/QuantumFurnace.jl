@@ -15,7 +15,7 @@ include("bohr_picture.jl")
 include("ofts.jl")
 
 
-#* BOHR 
+#* GAUSS --------------------------------------------------------------------------------------------------------------------
 function construct_liouvillian_gauss(jumps::Vector{JumpOp}, hamiltonian::HamHam, energy_labels::Vector{Float64}, 
     with_coherent::Bool, beta::Float64)
 
@@ -191,7 +191,7 @@ function create_alpha_from_gaussians_integrated(nu_1::Float64, nu_2::Float64, nu
     return alpha_nu1_nu2
 end
 
-#* METRO
+#* METRO --------------------------------------------------------------------------------------------------------------------
 function construct_liouvillian_metro(jumps::Vector{JumpOp}, hamiltonian::HamHam, energy_labels::Vector{Float64}, 
     with_coherent::Bool, beta::Float64)
 
@@ -203,10 +203,9 @@ function construct_liouvillian_metro(jumps::Vector{JumpOp}, hamiltonian::HamHam,
     total_liouv_coherent_part = zeros(ComplexF64, dim^2, dim^2)
     total_liouv_diss_part = zeros(ComplexF64, dim^2, dim^2)
 
-    @showprogress desc="Liouvillian (Energy)..." for jump in jumps
+    @showprogress desc="Liouvillian Metro (Energy)..." for jump in jumps
         if with_coherent  # There is no energy formulation of the coherent term, only Bohr and time.
             coherent_term = coherent_metro_bohr(hamiltonian, bohr_dict, jump, beta)
-            @printf("Is B METRO Hermitian?:%s\n", norm(coherent_term - coherent_term'))
             total_liouv_coherent_part .+= vectorize_liouvillian_coherent(coherent_term)
         end
 
@@ -268,3 +267,22 @@ function integrate_gamma_gauss(nu_1::Float64, nu_2::Float64, energy_labels::Vect
 
     return w0 * beta * resulting_alpha_gauss / sqrt(2*pi)
 end
+
+#* TOOLS --------------------------------------------------------------------------------------------------------------------
+function truncate_energy_labels(energy_labels::Vector{Float64}, integrand::Function, args...; cutoff::Float64=1e-12)
+    """Function should be given as `func(w, nu1, nu2, beta)`."""
+
+    integrand_lb(w) = integrand(w, -0.45, -0.45, beta)
+    computed_energies_lb = integrand_lb.(energy_labels)
+    truncated_energies_lb = energy_labels[abs.(computed_energies_lb) .>= cutoff]
+    energy_lowerbound = minimum(truncated_energies_lb)
+
+    integrand_ub(w) = integrand(w, 0.45, 0.45, beta)
+    computed_energies_ub = integrand_ub.(energy_labels)
+    truncated_energies_ub = energy_labels[abs.(computed_energies_ub) .>= cutoff]
+    energy_upperbound = maximum(truncated_energies_ub)
+
+    return energy_labels[energy_lowerbound .<= energy_labels .<= energy_upperbound]
+end
+#* --------------------------------------------------------------------------------------------------------------------------
+#* --------------------------------------------------------------------------------------------------------------------------

@@ -11,16 +11,16 @@ using QuadGK
 include("hamiltonian.jl")
 include("qi_tools.jl")
 include("structs.jl")
-include("bohr_gauss.jl")
-include("energy_gauss.jl")
-include("time_gauss.jl")
+include("bohr_picture.jl")
+include("energy_picture.jl")
+include("time_picture.jl")
 include("ofts.jl")
 
 # (n, r, w0, tmix) = (3, 10, 32/N, 15.0) -> 1e-13
 #* Configs
 num_qubits = 3
 dim = 2^num_qubits
-num_energy_bits = 10
+num_energy_bits = 12
 beta = 10.
 Random.seed!(666)
 with_coherent = true
@@ -41,29 +41,32 @@ initial_dm = Matrix{ComplexF64}(I(dim) / dim)
 @assert norm(initial_dm - initial_dm') < 1e-15 "Not Hermitian"
 
 N = 2^(num_energy_bits)
-w0 = 32 / N  #! Increasing this not always makes OFT better, why?
-# w0 = 0.04
+# w0 = 32 / N  #! Increasing this not always makes OFT better, why?
+w0 = 0.001
 t0 = 2 * pi / (N * w0)
 @printf("Smallest Bohr frequency: %s\n", hamiltonian.nu_min)
 @printf("Chosen w0: %s\n", w0)
 # w0 = hamiltonian.nu_min
 N_labels = [0:1:Int(N/2)-1; -Int(N/2):1:-1]
 energy_labels = w0 * N_labels
-time_labels = t0 * N_labels  #? Truncating energy domain should concern time domain?
+@assert maximum(energy_labels) >= 2.0
+time_labels = t0 * N_labels
 
-# Energy labels truncation
-alpha_cutoff(beta, nu_max, eps) = (-(1/beta - nu_max) + sqrt((1/beta - nu_max)^2 
-                                                - 4 * (1/(2*beta^2) + nu_max^2/2 - log(beta/(sqrt(2*pi)*eps))/beta^2))) / 2
-gaussians_cutoff_epsilon = 1e-16  # Makes the result only worse sometimes at 1e-14
-energy_cutoff_for_alpha = alpha_cutoff(beta, 0.45, gaussians_cutoff_epsilon)
-energy_labels = energy_labels[abs.(energy_labels) .<= energy_cutoff_for_alpha]
+#* Energy labels truncation
+
+gauss_energy_integrand(w, nu_1, nu_2, beta) = ((beta / sqrt(2*pi)) * exp(-beta^2 * (w + 1/beta)^2 /2)
+                                                    * exp(-beta^2 * (w - nu_1)^2 / 4) * exp(-beta^2 * (w - nu_2)^2 / 4))
+metro_energy_integrand(w, nu_1, nu_2, beta) = ((beta / sqrt(2*pi)) *  exp(-beta * max(w + 1/(2*beta), 0.0))
+                                                    * exp(-beta^2 * (w - nu_1)^2 / 4) * exp(-beta^2 * (w - nu_2)^2 / 4))
+
+truncated_energies = truncate_energy_labels(energy_labels, metro_energy_integrand, beta)
 
 #* Jumps
 X::Matrix{ComplexF64} = [0 1; 1 0]
 Y::Matrix{ComplexF64} = [0.0 -im; im 0.0]
 Z::Matrix{ComplexF64} = [1 0; 0 -1]
 H::Matrix{ComplexF64} = [1 1; 1 -1] / sqrt(2)
-jump_paulis = [[X], [Y], [Z]]
+jump_paulis = [[X]]#, [Y], [Z]]
 
 # All jumps once
 all_jumps_generated::Vector{JumpOp} = []
@@ -97,20 +100,54 @@ end
 # @printf("Last distance to Gibbs: %s\n", results.distances_to_gibbs[end])
 
 #* Time vs Bohr Liouvillians
-liouv_bohr = @time construct_liouvillian_bohr_gauss(all_jumps_generated, hamiltonian, with_coherent, beta)
-liouv_time = @time construct_liouvillian_gauss_time(all_jumps_generated, hamiltonian, time_labels, energy_labels, 
-with_coherent, beta)
-@printf("Difference between Liouvillians: %s\n", norm(liouv_bohr - liouv_time))
+# with_coherent = false
+# liouv_bohr = @time construct_liouvillian_bohr_gauss(all_jumps_generated, hamiltonian, with_coherent, beta)
+# liouv_time = @time construct_liouvillian_time_gauss(all_jumps_generated, hamiltonian, time_labels, truncated_energies, 
+# with_coherent, beta)
+# @printf("Difference between Liouvillians (GAUSS): %s\n", norm(liouv_bohr - liouv_time))
+
+# eta = 0.001
+# liouv_bohr_metro = @time construct_liouvillian_bohr_metro(all_jumps_generated, hamiltonian, with_coherent, beta)
+# liouv_metro = @time construct_liouvillian_metro(all_jumps_generated, hamiltonian, truncated_energies, with_coherent, beta)
+# liouv_metro_truncated = @time construct_liouvillian_metro(all_jumps_generated, hamiltonian, truncated_energies, 
+#     with_coherent, beta)
+# liouv_time_metro = @time construct_liouvillian_time_metro(all_jumps_generated, hamiltonian, time_labels, truncated_energies, 
+#     with_coherent, beta, eta)
+# @printf("Difference between Bohr - Time (METRO): %s\n", norm(liouv_bohr_metro - liouv_time_metro))
+# @printf("Difference between Energy - Time (METRO): %s\n", norm(liouv_metro - liouv_time_metro))
+# @printf("Difference between Energy - Bohr (METRO): %s\n", norm(liouv_metro - liouv_bohr_metro))
+# @printf("Difference between Energy (TRUNCATED) - Bohr (METRO): %s\n", norm(liouv_metro_truncated - liouv_bohr_metro))
+# @printf("Difference between Energy - Energy (TRUNCATED): %s\n", norm(liouv_metro - liouv_metro_truncated))
+
+#* Transition part
+# T_energy_metro = @time transition_metro(all_jumps_generated, hamiltonian, truncated_energies, beta)
+# T_bohr_metro = @time transition_bohr_metro(all_jumps_generated, hamiltonian, beta)
+# T_time_metro = @time transition_time_metro(all_jumps_generated, hamiltonian, time_labels, truncated_energies, beta)
+# @printf("Distance between Bohr and Energy pictures (T METRO): %s\n", norm(T_bohr_metro - T_energy_metro))
+# @printf("Distance between Bohr and Time pictures (T METRO): %s\n", norm(T_bohr_metro - T_time_metro))
+# @printf("Distance between Time and Energy pictures (T METRO): %s\n", norm(T_time_metro - T_energy_metro))
 
 #* Coherent term
-# jump::JumpOp = all_jumps_generated[5]
-# bohr_dict::Dict{Float64, Vector{CartesianIndex{2}}} = create_bohr_dict(hamiltonian)
-# b1 = compute_truncated_b1(time_labels)
-# b2 = compute_truncated_b2(time_labels)
+jump = all_jumps_generated[2]
+bohr_dict::Dict{Float64, Vector{CartesianIndex{2}}} = create_bohr_dict(hamiltonian)
+eta = 0.02
+t0 = 0.1
+time_labels = t0 * N_labels
+b1 = compute_truncated_b1(time_labels; atol=0.0)
+b2 = compute_truncated_b2(time_labels; atol=0.0)
+b2_metro = compute_truncated_b2_metro(time_labels, eta)
 
-# B_bohr = coherent_gaussian_bohr(hamiltonian, bohr_dict, jump, beta)
-# B_time = coherent_term_time(jump, hamiltonian, b1, b2, t0, beta)
-# @printf("Difference between coherent terms: %s\n", norm(B_bohr - B_time))
+# Gauss
+B_bohr = coherent_gaussian_bohr(hamiltonian, bohr_dict, jump, beta)
+B_time = coherent_term_time(jump, hamiltonian, b1, b2, t0, beta)
+@printf("Difference between coherent terms: %s\n", norm(B_bohr - B_time))
+
+# Metro
+B_bohr_metro = coherent_metro_bohr(hamiltonian, bohr_dict, jump, beta)
+B_time_metro = coherent_term_time(jump, hamiltonian, b1, b2_metro, t0, beta)
+@printf("Difference between coherent terms (METRO): %s\n", norm(B_bohr_metro - B_time_metro))
+
+show(IOContext(stdout, :limit=>false), MIME"text/plain"(), round.(real.(B_bohr_metro ./ B_time_metro), digits=4))
 
 #* Time gaussian normalization
 # Fw = exp.(- beta^2 * (energy_labels).^2 / 4)

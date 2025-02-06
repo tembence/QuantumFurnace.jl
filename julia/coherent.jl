@@ -13,6 +13,7 @@ include("ofts.jl")
 include("trotter.jl")
 include("qi_tools.jl")
 
+#* COHERENT TERMS -----------------------------------------------------------------------------------------------------------
 # (3.1) and Proposition III.1
 # Has to be on a symmetric time domain, otherwise it can't be Hermitian.
 function coherent_term_time(jump::JumpOp, hamiltonian::HamHam, 
@@ -38,7 +39,7 @@ function coherent_term_time(jump::JumpOp, hamiltonian::HamHam,
         time_evolution_outer = diag_time_evolve(beta * t)
         B .+= b1[t] * time_evolution_outer' * b2_integral * time_evolution_outer
     end
-    return B * t0^2 * 2 #!
+    return B * t0^2 * 2 #! (x2 to correct their overall prefactor error here)
 end
 
 function coherent_term_trotter(jump::JumpOp, trotter::TrottTrott, 
@@ -105,19 +106,15 @@ function coherent_term_timedomain_integrated_gauss(jump::JumpOp, hamiltonian::Ha
     jump_op_in_eigenbasis_dag = jump.in_eigenbasis'
 
     # Inner b2 integral
-    b2_integrand(s) = b2_fn(s) * diag_time_evolve(beta * s) * 
+    b2_integrand(s) = b2_fn(s) * (diag_time_evolve(beta * s) * 
                            (jump_op_in_eigenbasis_dag * diag_time_evolve(- 2 * beta * s) * jump.in_eigenbasis) *
-                           diag_time_evolve(beta * s)
+                           diag_time_evolve(beta * s))
     b2_integral, _ = quadgk(b2_integrand, time_domain[1], time_domain[2]; atol=1e-12, rtol=1e-12)
 
     # Outer b1 integral
     b1_integrand(t) = b1_fn(t) * diag_time_evolve(- beta * t) * b2_integral * diag_time_evolve(beta * t)
     B, _ = quadgk(b1_integrand, time_domain[1], time_domain[2]; atol=1e-12, rtol=1e-12)
     return B
-end
-
-function heaviside(x::Float64)
-    return x <= 0 ? 1 : 0 
 end
 
 function coherent_term_timedomain_integrated_metro(jump::JumpOp, hamiltonian::HamHam, eta::Float64, beta::Float64, 
@@ -146,12 +143,7 @@ function coherent_term_timedomain_integrated_metro(jump::JumpOp, hamiltonian::Ha
     return B
 end
 
-function convolute(f::Function, g::Function, t::Float64; atol=1e-12, rtol=1e-12)
-    integrand(s) = f(s) * g(t - s)
-    result, _ = quadgk(integrand, -Inf, Inf; atol=atol, rtol=rtol)
-    return result
-end
-
+#* B1 AND B2 ----------------------------------------------------------------------------------------------------------------
 # Corollary III.1, every parameter = 1 / beta
 function compute_b1(time_labels::Vector{Float64})
     f1(t) = 1 / cosh(2 * pi * t)
@@ -159,7 +151,7 @@ function compute_b1(time_labels::Vector{Float64})
     return 2 * sqrt(pi) * exp(1/8) * convolute.(Ref(f1), Ref(f2), time_labels)
 end
 
-function compute_truncated_b1(time_labels::Vector{Float64}, atol::Float64 = 1e-14)
+function compute_truncated_b1(time_labels::Vector{Float64}; atol::Float64 = 1e-14)
 
     b1 = Vector{ComplexF64}(compute_b1(time_labels))
 
@@ -175,7 +167,7 @@ function compute_b2(time_labels::Vector{Float64})
     return exp.(- 4 * time_labels.^2 .- 2 * im * time_labels) / sqrt(4 * pi^3)
 end
 
-function compute_truncated_b2(time_labels::Vector{Float64}, atol::Float64 = 1e-14)
+function compute_truncated_b2(time_labels::Vector{Float64}; atol::Float64 = 1e-14)
 
     b2 = Vector{ComplexF64}(compute_b2(time_labels))
 
@@ -187,15 +179,20 @@ function compute_truncated_b2(time_labels::Vector{Float64}, atol::Float64 = 1e-1
     return Dict(zip(b2_times, b2_vals))
 end
 
-function compute_truncated_b2_metro(time_labels::Vector{Float64}, eta::Float64, atol::Float64 = 1e-14)
-    """(3.6)"""
-    b2_metro::Vector{ComplexF64} = (1/(4 * pi * sqrt(2))) * 
-        exp.(-2 * time_labels.^2 .- 1im * time_labels) ./ (time_labels .* (2 * time_labels .+ 1im))
+function compute_b2_metro(time_labels::Vector{Float64}, eta::Float64)
+    b2_metro::Vector{ComplexF64} = ((1/(4 * pi * sqrt(2))) * 
+        exp.(-2 * time_labels.^2 .- 1im * time_labels) ./ (time_labels .* (2 * time_labels .+ 1im)))
 
     # (1, 1, 1 (at eta), 0, 0, ..., 0)
     heaviside_eta = ifelse.(abs.(time_labels) .> eta, 0, ones(length(time_labels)))
     b2_metro .+= heaviside_eta .* (1im * (2 * time_labels .+ 1im) ./ (2 * time_labels .+ 1im))
+    return b2_metro
+end
+
+function compute_truncated_b2_metro(time_labels::Vector{Float64}, eta::Float64, atol::Float64 = 1e-14)
+    """(3.6)"""
     
+    b2_metro = Vector{ComplexF64}(compute_b2_metro(time_labels, eta))
     indices_b2_metro = get_truncated_indices_b(b2_metro, atol)
     b2_metro_times = time_labels[indices_b2_metro]
     b2_metro_vals = b2_metro[indices_b2_metro]
@@ -203,6 +200,8 @@ function compute_truncated_b2_metro(time_labels::Vector{Float64}, eta::Float64, 
     return Dict(zip(b2_metro_times, b2_metro_vals))
 end
 
+#* TOOLS --------------------------------------------------------------------------------------------------------------------
+#TODO: Could write up an analytical bound and wouldn't need to check each element.
 function get_truncated_indices_b(b::Vector{ComplexF64}, atol::Float64 = 1e-14)
    """Find elements in b1, b2 that are larger than `atol`"""
 
@@ -211,6 +210,12 @@ function get_truncated_indices_b(b::Vector{ComplexF64}, atol::Float64 = 1e-14)
     # @printf("Number of nonzero elements in b2: %d\n", length(indices_b2))
 
     return indices_b
+end
+
+function convolute(f::Function, g::Function, t::Float64; atol=1e-12, rtol=1e-12)
+    integrand(s) = f(s) * g(t - s)
+    result, _ = quadgk(integrand, -Inf, Inf; atol=atol, rtol=rtol)
+    return result
 end
 
 function check_B_gauss(coherent_term::Matrix{ComplexF64}, jump::JumpOp, hamiltonian::HamHam, beta::Float64)
@@ -232,6 +237,8 @@ function check_B_metro(coherent_term::Matrix{ComplexF64}, jump::JumpOp, hamilton
     @printf("\nTracenorm of coherent term: %e\n", trnorm)
     @printf("Deviation from integral: %e\n", deviation)
 end
+#* --------------------------------------------------------------------------------------------------------------------------
+#* --------------------------------------------------------------------------------------------------------------------------
 
 #* Testing
 # num_qubits = 6

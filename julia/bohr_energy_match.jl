@@ -73,18 +73,18 @@ jump_paulis = [[X]] #, [Y], [Z]]
 # All jumps once
 all_jumps_generated::Vector{JumpOp} = []
 for pauli in jump_paulis
-    for site in 1:1  #! ON 1 SITE
-    jump_op = Matrix(pad_term(pauli, num_qubits, site))
-    jump_op_in_eigenbasis = hamiltonian.eigvecs' * jump_op * hamiltonian.eigvecs
-    jump_in_trotter_basis = zeros(0, 0)
-    orthogonal = (jump_op == adjoint(jump_op))
-    jump = JumpOp(jump_op,
-            jump_op_in_eigenbasis,
-            Dict{Float64, SparseMatrixCSC{ComplexF64, Int64}}(), 
-            zeros(0),
-            jump_in_trotter_basis,
-            orthogonal) 
-    push!(all_jumps_generated, jump)
+    for site in 1:num_qubits
+        jump_op = Matrix(pad_term(pauli, num_qubits, site))
+        jump_op_in_eigenbasis = hamiltonian.eigvecs' * jump_op * hamiltonian.eigvecs
+        jump_in_trotter_basis = zeros(0, 0)
+        orthogonal = (jump_op == adjoint(jump_op))
+        jump = JumpOp(jump_op,
+                jump_op_in_eigenbasis,
+                Dict{Float64, SparseMatrixCSC{ComplexF64, Int64}}(), 
+                zeros(0),
+                jump_in_trotter_basis,
+                orthogonal) 
+        push!(all_jumps_generated, jump)
     end
 end
 

@@ -14,8 +14,8 @@ include("qi_tools.jl")
 include("structs.jl")
 include("coherent.jl")
 
-#* GAUSS
-function construct_liouvillian_gauss_time(jumps::Vector{JumpOp}, hamiltonian::HamHam, time_labels::Vector{Float64},
+#* GAUSS --------------------------------------------------------------------------------------------------------------------
+function construct_liouvillian_time_gauss(jumps::Vector{JumpOp}, hamiltonian::HamHam, time_labels::Vector{Float64},
     energy_labels::Vector{Float64}, with_coherent::Bool, beta::Float64)
 
     dim = size(hamiltonian.data, 1)
@@ -30,8 +30,9 @@ function construct_liouvillian_gauss_time(jumps::Vector{JumpOp}, hamiltonian::Ha
 
     total_liouv_coherent_part = zeros(ComplexF64, dim^2, dim^2)
     total_liouv_diss_part = zeros(ComplexF64, dim^2, dim^2)
-    @showprogress desc="Liouvillian (Time)..." for jump in jumps
-        if with_coherent 
+    p = Progress(Int(length(jumps) * length(energy_labels)), desc="Liouvillian in time (GAUSS)...")
+    for jump in jumps
+        if with_coherent
             coherent_term = coherent_term_time(jump, hamiltonian, b1, b2, t0, beta)
             total_liouv_coherent_part .+= vectorize_liouvillian_coherent(coherent_term)
         end
@@ -41,6 +42,7 @@ function construct_liouvillian_gauss_time(jumps::Vector{JumpOp}, hamiltonian::Ha
             # jump_oft_actually = oft(jump, w, hamiltonian, beta) * sqrt(beta / sqrt(2 * pi))
             # @printf("Jump oft norm: %s\n", norm(jump_oft - jump_oft_actually))
             total_liouv_diss_part .+= transition_gauss(w) * vectorize_liouvillian_diss(jump_oft)
+            next!(p)
         end
     end
     prefactor = w0 * t0^2 * (sqrt(2 / pi)/beta) / (2 * pi)  # time ints t0^2, energy int w0, OFT time norm^2, Fourier
@@ -95,4 +97,55 @@ function thermalize_gauss_time(jumps::Vector{JumpOp}, hamiltonian::HamHam, initi
     return HotAlgorithmResults(evolved_dm, distances_to_gibbs, time_steps)
 end
 
-#* METRO
+#* METRO --------------------------------------------------------------------------------------------------------------------
+function construct_liouvillian_time_metro(jumps::Vector{JumpOp}, hamiltonian::HamHam, time_labels::Vector{Float64},
+    energy_labels::Vector{Float64}, with_coherent::Bool, beta::Float64, eta::Float64)
+
+    dim = size(hamiltonian.data, 1)
+    w0 = energy_labels[2] - energy_labels[1]
+    t0 = time_labels[2] - time_labels[1]
+    transition_metro(w) = exp(-beta * max(w + 1/(2*beta), 0.0))
+
+    if with_coherent  # Steup for coherent term in time domain
+        b1 = compute_truncated_b1(time_labels)
+        b2 = compute_truncated_b2_metro(time_labels, eta)
+    end
+
+    total_liouv_coherent_part = zeros(ComplexF64, dim^2, dim^2)
+    total_liouv_diss_part = zeros(ComplexF64, dim^2, dim^2)
+    p = Progress(Int(length(jumps) * length(energy_labels)), desc="Liouvillian in time (METRO)...")
+    for jump in jumps
+        if with_coherent 
+            coherent_term = coherent_term_time(jump, hamiltonian, b1, b2, t0, beta)
+            total_liouv_coherent_part .+= vectorize_liouvillian_coherent(coherent_term)
+        end
+
+        for w in energy_labels
+            jump_oft = time_oft(jump, w, hamiltonian, time_labels, beta) # subnorm = t0 * sqrt((sqrt(2 / pi)/beta) / (2 * pi))
+            total_liouv_diss_part .+= transition_metro(w) * vectorize_liouvillian_diss(jump_oft)
+            next!(p)
+        end
+    end
+    prefactor = w0 * t0^2 * (sqrt(2 / pi)/beta) / (2 * pi)  # time ints t0^2, energy int w0, OFT time norm^2, Fourier
+    return total_liouv_coherent_part .+ prefactor * total_liouv_diss_part
+end
+
+function transition_time_metro(jumps::Vector{JumpOp}, hamiltonian::HamHam, time_labels::Vector{Float64},
+    energy_labels::Vector{Float64}, beta::Float64)
+
+    dim = size(hamiltonian.data, 1)
+    w0 = energy_labels[2] - energy_labels[1]
+    t0 = time_labels[2] - time_labels[1]
+    transition_metro(w) = exp(-beta * max(w + 1/(2*beta), 0.0))
+    total_transition = zeros(ComplexF64, dim^2, dim^2)
+    p = Progress(Int(length(jumps) * length(energy_labels)), desc="Transition in time (METRO)...")
+    for jump in jumps
+        for w in energy_labels
+            jump_oft = time_oft(jump, w, hamiltonian, time_labels, beta) # subnorm = t0 * sqrt((sqrt(2 / pi)/beta) / (2 * pi))
+            total_transition .+= transition_metro(w) * kron(jump_oft, conj(jump_oft))
+            next!(p)
+        end
+    end
+    prefactor = w0 * t0^2 * (sqrt(2 / pi)/beta) / (2 * pi)
+    return prefactor * total_transition
+end
