@@ -39,7 +39,33 @@ function coherent_term_time(jump::JumpOp, hamiltonian::HamHam,
         time_evolution_outer = diag_time_evolve(beta * t)
         B .+= b1[t] * time_evolution_outer' * b2_integral * time_evolution_outer
     end
-    return B * t0^2 * 2 #! (x2 to correct their overall prefactor error here)
+    return B * t0^2  # x2 is in b2 for correction
+end
+
+function coherent_term_time_metro(jump::JumpOp, hamiltonian::HamHam, 
+    b1::Dict{Float64, ComplexF64}, b2_metro::Dict{Float64, ComplexF64}, t0::Float64, beta::Float64)
+    """Working in the energy eigenbasis for the time evolutions, where H is diagonal.
+        sigma_E = sigma_gamma = w_gamma = 1 / beta"""
+    
+    dim = size(hamiltonian.data)
+    diag_time_evolve(t) = Diagonal(exp.(1im * hamiltonian.eigvals * t))
+
+    # Inner b2 sum
+    b2_integral = zeros(ComplexF64, dim)
+    for s in keys(b2_metro)
+        time_evolution_inner = diag_time_evolve(beta * s)
+        b2_integral .+= b2_metro[s] * (time_evolution_inner * jump.in_eigenbasis' 
+                            * (time_evolution_inner')^2 * jump.in_eigenbasis * time_evolution_inner)
+    end
+
+    # Outer b1 sum
+    B = zeros(ComplexF64, dim)
+    for t in keys(b1)
+        time_evolution_outer = diag_time_evolve(beta * t)
+        B .+= (b1[t] * time_evolution_outer' * (b2_integral * t0 
+                                        + jump.in_eigenbasis' * jump.in_eigenbasis / (16*sqrt(2)*pi)) * time_evolution_outer)                                   
+    end
+    return B * t0  # x2 is in b2 for correction
 end
 
 function coherent_term_trotter(jump::JumpOp, trotter::TrottTrott, 
@@ -151,12 +177,18 @@ function compute_b1(time_labels::Vector{Float64})
     return 2 * sqrt(pi) * exp(1/8) * convolute.(Ref(f1), Ref(f2), time_labels)
 end
 
+function b1_fn(T::Float64)
+    f1(t) = 1 / cosh(2 * pi * t)
+    f2(t) = sin(-t) * exp(-2 * t^2)
+    return 2 * sqrt(pi) * exp(1/8) * convolute.(Ref(f1), Ref(f2), T)
+end
+
 function compute_truncated_b1(time_labels::Vector{Float64}; atol::Float64 = 1e-14)
 
     b1 = Vector{ComplexF64}(compute_b1(time_labels))
 
     # Skip all elements where b1 b2 are smaller than 1e-14
-    indices_b1 = get_truncated_indices_b(b1, atol)
+    indices_b1 = get_truncated_indices_b(b1; atol)
     b1_times = time_labels[indices_b1]
     b1_vals = b1[indices_b1]
     
@@ -164,7 +196,7 @@ function compute_truncated_b1(time_labels::Vector{Float64}; atol::Float64 = 1e-1
 end
 
 function compute_b2(time_labels::Vector{Float64})
-    return exp.(- 4 * time_labels.^2 .- 2 * im * time_labels) / sqrt(4 * pi^3)
+    return 2 * exp.(- 4 * time_labels.^2 .- 2 * im * time_labels) / sqrt(4 * pi^3)
 end
 
 function compute_truncated_b2(time_labels::Vector{Float64}; atol::Float64 = 1e-14)
@@ -172,7 +204,7 @@ function compute_truncated_b2(time_labels::Vector{Float64}; atol::Float64 = 1e-1
     b2 = Vector{ComplexF64}(compute_b2(time_labels))
 
     # Skip all elements where b1 b2 are smaller than 1e-14
-    indices_b2 = get_truncated_indices_b(b2, atol)
+    indices_b2 = get_truncated_indices_b(b2; atol)
     b2_times = time_labels[indices_b2]
     b2_vals = b2[indices_b2]
 
@@ -180,29 +212,45 @@ function compute_truncated_b2(time_labels::Vector{Float64}; atol::Float64 = 1e-1
 end
 
 function compute_b2_metro(time_labels::Vector{Float64}, eta::Float64)
-    b2_metro::Vector{ComplexF64} = ((1/(4 * pi * sqrt(2))) * 
-        exp.(-2 * time_labels.^2 .- 1im * time_labels) ./ (time_labels .* (2 * time_labels .+ 1im)))
+
+    time_labels_no_zero = time_labels[2:end]  # Remove t = 0.0
+    b2_metro::Vector{ComplexF64} = (exp.(-2 * time_labels_no_zero.^2 .- 1im * time_labels_no_zero) ./ (time_labels_no_zero .* (2 * time_labels_no_zero .+ 1im)))
 
     # (1, 1, 1 (at eta), 0, 0, ..., 0)
-    heaviside_eta = ifelse.(abs.(time_labels) .> eta, 0, ones(length(time_labels)))
-    b2_metro .+= heaviside_eta .* (1im * (2 * time_labels .+ 1im) ./ (2 * time_labels .+ 1im))
-    return b2_metro
+    indices_below_eta = findall(t -> abs(t) <= eta, time_labels_no_zero)
+    b2_metro[indices_below_eta] .+= (0.0 + 1.0im) ./ time_labels_no_zero[indices_below_eta]
+    return 2 * b2_metro / (4 * pi * sqrt(2))  # x2 for the correction
 end
 
-function compute_truncated_b2_metro(time_labels::Vector{Float64}, eta::Float64, atol::Float64 = 1e-14)
+function compute_truncated_b2_metro(time_labels::Vector{Float64}, eta::Float64; atol::Float64 = 1e-14)
     """(3.6)"""
     
     b2_metro = Vector{ComplexF64}(compute_b2_metro(time_labels, eta))
-    indices_b2_metro = get_truncated_indices_b(b2_metro, atol)
+    indices_b2_metro = get_truncated_indices_b(b2_metro; atol)
     b2_metro_times = time_labels[indices_b2_metro]
     b2_metro_vals = b2_metro[indices_b2_metro]
 
     return Dict(zip(b2_metro_times, b2_metro_vals))
 end
 
+# function compute_b2_metro_explicit(time_labels::Vector{Float64}, eta::Float64)
+
+#     time_labels_no_zero = time_labels[2:end]  # Remove t = 0.0
+#     b2_metro = zeros(ComplexF64, length(time_labels_no_zero))
+
+#     for i in eachindex(b2_metro)
+#         t = time_labels_no_zero[i]
+#         if abs(t) <= eta
+#             b2_metro[i] += (0.0 + 1.0im) / t
+#         end
+#         b2_metro[i] += exp(-2 * t^2 - 1im * t) / (t * (2 * t + 1im))
+#     end
+#     return b2_metro / (4 * pi * sqrt(2))
+# end
+
 #* TOOLS --------------------------------------------------------------------------------------------------------------------
 #TODO: Could write up an analytical bound and wouldn't need to check each element.
-function get_truncated_indices_b(b::Vector{ComplexF64}, atol::Float64 = 1e-14)
+function get_truncated_indices_b(b::Vector{ComplexF64}; atol::Float64 = 1e-14)
    """Find elements in b1, b2 that are larger than `atol`"""
 
     indices_b = findall(x -> abs(real(x)) >= atol || abs(imag(x)) >= atol, b)

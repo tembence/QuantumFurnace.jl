@@ -15,12 +15,16 @@ include("bohr_picture.jl")
 include("energy_picture.jl")
 include("time_picture.jl")
 include("ofts.jl")
+# include("coherent.jl")
+
+ENV["COLUMNS"] = "128"
+ENV["ROWS"] = "128"
 
 # (n, r, w0, tmix) = (3, 10, 32/N, 15.0) -> 1e-13
 #* Configs
 num_qubits = 3
 dim = 2^num_qubits
-num_energy_bits = 12
+num_energy_bits = 18
 beta = 10.
 Random.seed!(666)
 with_coherent = true
@@ -128,13 +132,17 @@ end
 # @printf("Distance between Time and Energy pictures (T METRO): %s\n", norm(T_time_metro - T_energy_metro))
 
 #* Coherent term
+# B1 integral
+num_energy_bits = 16
+N = 2^(num_energy_bits)
+N_labels = [0:1:Int(N/2)-1; -Int(N/2):1:-1]
 jump = all_jumps_generated[2]
 bohr_dict::Dict{Float64, Vector{CartesianIndex{2}}} = create_bohr_dict(hamiltonian)
 eta = 0.02
-t0 = 0.1
+t0 = 0.001
 time_labels = t0 * N_labels
-b1 = compute_truncated_b1(time_labels; atol=0.0)
-b2 = compute_truncated_b2(time_labels; atol=0.0)
+b1 = compute_truncated_b1(time_labels)
+b2 = compute_truncated_b2(time_labels)
 b2_metro = compute_truncated_b2_metro(time_labels, eta)
 
 # Gauss
@@ -144,10 +152,25 @@ B_time = coherent_term_time(jump, hamiltonian, b1, b2, t0, beta)
 
 # Metro
 B_bohr_metro = coherent_metro_bohr(hamiltonian, bohr_dict, jump, beta)
-B_time_metro = coherent_term_time(jump, hamiltonian, b1, b2_metro, t0, beta)
+B_time_metro = coherent_term_time_metro(jump, hamiltonian, b1, b2_metro, t0, beta)
 @printf("Difference between coherent terms (METRO): %s\n", norm(B_bohr_metro - B_time_metro))
 
-show(IOContext(stdout, :limit=>false), MIME"text/plain"(), round.(real.(B_bohr_metro ./ B_time_metro), digits=4))
+# show(IOContext(stdout, :limit=>false), MIME"text/plain"(), round.(imag.(B_bohr_metro ./ B_time_metro), digits=4))
+# show(IOContext(stdout, :limit=>false), MIME"text/plain"(), round.(imag.(B_bohr_metro), digits=4))
+# show(IOContext(stdout, :limit=>false), MIME"text/plain"(), round.(imag.(B_time_metro), digits=4))
+
+#* B2 Metro
+# eta = 0.02
+# t0_test = 0.01
+# time_labels_test = t0_test * [-5:1:5;]
+
+# Compute b2 metro
+# b2_metro::Vector{ComplexF64} = ((1/(4 * pi * sqrt(2))) * 
+#         exp.(-2 * time_labels_test.^2 .- 1im * time_labels_test) ./ (time_labels_test .* (2 * time_labels_test .+ 1im)))
+
+# (1, 1, 1 (at eta), 0, 0, ..., 0)
+# heaviside_eta = ifelse.(abs.(time_labels_test) .> eta, 0, ones(length(time_labels_test)))
+# b2_metro .+= heaviside_eta .* (1im * (2 * time_labels_test .+ 1im) ./ (time_labels_test .* (2 * time_labels_test .+ 1im)))
 
 #* Time gaussian normalization
 # Fw = exp.(- beta^2 * (energy_labels).^2 / 4)
