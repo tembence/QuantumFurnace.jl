@@ -116,7 +116,8 @@ function construct_liouvillian_time_metro(jumps::Vector{JumpOp}, hamiltonian::Ha
     p = Progress(Int(length(jumps) * length(energy_labels)), desc="Liouvillian in time (METRO)...")
     for jump in jumps
         if with_coherent 
-            coherent_term = coherent_term_time(jump, hamiltonian, b1, b2, t0, beta)
+            # coherent_term = coherent_term_time(jump, hamiltonian, b1, b2, t0, beta)
+            coherent_term = coherent_term_time_metro_exact(jump, hamiltonian, time_labels, beta)
             total_liouv_coherent_part .+= vectorize_liouvillian_coherent(coherent_term)
         end
 

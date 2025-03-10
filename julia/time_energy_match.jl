@@ -7,6 +7,7 @@ using Distributed
 using BenchmarkTools
 using Roots
 using QuadGK
+using Plots
 
 include("hamiltonian.jl")
 include("qi_tools.jl")
@@ -15,16 +16,16 @@ include("bohr_picture.jl")
 include("energy_picture.jl")
 include("time_picture.jl")
 include("ofts.jl")
-# include("coherent.jl")
+include("coherent.jl")
 
 ENV["COLUMNS"] = "128"
 ENV["ROWS"] = "128"
 
 # (n, r, w0, tmix) = (3, 10, 32/N, 15.0) -> 1e-13
 #* Configs
-num_qubits = 3
+num_qubits = 2
 dim = 2^num_qubits
-num_energy_bits = 18
+num_energy_bits = 14
 beta = 10.
 Random.seed!(666)
 with_coherent = true
@@ -70,7 +71,8 @@ X::Matrix{ComplexF64} = [0 1; 1 0]
 Y::Matrix{ComplexF64} = [0.0 -im; im 0.0]
 Z::Matrix{ComplexF64} = [1 0; 0 -1]
 H::Matrix{ComplexF64} = [1 1; 1 -1] / sqrt(2)
-jump_paulis = [[X]]#, [Y], [Z]]
+id::Matrix{ComplexF64} = I(2)
+jump_paulis = [[X]]#, [Y], [Z]] #! Identity
 
 # All jumps once
 all_jumps_generated::Vector{JumpOp} = []
@@ -133,27 +135,59 @@ end
 
 #* Coherent term
 # B1 integral
-num_energy_bits = 16
+num_energy_bits = 20
 N = 2^(num_energy_bits)
 N_labels = [0:1:Int(N/2)-1; -Int(N/2):1:-1]
+sorted_N_labels = [-Int(N/2):1:-1; 0:1:Int(N/2)-1]
 jump = all_jumps_generated[2]
 bohr_dict::Dict{Float64, Vector{CartesianIndex{2}}} = create_bohr_dict(hamiltonian)
 eta = 0.02
-t0 = 0.001
+t0 = 0.00006
 time_labels = t0 * N_labels
+time_labels_no_zero = time_labels[2:end]
+sorted_time_labels_no_zero = sort(time_labels_no_zero)
+maximum(time_labels)
 b1 = compute_truncated_b1(time_labels)
 b2 = compute_truncated_b2(time_labels)
-b2_metro = compute_truncated_b2_metro(time_labels, eta)
+b2_metro = compute_truncated_b2_metro(time_labels, eta)  #! Needs max(t) ~ 30
 
 # Gauss
-B_bohr = coherent_gaussian_bohr(hamiltonian, bohr_dict, jump, beta)
-B_time = coherent_term_time(jump, hamiltonian, b1, b2, t0, beta)
-@printf("Difference between coherent terms: %s\n", norm(B_bohr - B_time))
+# B_bohr = coherent_gaussian_bohr(hamiltonian, bohr_dict, jump, beta)
+# B_time = coherent_term_time(jump, hamiltonian, b1, b2, t0, beta)
+# @printf("Difference between coherent terms: %s\n", norm(B_bohr - B_time))
+
+# Oh = construct_metro_oh(jump, hamiltonian, time_labels[2:end], beta)
+# diag_time_evolve(t) = Diagonal(exp.(1im * hamiltonian.eigvals * t))
+# U_minus2t = diag_time_evolve(-2.0 * t) 
+# norm((0.0 + 1.0im) * U_minus2t / (sqrt(8 * pi) * t))
+# norm(exp(-2 * t^2 / beta^2 - 1im * t / beta) * U_minus2t / (sqrt(8 * pi) * t * (2 * t / beta + 1im)))
+# theta = 0.1
+# time_labels_no_zero_in_theta = sorted_time_labels_no_zero[abs.(sorted_time_labels_no_zero) .<= theta]
+# snippet(t) = exp(-2 * t^2 / beta^2 - 1im * t / beta) / (sqrt(8 * pi) * t * (2 * t / beta + 1im))
+# snippet_values = snippet.(sorted_time_labels_no_zero)
+# relevant_time_labels = sorted_time_labels_no_zero[norm.(snippet.(sorted_time_labels_no_zero)) .>= 1e-10]
+
+# snippet_values_theta = snippet.(time_labels_no_zero_in_theta)
+# norm(imag.(snippet_values_theta))
+
+# Oh_integrated = construct_metro_oh_integrated(jump, hamiltonian, beta)
+# Oh = construct_metro_oh(jump, hamiltonian, time_labels_no_zero, beta)
+# norm(Oh - Oh_integrated)
 
 # Metro
-B_bohr_metro = coherent_metro_bohr(hamiltonian, bohr_dict, jump, beta)
-B_time_metro = coherent_term_time_metro(jump, hamiltonian, b1, b2_metro, t0, beta)
-@printf("Difference between coherent terms (METRO): %s\n", norm(B_bohr_metro - B_time_metro))
+B_bohr_metro = @time coherent_metro_bohr(hamiltonian, bohr_dict, jump, beta)
+# norm(B_bohr_metro)
+B_time_metro = @time coherent_term_time_metro(jump, hamiltonian, b1, b2_metro, t0, beta)
+# B_time_metro_exact = @time coherent_term_time_metro_exact(jump, hamiltonian, time_labels, beta)
+B_time_metro_integrated = @time coherent_time_metro_integrated(jump, hamiltonian, time_labels, beta, eta)
+# norm(B_time_metro)
+# norm(B_time_metro_exact)
+@printf("Difference between Metro coherent terms (Bohr vs Approx): %s\n", norm(B_bohr_metro - B_time_metro))
+# @printf("Difference between coherent terms (EXKT METRO): %s\n", norm(B_bohr_metro - B_time_metro_exact))
+@printf("Difference between Metro coherent terms (Bohr vs Integrated approx): %s\n", norm(B_bohr_metro - B_time_metro_integrated))
+norm(B_time_metro_integrated - B_time_metro)
+norm(B_time_metro - B_time_metro_exact)
+# norm(B_time_metro_exact)
 
 # show(IOContext(stdout, :limit=>false), MIME"text/plain"(), round.(imag.(B_bohr_metro ./ B_time_metro), digits=4))
 # show(IOContext(stdout, :limit=>false), MIME"text/plain"(), round.(imag.(B_bohr_metro), digits=4))

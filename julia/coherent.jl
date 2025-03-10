@@ -1,5 +1,5 @@
-using LinearAlgebra
 using Random
+using LinearAlgebra
 using Printf
 using ProgressMeter
 using Distributed
@@ -39,10 +39,10 @@ function coherent_term_time(jump::JumpOp, hamiltonian::HamHam,
         time_evolution_outer = diag_time_evolve(beta * t)
         B .+= b1[t] * time_evolution_outer' * b2_integral * time_evolution_outer
     end
-    return B * t0^2  # x2 is in b2 for correction
+    return B * t0^2  # Correction in b2 already
 end
 
-function coherent_term_time_metro(jump::JumpOp, hamiltonian::HamHam, 
+ function coherent_term_time_metro(jump::JumpOp, hamiltonian::HamHam, 
     b1::Dict{Float64, ComplexF64}, b2_metro::Dict{Float64, ComplexF64}, t0::Float64, beta::Float64)
     """Working in the energy eigenbasis for the time evolutions, where H is diagonal.
         sigma_E = sigma_gamma = w_gamma = 1 / beta"""
@@ -51,21 +51,174 @@ function coherent_term_time_metro(jump::JumpOp, hamiltonian::HamHam,
     diag_time_evolve(t) = Diagonal(exp.(1im * hamiltonian.eigvals * t))
 
     # Inner b2 sum
-    b2_integral = zeros(ComplexF64, dim)
+    b2_integrand = zeros(ComplexF64, dim)
     for s in keys(b2_metro)
-        time_evolution_inner = diag_time_evolve(beta * s)
-        b2_integral .+= b2_metro[s] * (time_evolution_inner * jump.in_eigenbasis' 
-                            * (time_evolution_inner')^2 * jump.in_eigenbasis * time_evolution_inner)
+        U_beta_s = diag_time_evolve(beta * s)
+        U_minus_2beta_s = diag_time_evolve(-2.0 * beta * s)
+
+        b2_integrand_temp = b2_metro[s] * U_beta_s * jump.in_eigenbasis' * U_minus_2beta_s * jump.in_eigenbasis * U_beta_s
+        # if abs(s) <= 0.01
+        #     @printf("s: %s\n", s)
+        #     println(b2_metro[s])
+        # end
+        b2_integrand .+= b2_integrand_temp
     end
 
     # Outer b1 sum
     B = zeros(ComplexF64, dim)
     for t in keys(b1)
-        time_evolution_outer = diag_time_evolve(beta * t)
-        B .+= (b1[t] * time_evolution_outer' * (b2_integral * t0 
-                                        + jump.in_eigenbasis' * jump.in_eigenbasis / (16*sqrt(2)*pi)) * time_evolution_outer)                                   
+        U_beta_t = diag_time_evolve(beta * t)
+        B .+= (b1[t] * U_beta_t' * (b2_integrand * t0 + jump.in_eigenbasis' * jump.in_eigenbasis/(16*sqrt(2)*pi)) * U_beta_t)                                   
     end
     return B * t0  # x2 is in b2 for correction
+end
+
+function coherent_time_metro_integrated(jump::JumpOp, hamiltonian::HamHam, time_labels::Vector{Float64}, 
+    beta::Float64, eta::Float64)
+
+    dim = size(hamiltonian.data)
+    atol = 1e-12
+    rtol = 1e-12
+
+    # For debugging:
+    min_time = minimum(time_labels)
+    max_time = maximum(time_labels)
+
+    U(t) = Diagonal(exp.(1im * hamiltonian.eigvals * t))
+    A = jump.in_eigenbasis
+    b2_integrand(t) = (exp(-2 * t^2 - 1im * t) * U(beta * t) * A' * U(-2 * beta * t) * A * U(beta * t) 
+        / (t * (2 * t + 1im) * 4 * sqrt(2) * pi))
+
+    b2_integrand_eta(t) = 1im * U(beta * t) * A' * U(-2 * beta * t) * A * U(beta * t) / (t * 4 * sqrt(2) * pi)
+
+    eps = 1e-15
+    b2_integral_1 = quadgk(b2_integrand, -Inf, -eps; atol=atol, rtol=rtol)[1]
+    b2_integral_2 = quadgk(b2_integrand, eps, Inf; atol=atol, rtol=rtol)[1]
+    b2_integral_eta_1 = quadgk(b2_integrand_eta, -eta, -eps; atol=atol, rtol=rtol)[1]
+    b2_integral_eta_2 = quadgk(b2_integrand_eta, eps, eta; atol=atol, rtol=rtol)[1]
+    b2_integral_total = b2_integral_1 + b2_integral_2 + b2_integral_eta_1 + b2_integral_eta_2
+
+    f1(t) = 1 / cosh(2 * pi * t)
+    f2(t) = sin(-t) * exp(-2 * t^2)
+    b1(t) = 2 * sqrt(pi) * exp(1/8) * convolute(f1, f2, t)
+    b1_integrand(t) = b1(t) * U(-beta * t) * (b2_integral_total + A' * A / (16 * sqrt(2) * pi)) * U(beta * t)
+
+    B = quadgk(b1_integrand, -Inf, Inf; atol=atol, rtol=rtol)[1]
+    return B * 2
+end
+
+function coherent_term_time_metro_exact(jump::JumpOp, hamiltonian::HamHam, time_labels::Vector{Float64}, beta::Float64)
+
+    dim = size(hamiltonian.data)
+    t0 = time_labels[2] - time_labels[1]
+    time_labels_no_zero = time_labels[2:end]
+    diag_time_evolve(t) = Diagonal(exp.(1im * hamiltonian.eigvals * t))
+
+    f_minus = compute_truncated_f_minus(time_labels_no_zero, beta)
+    # Oh = construct_metro_oh(jump, hamiltonian, time_labels_no_zero, beta) #!
+    Oh = construct_metro_oh_integrated(jump, hamiltonian, beta)
+
+    B = zeros(ComplexF64, dim)
+    for t in keys(f_minus)
+        U_t = diag_time_evolve(t)
+        B .+= f_minus[t] * U_t' * Oh * U_t
+    end
+
+    return t0 * B
+end
+
+function construct_metro_oh_integrated(jump::JumpOp, hamiltonian::HamHam, beta::Float64)
+
+    atol = 1e-12
+    rtol = 1e-12
+    theta = 1 / (beta * 0.45)  # Their natural choice
+
+    U(t) = Diagonal(exp.(1im * hamiltonian.eigvals * t))
+    H = Diagonal(hamiltonian.eigvals)  # In the eigenbasis
+    A = jump.in_eigenbasis
+
+    main_time_integrand(t) = (U(t) * A' * exp(-2 * t^2 / beta^2 - 1im * t / beta) * U(-2.0 * t) * A * U(t) 
+                                                                                / (sqrt(8 * pi) * t * (2 * t / beta + 1im)))
+    first_theta_integrand(t) = ((U(t) * A' * (1im * U(-2.0 * t) - sin(2 * H * t)) * A * U(t)) / (sqrt(8 * pi) * t))
+    second_theta_integrand(t) = ((cos(H * t) * A' * cos(2 * H * t) * A * sin(H * t)
+                                + sin(H * t) * A' * cos(2 * H * t) * A * cos(H * t))/ (sqrt(8 * pi) * t))
+    eps = 1e-15
+    main_time_integral_1 = quadgk(main_time_integrand, -Inf, -eps; atol=atol, rtol=rtol)[1]
+    main_time_integral_2 = quadgk(main_time_integrand, eps, Inf; atol=atol, rtol=rtol)[1]
+    main_time_integral = main_time_integral_1 .+ main_time_integral_2
+
+    # main_time_integrand_for_id(t) = exp(-2*t^2/beta^2 - 1im * t / beta) / (sqrt(8 * pi)*t*(2*t/beta + 1im))
+    # main_time_integral_for_id_1 = I(2^num_qubits) * quadgk(main_time_integrand_for_id, -Inf, -eps; atol=atol, rtol=rtol)[1]
+    # main_time_integral_for_id_2 = I(2^num_qubits) * quadgk(main_time_integrand_for_id, eps, Inf; atol=atol, rtol=rtol)[1]
+    # main_time_integral_for_id = main_time_integral_for_id_1 .+ main_time_integral_for_id_2
+    # @printf("TESTING MAIN INTEGRAL FOR ID: %s\n", norm(main_time_integral - main_time_integral_for_id))
+    
+    first_theta_integral_1 = quadgk(first_theta_integrand, -theta, -eps; atol=atol, rtol=rtol)[1]
+    first_theta_integral_2 = quadgk(first_theta_integrand, eps, theta; atol=atol, rtol=rtol)[1]
+    first_theta_integral = first_theta_integral_1 .+ first_theta_integral_2
+
+    # first_theta_integrand_for_id(t) = (1im * I(2^num_qubits) - sin(2 * H * t) * U(2.0 * t)) / (sqrt(8 * pi) * t)
+    # first_theta_integral_for_id_1 = quadgk(first_theta_integrand_for_id, -theta, -eps; atol=atol, rtol=rtol)[1]
+    # first_theta_integral_for_id_2 = quadgk(first_theta_integrand_for_id, eps, theta; atol=atol, rtol=rtol)[1]
+    # first_theta_integral_for_id = first_theta_integral_for_id_1 .+ first_theta_integral_for_id_2
+    # @printf("TESTING FIRST THETA INTEGRAL FOR ID: %s\n", norm(first_theta_integral - first_theta_integral_for_id))
+
+    second_theta_integral_1 = quadgk(second_theta_integrand, -theta, -eps; atol=atol, rtol=rtol)[1]
+    second_theta_integral_2 = quadgk(second_theta_integrand, eps, theta; atol=atol, rtol=rtol)[1]
+    second_theta_integral = second_theta_integral_1 .+ second_theta_integral_2
+
+    # second_theta_integrand_for_id(t) = 2 * cos(H * t) * cos(2 * H * t) * sin(H * t) / (sqrt(8 * pi) * t)
+    # second_theta_integral_for_id_1 = quadgk(second_theta_integrand_for_id, -theta, -eps; atol=atol, rtol=rtol)[1]
+    # second_theta_integral_for_id_2 = quadgk(second_theta_integrand_for_id, eps, theta; atol=atol, rtol=rtol)[1]
+    # second_theta_integral_for_id = second_theta_integral_for_id_1 .+ second_theta_integral_for_id_2
+    # @printf("TESTING SECOND THETA INTEGRAL FOR ID: %s\n", norm(second_theta_integral - second_theta_integral_for_id))
+
+    # total_for_id = main_time_integral_for_id .+ first_theta_integral_for_id .+ second_theta_integral_for_id .+ I(2^num_qubits) / sqrt(pi / 8)
+    # @printf("Norm for id: %s\n", norm(total_for_id))
+    Oh = main_time_integral #.+ first_theta_integral .+ second_theta_integral .+ (A' * A / sqrt(pi / 8))
+    return Oh #? x2
+end
+
+function construct_metro_oh(jump::JumpOp, hamiltonian::HamHam, time_labels::Vector{Float64}, beta::Float64)
+    """Proposition B.2."""
+
+    dim = size(hamiltonian.data)
+    theta = 1 / (beta * 0.45)  # Their natural choice
+    time_labels_in_theta_domain = time_labels[abs.(time_labels) .<= theta]
+    t0 = time_labels[2] - time_labels[1]
+
+    diag_time_evolve(t) = Diagonal(exp.(1im * hamiltonian.eigvals * t))
+    A = jump.in_eigenbasis
+    H = Diagonal(hamiltonian.eigvals)  # In the eigenbasis
+
+    Oh = zeros(ComplexF64, dim)
+    integrand = zeros(ComplexF64, dim)
+
+    # First main integral
+    for t in time_labels
+        U_t = diag_time_evolve(t)
+        U_minus2t = diag_time_evolve(-2.0 * t) 
+        integrand .+= (U_t * A' * exp(-2 * t^2 / beta^2 - 1im * t / beta) * U_minus2t * A * U_t 
+                                                                                / (sqrt(8 * pi) * t * (2 * t / beta + 1im)))
+    end
+    Oh .+= t0 * integrand
+
+    # First and second theta integral
+    theta_integrand = zeros(ComplexF64, dim)
+    for t in time_labels_in_theta_domain
+        U_t = diag_time_evolve(t)
+        U_minus2t = diag_time_evolve(-2.0 * t) 
+        theta_integrand .+= U_t * A' * (1im * U_minus2t - sin(2 * H * t)) * A * U_t / (t * sqrt(8 * pi))
+
+        theta_integrand .+= (cos(H * t) * A' * cos(2 * H * t) * A * sin(H * t)
+                + sin(H * t) * A' * cos(2 * H * t) * A * cos(H * t)) / (t * sqrt(8 * pi))
+    end
+
+    # Oh .+= theta_integrand * t0
+
+    # Final part
+    # Oh .+= sqrt(pi / 8) * A' * A
+    return Oh #?? x2 for correction, for sure?
 end
 
 function coherent_term_trotter(jump::JumpOp, trotter::TrottTrott, 
@@ -171,6 +324,24 @@ end
 
 #* B1 AND B2 ----------------------------------------------------------------------------------------------------------------
 # Corollary III.1, every parameter = 1 / beta
+function compute_f_minus(time_labels::Vector{Float64}, beta::Float64)
+    f1(t) = 1 / cosh(2 * pi * t / beta)
+    f2(t) = sin(-t / beta) * exp(-2 * t^2 / beta^2)
+    return (1 / (pi * beta^2)) * exp(1/8) * convolute.(Ref(f1), Ref(f2), time_labels)
+end
+
+function compute_truncated_f_minus(time_labels::Vector{Float64}, beta::Float64; atol::Float64 = 1e-14)
+
+    f_minus = Vector{ComplexF64}(compute_f_minus(time_labels, beta))
+
+    # Skip all elements where b1 b2 are smaller than 1e-14
+    indices_f_minus = get_truncated_indices_b(f_minus; atol)
+    f_minus_times = time_labels[indices_f_minus]
+    f_minus_vals = f_minus[indices_f_minus]
+    
+    return Dict(zip(f_minus_times, f_minus_vals))
+end
+
 function compute_b1(time_labels::Vector{Float64})
     f1(t) = 1 / cosh(2 * pi * t)
     f2(t) = sin(-t) * exp(-2 * t^2)
@@ -196,7 +367,7 @@ function compute_truncated_b1(time_labels::Vector{Float64}; atol::Float64 = 1e-1
 end
 
 function compute_b2(time_labels::Vector{Float64})
-    return 2 * exp.(- 4 * time_labels.^2 .- 2 * im * time_labels) / sqrt(4 * pi^3)
+    return 2 * exp.(- 4 * time_labels.^2 .- 2 * im * time_labels) / sqrt(4 * pi^3)  # Corrected
 end
 
 function compute_truncated_b2(time_labels::Vector{Float64}; atol::Float64 = 1e-14)

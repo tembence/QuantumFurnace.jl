@@ -2,37 +2,37 @@ using FFTW
 using Plots
 
 # Define the Gaussian function
-# function gaussian(x)
-#     return exp(-x^2)
-# end
+function gaussian(x)
+    return exp(-x^2)
+end
 
-# # Analytical Fourier transform of the Gaussian function
-# function analytical_ft(k)
-#     return sqrt(pi) * exp(-k^2 / 4)
-# end
+# Analytical Fourier transform of the Gaussian function
+function analytical_ft(k)
+    return sqrt(pi) * exp(-k^2 / 4)
+end
 
-# # Define the range and sample points
-# N = 1024
-# L = 10.0
-# x = LinRange(-L, L, N)
-# dx = x[2] - x[1]
+# Define the range and sample points
+N = 1024
+L = 10.0
+x = LinRange(-L, L, N)
+dx = x[2] - x[1]
 
-# # Evaluate the Gaussian function at the sample points
-# f_x = gaussian.(x)
+# Evaluate the Gaussian function at the sample points
+f_x = gaussian.(x)
 
-# # Perform the numerical Fourier transform using FFTW
-# F_k = fftshift(fft(f_x)) * dx / sqrt(2 * pi * N)
-# k = fftshift(fftfreq(N, dx)) * 2 * pi
+# Perform the numerical Fourier transform using FFTW
+F_k = fftshift(fft(f_x)) * dx / sqrt(2 * pi * N)
+k = fftshift(fftfreq(N, dx)) * 2 * pi
 
-# # Analytical result for comparison
-# analytical_result = analytical_ft.(k)
+# Analytical result for comparison
+analytical_result = analytical_ft.(k)
 
-# # Plotting the results
-# plot(k, abs.(F_k), label="Numerical FT", linewidth=2)
-# plot!(k, analytical_result, label="Analytical FT", linestyle=:dash, linewidth=2)
-# xlabel!("k")
-# ylabel!("Magnitude")
-# title!("Fourier Transform of Gaussian Function")
+# Plotting the results
+plot(k, abs.(F_k), label="Numerical FT", linewidth=2)
+plot!(k, analytical_result, label="Analytical FT", linestyle=:dash, linewidth=2)
+xlabel!("k")
+ylabel!("Magnitude")
+title!("Fourier Transform of Gaussian Function")
 
 # Define the number of points
 # N = 1024
