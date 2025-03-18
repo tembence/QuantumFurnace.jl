@@ -106,9 +106,14 @@ function construct_liouvillian_time_metro(jumps::Vector{JumpOp}, hamiltonian::Ha
     t0 = time_labels[2] - time_labels[1]
     transition_metro(w) = exp(-beta * max(w + 1/(2*beta), 0.0))
 
-    if with_coherent  # Steup for coherent term in time domain
-        b1 = compute_truncated_b1(time_labels)
-        b2 = compute_truncated_b2_metro(time_labels, eta)
+    # if with_coherent  # Steup for coherent term in time domain
+    #     b1 = compute_truncated_b1(time_labels)
+    #     b2 = compute_truncated_b2_metro(time_labels, eta)
+    # end
+
+    if with_coherent
+        f_minus = compute_truncated_f_minus(time_labels, beta)
+        f_plus = compute_truncated_f_plus_metro(time_labels, eta, beta)
     end
 
     total_liouv_coherent_part = zeros(ComplexF64, dim^2, dim^2)
@@ -117,7 +122,8 @@ function construct_liouvillian_time_metro(jumps::Vector{JumpOp}, hamiltonian::Ha
     for jump in jumps
         if with_coherent 
             # coherent_term = coherent_term_time(jump, hamiltonian, b1, b2, t0, beta)
-            coherent_term = coherent_term_time_metro_exact(jump, hamiltonian, time_labels, beta)
+            # coherent_term = coherent_term_time_metro_exact(jump, hamiltonian, time_labels, beta)
+            coherent_term = coherent_term_time_metro_f(jump, hamiltonian, f_minus, f_plus, t0)
             total_liouv_coherent_part .+= vectorize_liouvillian_coherent(coherent_term)
         end
 

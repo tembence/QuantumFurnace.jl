@@ -25,7 +25,7 @@ ENV["ROWS"] = "128"
 #* Configs
 num_qubits = 2
 dim = 2^num_qubits
-num_energy_bits = 14
+num_energy_bits = 20
 beta = 10.
 Random.seed!(666)
 with_coherent = true
@@ -61,7 +61,7 @@ time_labels = t0 * N_labels
 
 gauss_energy_integrand(w, nu_1, nu_2, beta) = ((beta / sqrt(2*pi)) * exp(-beta^2 * (w + 1/beta)^2 /2)
                                                     * exp(-beta^2 * (w - nu_1)^2 / 4) * exp(-beta^2 * (w - nu_2)^2 / 4))
-metro_energy_integrand(w, nu_1, nu_2, beta) = ((beta / sqrt(2*pi)) *  exp(-beta * max(w + 1/(2*beta), 0.0))
+metro_energy_integrand(w, nu_1, nu_2, beta) = (exp(-beta * max(w + 1/(2*beta), 0.0))
                                                     * exp(-beta^2 * (w - nu_1)^2 / 4) * exp(-beta^2 * (w - nu_2)^2 / 4))
 
 truncated_energies = truncate_energy_labels(energy_labels, metro_energy_integrand, beta)
@@ -106,13 +106,12 @@ end
 # @printf("Last distance to Gibbs: %s\n", results.distances_to_gibbs[end])
 
 #* Time vs Bohr Liouvillians
-# with_coherent = false
 # liouv_bohr = @time construct_liouvillian_bohr_gauss(all_jumps_generated, hamiltonian, with_coherent, beta)
 # liouv_time = @time construct_liouvillian_time_gauss(all_jumps_generated, hamiltonian, time_labels, truncated_energies, 
 # with_coherent, beta)
 # @printf("Difference between Liouvillians (GAUSS): %s\n", norm(liouv_bohr - liouv_time))
 
-# eta = 0.001
+eta = 0.0001
 # liouv_bohr_metro = @time construct_liouvillian_bohr_metro(all_jumps_generated, hamiltonian, with_coherent, beta)
 # liouv_metro = @time construct_liouvillian_metro(all_jumps_generated, hamiltonian, truncated_energies, with_coherent, beta)
 # liouv_metro_truncated = @time construct_liouvillian_metro(all_jumps_generated, hamiltonian, truncated_energies, 
@@ -127,29 +126,31 @@ end
 
 #* Transition part
 # T_energy_metro = @time transition_metro(all_jumps_generated, hamiltonian, truncated_energies, beta)
-# T_bohr_metro = @time transition_bohr_metro(all_jumps_generated, hamiltonian, beta)
-# T_time_metro = @time transition_time_metro(all_jumps_generated, hamiltonian, time_labels, truncated_energies, beta)
+T_bohr_metro = @time transition_bohr_metro(all_jumps_generated, hamiltonian, beta)
+T_time_metro = @time transition_time_metro(all_jumps_generated, hamiltonian, time_labels, truncated_energies, beta)
 # @printf("Distance between Bohr and Energy pictures (T METRO): %s\n", norm(T_bohr_metro - T_energy_metro))
-# @printf("Distance between Bohr and Time pictures (T METRO): %s\n", norm(T_bohr_metro - T_time_metro))
+@printf("Distance between Bohr and Time pictures (T METRO): %s\n", norm(T_bohr_metro - T_time_metro))
 # @printf("Distance between Time and Energy pictures (T METRO): %s\n", norm(T_time_metro - T_energy_metro))
 
 #* Coherent term
 # B1 integral
-num_energy_bits = 20
-N = 2^(num_energy_bits)
-N_labels = [0:1:Int(N/2)-1; -Int(N/2):1:-1]
-sorted_N_labels = [-Int(N/2):1:-1; 0:1:Int(N/2)-1]
-jump = all_jumps_generated[2]
+# num_energy_bits = 12
+# N = 2^(num_energy_bits)
+# N_labels = [0:1:Int(N/2)-1; -Int(N/2):1:-1]
+# sorted_N_labels = [-Int(N/2):1:-1; 0:1:Int(N/2)-1]
+jump = all_jumps_generated[1]
 bohr_dict::Dict{Float64, Vector{CartesianIndex{2}}} = create_bohr_dict(hamiltonian)
-eta = 0.02
-t0 = 0.00006
-time_labels = t0 * N_labels
-time_labels_no_zero = time_labels[2:end]
-sorted_time_labels_no_zero = sort(time_labels_no_zero)
-maximum(time_labels)
-b1 = compute_truncated_b1(time_labels)
-b2 = compute_truncated_b2(time_labels)
-b2_metro = compute_truncated_b2_metro(time_labels, eta)  #! Needs max(t) ~ 30
+# eta = 0.0001
+# t0 = 0.00006
+# time_labels = t0 * N_labels
+# time_labels_no_zero = time_labels[2:end]
+# sorted_time_labels_no_zero = sort(time_labels_no_zero)
+
+# b1 = compute_truncated_b1(time_labels)
+# b2 = compute_truncated_b2(time_labels)
+# b2_metro = compute_truncated_b2_metro(time_labels, eta)  #! Needs max(t) ~ 30
+f_minus = compute_truncated_f_minus(time_labels, beta)
+f_plus_metro = compute_truncated_f_plus_metro(time_labels, eta, beta)
 
 # Gauss
 # B_bohr = coherent_gaussian_bohr(hamiltonian, bohr_dict, jump, beta)
@@ -177,86 +178,90 @@ b2_metro = compute_truncated_b2_metro(time_labels, eta)  #! Needs max(t) ~ 30
 # Metro
 B_bohr_metro = @time coherent_metro_bohr(hamiltonian, bohr_dict, jump, beta)
 # norm(B_bohr_metro)
-B_time_metro = @time coherent_term_time_metro(jump, hamiltonian, b1, b2_metro, t0, beta)
-# B_time_metro_exact = @time coherent_term_time_metro_exact(jump, hamiltonian, time_labels, beta)
-B_time_metro_integrated = @time coherent_time_metro_integrated(jump, hamiltonian, time_labels, beta, eta)
-# norm(B_time_metro)
-# norm(B_time_metro_exact)
-@printf("Difference between Metro coherent terms (Bohr vs Approx): %s\n", norm(B_bohr_metro - B_time_metro))
-# @printf("Difference between coherent terms (EXKT METRO): %s\n", norm(B_bohr_metro - B_time_metro_exact))
-@printf("Difference between Metro coherent terms (Bohr vs Integrated approx): %s\n", norm(B_bohr_metro - B_time_metro_integrated))
-norm(B_time_metro_integrated - B_time_metro)
-norm(B_time_metro - B_time_metro_exact)
-# norm(B_time_metro_exact)
+B_time_metro_f = coherent_term_time_metro_f(jump, hamiltonian, f_minus, f_plus_metro, t0)
+norm(B_bohr_metro - B_time_metro_f)
 
-# show(IOContext(stdout, :limit=>false), MIME"text/plain"(), round.(imag.(B_bohr_metro ./ B_time_metro), digits=4))
-# show(IOContext(stdout, :limit=>false), MIME"text/plain"(), round.(imag.(B_bohr_metro), digits=4))
-# show(IOContext(stdout, :limit=>false), MIME"text/plain"(), round.(imag.(B_time_metro), digits=4))
 
-#* B2 Metro
-# eta = 0.02
-# t0_test = 0.01
-# time_labels_test = t0_test * [-5:1:5;]
+# B_time_metro = @time coherent_term_time_metro(jump, hamiltonian, b1, b2_metro, t0, beta)
+# # B_time_metro_exact = @time coherent_term_time_metro_exact(jump, hamiltonian, time_labels, beta)
+# B_time_metro_integrated = @time coherent_time_metro_integrated(jump, hamiltonian, time_labels, beta, eta)
+# # norm(B_time_metro)
+# # norm(B_time_metro_exact)
+# @printf("Difference between Metro coherent terms (Bohr vs Approx): %s\n", norm(B_bohr_metro - B_time_metro))
+# # @printf("Difference between coherent terms (EXKT METRO): %s\n", norm(B_bohr_metro - B_time_metro_exact))
+# @printf("Difference between Metro coherent terms (Bohr vs Integrated approx): %s\n", norm(B_bohr_metro - B_time_metro_integrated))
+# norm(B_time_metro_integrated - B_time_metro)
+# norm(B_time_metro - B_time_metro_exact)
+# # norm(B_time_metro_exact)
 
-# Compute b2 metro
-# b2_metro::Vector{ComplexF64} = ((1/(4 * pi * sqrt(2))) * 
-#         exp.(-2 * time_labels_test.^2 .- 1im * time_labels_test) ./ (time_labels_test .* (2 * time_labels_test .+ 1im)))
+# # show(IOContext(stdout, :limit=>false), MIME"text/plain"(), round.(imag.(B_bohr_metro ./ B_time_metro), digits=4))
+# # show(IOContext(stdout, :limit=>false), MIME"text/plain"(), round.(imag.(B_bohr_metro), digits=4))
+# # show(IOContext(stdout, :limit=>false), MIME"text/plain"(), round.(imag.(B_time_metro), digits=4))
 
-# (1, 1, 1 (at eta), 0, 0, ..., 0)
-# heaviside_eta = ifelse.(abs.(time_labels_test) .> eta, 0, ones(length(time_labels_test)))
-# b2_metro .+= heaviside_eta .* (1im * (2 * time_labels_test .+ 1im) ./ (time_labels_test .* (2 * time_labels_test .+ 1im)))
+# #* B2 Metro
+# # eta = 0.02
+# # t0_test = 0.01
+# # time_labels_test = t0_test * [-5:1:5;]
 
-#* Time gaussian normalization
-# Fw = exp.(- beta^2 * (energy_labels).^2 / 4)
-# Fw_norm = sqrt(sum(Fw.^2))
-# ft = exp.(- time_labels.^2 / beta^2)
-# ft_norm = sqrt(sum(ft.^2))
+# # Compute b2 metro
+# # b2_metro::Vector{ComplexF64} = ((1/(4 * pi * sqrt(2))) * 
+# #         exp.(-2 * time_labels_test.^2 .- 1im * time_labels_test) ./ (time_labels_test .* (2 * time_labels_test .+ 1im)))
 
-# oft_w_norm = sqrt(beta / sqrt(2 * pi))  #! sqrt(8 * pi) -> sqrt(2 * pi)
+# # (1, 1, 1 (at eta), 0, 0, ..., 0)
+# # heaviside_eta = ifelse.(abs.(time_labels_test) .> eta, 0, ones(length(time_labels_test)))
+# # b2_metro .+= heaviside_eta .* (1im * (2 * time_labels_test .+ 1im) ./ (time_labels_test .* (2 * time_labels_test .+ 1im)))
 
-#* Discrete Fourier transform
-# Random.seed!(666)
-# rand_w = energy_labels[rand(1:end)]
-# gaussian_t = exp.(- time_labels.^2 / beta^2) * sqrt(sqrt(2/pi)/beta)
-# gaussian_t_dft(w) = t0 * sum(gaussian_t .* exp.(-1im * w * time_labels)) / sqrt(2 * pi)
-# gaussian_w(w) = exp(- beta^2 * w^2 / 4) * sqrt(beta / sqrt(2 * pi))  #! sqrt(8 * pi) -> sqrt(2 * pi)
+# #* Time gaussian normalization
+# # Fw = exp.(- beta^2 * (energy_labels).^2 / 4)
+# # Fw_norm = sqrt(sum(Fw.^2))
+# # ft = exp.(- time_labels.^2 / beta^2)
+# # ft_norm = sqrt(sum(ft.^2))
 
-# norm(gaussian_t_dft.(energy_labels) - gaussian_w.(energy_labels))
+# # oft_w_norm = sqrt(beta / sqrt(2 * pi))  #! sqrt(8 * pi) -> sqrt(2 * pi)
 
-#* Fourier integral
-# jump_oft_time_integrated = time_oft_integrated(jump, rand_w, hamiltonian, beta)
-# jump_oft_energy = oft(jump, rand_w, hamiltonian, beta) * oft_w_norm
-# norm(jump_oft_time_integrated - jump_oft_energy)
+# #* Discrete Fourier transform
+# # Random.seed!(666)
+# # rand_w = energy_labels[rand(1:end)]
+# # gaussian_t = exp.(- time_labels.^2 / beta^2) * sqrt(sqrt(2/pi)/beta)
+# # gaussian_t_dft(w) = t0 * sum(gaussian_t .* exp.(-1im * w * time_labels)) / sqrt(2 * pi)
+# # gaussian_w(w) = exp(- beta^2 * w^2 / 4) * sqrt(beta / sqrt(2 * pi))  #! sqrt(8 * pi) -> sqrt(2 * pi)
 
-# Integrating just the gaussian 
-# total_fourier_error = 0.0
-# for w in energy_labels
-#     gaussian_t_integrand(t) = exp(-t^2 / beta^2) * exp(-1im * w * t)
-#     gaussian_t_integral = quadgk(gaussian_t_integrand, -Inf, Inf)[1] * sqrt(sqrt(2/pi)/beta) / sqrt(2 * pi)
-#     err = norm(gaussian_t_integral - gaussian_w(w))
-#     display(err)
-#     total_fourier_error += err
-# end
-# total_fourier_error
+# # norm(gaussian_t_dft.(energy_labels) - gaussian_w.(energy_labels))
 
-#* A(w) from time sum
-# rand_w = energy_labels[rand(1:end)]
-# oft_w_norm = sqrt(beta / sqrt(2 * pi))  #! THIS IS CORRECTED
-# norm(sqrt(beta / sqrt(8 * pi)) * sqrt(2) - sqrt(beta / sqrt(2 * pi)))
-# oft_t_norm = t0 * sqrt(sqrt(2 / pi)/beta) / sqrt(2 * pi)  #! THIS IS THE FT NORMALIZATION WITH FOURTIER (SO UNCHANGED)
-# total_oft_error = 0.0
-# for w in energy_labels
-#     # @printf("Energy: %s\n", w)
-#     jump_oft_energy = oft(jump, w, hamiltonian, beta) * oft_w_norm  # With this normalization we had DB!
-#     jump_oft_time = time_oft(jump, w, hamiltonian, time_labels, beta) * oft_t_norm
-#     # jump_oft_energy = oft(jump, w, hamiltonian, beta) / Fw_norm
-#     # jump_oft_time = time_oft(jump, w, hamiltonian, time_labels, beta) / (ft_norm * sqrt(length(time_labels)))
-#     err = norm(jump_oft_energy - jump_oft_time)
-#     total_oft_error += err
-#     # @printf("OFT energy vs time deviation: %s\n", err)
-# end
-# @printf("Total error: %s\n", total_oft_error)
+# #* Fourier integral
+# # jump_oft_time_integrated = time_oft_integrated(jump, rand_w, hamiltonian, beta)
+# # jump_oft_energy = oft(jump, rand_w, hamiltonian, beta) * oft_w_norm
+# # norm(jump_oft_time_integrated - jump_oft_energy)
 
-#! HALLELUJA BOTH ARE NORMALIZED TO 1, GOOD ASS AMPLITUDES
-# ft_vals_squared_sum = t0 * sum(abs.(exp.(- time_labels.^2 / beta^2) * sqrt(sqrt(2 / pi)/beta)).^2)
-# Fw_vals_squared_sum = w0 * sum(abs.(exp.(- beta^2 * energy_labels.^2 / 4) * sqrt(beta / sqrt(2 * pi))).^2)
+# # Integrating just the gaussian 
+# # total_fourier_error = 0.0
+# # for w in energy_labels
+# #     gaussian_t_integrand(t) = exp(-t^2 / beta^2) * exp(-1im * w * t)
+# #     gaussian_t_integral = quadgk(gaussian_t_integrand, -Inf, Inf)[1] * sqrt(sqrt(2/pi)/beta) / sqrt(2 * pi)
+# #     err = norm(gaussian_t_integral - gaussian_w(w))
+# #     display(err)
+# #     total_fourier_error += err
+# # end
+# # total_fourier_error
+
+# #* A(w) from time sum
+# # rand_w = energy_labels[rand(1:end)]
+# # oft_w_norm = sqrt(beta / sqrt(2 * pi))  #! THIS IS CORRECTED
+# # norm(sqrt(beta / sqrt(8 * pi)) * sqrt(2) - sqrt(beta / sqrt(2 * pi)))
+# # oft_t_norm = t0 * sqrt(sqrt(2 / pi)/beta) / sqrt(2 * pi)  #! THIS IS THE FT NORMALIZATION WITH FOURTIER (SO UNCHANGED)
+# # total_oft_error = 0.0
+# # for w in energy_labels
+# #     # @printf("Energy: %s\n", w)
+# #     jump_oft_energy = oft(jump, w, hamiltonian, beta) * oft_w_norm  # With this normalization we had DB!
+# #     jump_oft_time = time_oft(jump, w, hamiltonian, time_labels, beta) * oft_t_norm
+# #     # jump_oft_energy = oft(jump, w, hamiltonian, beta) / Fw_norm
+# #     # jump_oft_time = time_oft(jump, w, hamiltonian, time_labels, beta) / (ft_norm * sqrt(length(time_labels)))
+# #     err = norm(jump_oft_energy - jump_oft_time)
+# #     total_oft_error += err
+# #     # @printf("OFT energy vs time deviation: %s\n", err)
+# # end
+# # @printf("Total error: %s\n", total_oft_error)
+
+# #! HALLELUJA BOTH ARE NORMALIZED TO 1, GOOD ASS AMPLITUDES
+# # ft_vals_squared_sum = t0 * sum(abs.(exp.(- time_labels.^2 / beta^2) * sqrt(sqrt(2 / pi)/beta)).^2)
+# # Fw_vals_squared_sum = w0 * sum(abs.(exp.(- beta^2 * energy_labels.^2 / 4) * sqrt(beta / sqrt(2 * pi))).^2)

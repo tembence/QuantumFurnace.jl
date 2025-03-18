@@ -21,14 +21,15 @@ end
 #* Energy functions
 f_plus_nu_gauss(nu, beta) = exp(-beta^2 * (nu + 2/beta)^2 / 16) / sqrt(2)
 f_plus_nu_metro(nu, beta) = (erfc((1 + beta * nu) / sqrt(8)) + exp(-beta * nu / 2) * erfc((1 - beta * nu) / sqrt(8))) / 2
-
+f_plus_nu_metro_regged(nu, beta) = f_plus_nu_metro(nu, beta) - (1 - nu / abs(nu)) / 4
+erfc((1 - beta * (-10)) / sqrt(8)) * exp(-beta * (-10) / 2)
 f_minus_nu(nu, beta) = tanh(-beta * nu / 4) * exp(-beta^2 * nu^2 / 8) / 2im / (2pi)
 
 #* Time functions
 f_plus_t_gauss(t, beta) = 2 * exp(-4 * t^2 / beta^2 - 2im * t / beta) / beta
 f_plus_t_metro(t, eta, beta) = beta * sqrt(pi / 2) * (beta * exp(-2 * t^2 / beta^2 - 1im * t / beta) / (t * (2 * t / beta + 1im))
                                                 + (abs(t) <= eta) * 1im * beta / t)
-
+# f_plus_t_metro_regged(t, eta, beta) = 
 f1(t, beta) = 1 / cosh(2 * pi * t / beta)
 f2(t, beta) = sin(-t / beta) * exp(-2 * t^2 / beta^2)
 f_minus_t(t, beta) = exp(1/8) * convolute(f1, f2, t, beta) / (beta^2 * pi)
@@ -45,6 +46,11 @@ N_labels = [0:1:Int(N/2)-1; -Int(N/2):1:-1]
 # N_labels_decimal_order = fftshift(N_labels)
 time_labels = t0 * N_labels
 energy_labels = w0 * N_labels
+nu_max = 30.
+nu0 = 2 * nu_max / N
+nu_labels = fftshift(range(-nu_max, nu_max - nu0, N))
+t0_new = 2pi / (N * nu0)
+time_labels_new = t0_new * N_labels
 
 # Analytic results
 # f_plus_gauss_nu_vals = f_plus_nu_gauss.(energy_labels, beta)
@@ -52,19 +58,22 @@ energy_labels = w0 * N_labels
 
 # f_minus_nu_vals = f_minus_nu.(energy_labels, beta)
 # f_minus_t_vals = f_minus_t.(time_labels, beta)
-time_labels_no_zero = time_labels[2:end]
-f_plus_metro_nu_vals = f_plus_nu_metro.(energy_labels, beta)
-f_plus_metro_t_vals = f_plus_t_metro.(time_labels_no_zero, eta, beta)
-
+# time_labels_new_no_zero = copy(time_labels_new)
+#! This does not keep the domain around the divergence symmetric:
+# time_labels_new_no_zero[1] = t0_new * 1e-5  # Replace 0 with something small, close to zero 
+f_plus_metro_nu_vals = f_plus_nu_metro.(nu_labels, beta)
+plot(fftshift(nu_labels), fftshift(f_plus_metro_nu_vals))
+f_plus_metro_t_vals = f_plus_t_metro.(time_labels_new, eta, beta)
+f_plus_metro_t_vals[1] = 1.0 / (2 * sqrt(2) * pi)
 # Fouriers
 # fourierd_f_plus_nu = ifft(f_plus_gauss_nu_vals) * w0 * N / sqrt(2pi)  #! The symmetric F convention, and IFFT factor
 # fourierd_f_minus_nu = ifft(f_minus_nu_vals) * w0 * N / sqrt(2pi)
-fourierd_f_plus_metro_nu = ifft(f_plus_metro_nu_vals) * w0 * N / sqrt(2pi) 
-println(fourierd_f_plus_metro_nu)
+fourierd_f_plus_metro_t = fft(f_plus_metro_t_vals) * t0_new / sqrt(2pi)
+
 # Norm checks
 # norm(fourierd_f_plus_nu - f_plus_gauss_t_vals)
 # norm(fourierd_f_minus_nu - f_minus_t_vals)
-norm(fourierd_f_plus_metro_nu - f_plus_metro_t_vals)
+norm(f_plus_metro_nu_vals - fourierd_f_plus_metro_t)
 
 
 # Plots
@@ -73,8 +82,13 @@ norm(fourierd_f_plus_metro_nu - f_plus_metro_t_vals)
 # plot!(fftshift(time_labels), real.(fftshift(fourierd_f_plus_nu)), label="Re FFT")
 # plot!(fftshift(time_labels), imag.(fftshift(fourierd_f_plus_nu)), label="Im FFT")
 
-plot(fftshift(time_labels), real.(fftshift(f_minus_t_vals)), label="Re Analytic")
-plot!(fftshift(time_labels), real.(fftshift(fourierd_f_minus_nu)), label="Re FFT")
+plot(fftshift(nu_labels), fftshift(real.(fourierd_f_plus_metro_t)), label="Re FFT")
+plot(fftshift(nu_labels), fftshift(imag.(fourierd_f_plus_metro_t)), label="Im FFT")
+plot!(fftshift(nu_labels), fftshift(real.(f_plus_metro_t_vals)), label="Re Analytic F(nu)")
+plot!(fftshift(nu_labels), fftshift(imag.(f_plus_metro_t_vals)), label="Im Analytic F(nu)")
+
+# plot(fftshift(time_labels), real.(fftshift(f_minus_t_vals)), label="Re Analytic")
+# plot!(fftshift(time_labels), real.(fftshift(fourierd_f_minus_nu)), label="Re FFT")
 
 #* Basic working example ----------------------------------------------------------------------------------------------------
 # Parameters

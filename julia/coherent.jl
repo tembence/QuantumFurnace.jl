@@ -73,6 +73,29 @@ end
     return B * t0  # x2 is in b2 for correction
 end
 
+function coherent_term_time_metro_f(jump::JumpOp, hamiltonian::HamHam, 
+    f_minus::Dict{Float64, ComplexF64}, f_plus::Dict{Float64, ComplexF64}, t0::Float64)
+
+    dim = size(hamiltonian.data)
+    diag_time_evolve(t) = Diagonal(exp.(1im * hamiltonian.eigvals * t))
+
+    # Inner summand f_plus
+    f_plus_summand = zeros(ComplexF64, dim)
+    for s in keys(f_plus)
+        U_s = diag_time_evolve(s)
+        U_minus_2s = diag_time_evolve(-2.0 * s)
+        f_plus_summand .+= f_plus[s] * U_s * jump.in_eigenbasis' * U_minus_2s * jump.in_eigenbasis * U_s
+    end
+
+    # Outer summand f_minus
+    B = zeros(ComplexF64, dim)
+    for t in keys(f_minus)
+        U_t = diag_time_evolve(t)
+        B .+= f_minus[t] * U_t' * (f_plus_summand * t0 + jump.in_eigenbasis' * jump.in_eigenbasis / (2pi * sqrt(2))) * U_t
+    end
+    return B * t0
+end
+
 function coherent_time_metro_integrated(jump::JumpOp, hamiltonian::HamHam, time_labels::Vector{Float64}, 
     beta::Float64, eta::Float64)
 
@@ -330,16 +353,32 @@ function compute_f_minus(time_labels::Vector{Float64}, beta::Float64)
     return (1 / (pi * beta^2)) * exp(1/8) * convolute.(Ref(f1), Ref(f2), time_labels)
 end
 
-function compute_truncated_f_minus(time_labels::Vector{Float64}, beta::Float64; atol::Float64 = 1e-14)
+# Actually faster broadcasting the whole function than taking in a vector argument
+function compute_f_plus_metro(t::Float64, eta::Float64, beta::Float64)
+
+    if abs(t) < 1e-12  # Handle t=0
+        return complex(sqrt(1 / 2pi) / beta) 
+    elseif abs(t) ≤ eta
+        numerator = exp(-2 * t^2 / beta^2 - 1im * t / beta) + 1im * (2 * t / beta + 1im)
+    else
+        numerator = exp(-2 * t^2 / beta^2 - 1im * t / beta)
+    end
+    denominator = t * (2 * t / beta + 1im) / beta
+    return (sqrt(1 / 2pi) / beta) * numerator / denominator
+end
+
+function compute_truncated_f_plus_metro(time_labels::Vector{Float64}, eta::Float64, beta::Float64; atol::Float64 = 1e-12)
+    f_plus = Vector{ComplexF64}(compute_f_plus_metro.(time_labels, eta, beta))
+    good_indices = get_truncated_indices_b(f_plus; atol=atol)
+    return Dict(zip(time_labels[good_indices], f_plus[good_indices]))
+end
+
+function compute_truncated_f_minus(time_labels::Vector{Float64}, beta::Float64; atol::Float64 = 1e-12)
 
     f_minus = Vector{ComplexF64}(compute_f_minus(time_labels, beta))
-
-    # Skip all elements where b1 b2 are smaller than 1e-14
+    # Skip all elements where b1 b2 are smaller than 1e-12
     indices_f_minus = get_truncated_indices_b(f_minus; atol)
-    f_minus_times = time_labels[indices_f_minus]
-    f_minus_vals = f_minus[indices_f_minus]
-    
-    return Dict(zip(f_minus_times, f_minus_vals))
+    return Dict(zip(time_labels[indices_f_minus], f_minus[indices_f_minus]))
 end
 
 function compute_b1(time_labels::Vector{Float64})
@@ -403,6 +442,7 @@ function compute_truncated_b2_metro(time_labels::Vector{Float64}, eta::Float64; 
 
     return Dict(zip(b2_metro_times, b2_metro_vals))
 end
+
 
 # function compute_b2_metro_explicit(time_labels::Vector{Float64}, eta::Float64)
 
