@@ -25,8 +25,9 @@ ENV["ROWS"] = "128"
 #* Configs
 num_qubits = 2
 dim = 2^num_qubits
-num_energy_bits = 20
+num_energy_bits = 21
 beta = 10.
+eta = 1e-10
 Random.seed!(666)
 with_coherent = true
 
@@ -46,12 +47,10 @@ initial_dm = Matrix{ComplexF64}(I(dim) / dim)
 @assert norm(initial_dm - initial_dm') < 1e-15 "Not Hermitian"
 
 N = 2^(num_energy_bits)
-# w0 = 32 / N  #! Increasing this not always makes OFT better, why?
 w0 = 0.001
 t0 = 2 * pi / (N * w0)
 @printf("Smallest Bohr frequency: %s\n", hamiltonian.nu_min)
 @printf("Chosen w0: %s\n", w0)
-# w0 = hamiltonian.nu_min
 N_labels = [0:1:Int(N/2)-1; -Int(N/2):1:-1]
 energy_labels = w0 * N_labels
 @assert maximum(energy_labels) >= 2.0
@@ -111,7 +110,6 @@ end
 # with_coherent, beta)
 # @printf("Difference between Liouvillians (GAUSS): %s\n", norm(liouv_bohr - liouv_time))
 
-eta = 0.0001
 # liouv_bohr_metro = @time construct_liouvillian_bohr_metro(all_jumps_generated, hamiltonian, with_coherent, beta)
 # liouv_metro = @time construct_liouvillian_metro(all_jumps_generated, hamiltonian, truncated_energies, with_coherent, beta)
 # liouv_metro_truncated = @time construct_liouvillian_metro(all_jumps_generated, hamiltonian, truncated_energies, 
@@ -126,10 +124,10 @@ eta = 0.0001
 
 #* Transition part
 # T_energy_metro = @time transition_metro(all_jumps_generated, hamiltonian, truncated_energies, beta)
-T_bohr_metro = @time transition_bohr_metro(all_jumps_generated, hamiltonian, beta)
-T_time_metro = @time transition_time_metro(all_jumps_generated, hamiltonian, time_labels, truncated_energies, beta)
+# T_bohr_metro = @time transition_bohr_metro(all_jumps_generated, hamiltonian, beta)
+# T_time_metro = @time transition_time_metro(all_jumps_generated, hamiltonian, time_labels, truncated_energies, beta)
 # @printf("Distance between Bohr and Energy pictures (T METRO): %s\n", norm(T_bohr_metro - T_energy_metro))
-@printf("Distance between Bohr and Time pictures (T METRO): %s\n", norm(T_bohr_metro - T_time_metro))
+# @printf("Distance between Bohr and Time pictures (T METRO): %s\n", norm(T_bohr_metro - T_time_metro))
 # @printf("Distance between Time and Energy pictures (T METRO): %s\n", norm(T_time_metro - T_energy_metro))
 
 #* Coherent term
@@ -140,8 +138,17 @@ T_time_metro = @time transition_time_metro(all_jumps_generated, hamiltonian, tim
 # sorted_N_labels = [-Int(N/2):1:-1; 0:1:Int(N/2)-1]
 jump = all_jumps_generated[1]
 bohr_dict::Dict{Float64, Vector{CartesianIndex{2}}} = create_bohr_dict(hamiltonian)
-# eta = 0.0001
-# t0 = 0.00006
+# num_energy_bits = 20
+# N = 2^(num_energy_bits)
+# w0 = 0.1
+# t0 = 2 * pi / (N * w0)
+# N_labels = [0:1:Int(N/2)-1; -Int(N/2):1:-1]
+# N_labels_decimal = [-Int(N/2):1:-1; 0:1:Int(N/2)-1]
+# energy_labels = w0 * N_labels
+# @assert maximum(energy_labels) >= 2.0
+# time_labels = t0 * N_labels
+# time_labels_decimal = t0 * N_labels_decimal
+
 # time_labels = t0 * N_labels
 # time_labels_no_zero = time_labels[2:end]
 # sorted_time_labels_no_zero = sort(time_labels_no_zero)
@@ -149,8 +156,42 @@ bohr_dict::Dict{Float64, Vector{CartesianIndex{2}}} = create_bohr_dict(hamiltoni
 # b1 = compute_truncated_b1(time_labels)
 # b2 = compute_truncated_b2(time_labels)
 # b2_metro = compute_truncated_b2_metro(time_labels, eta)  #! Needs max(t) ~ 30
-f_minus = compute_truncated_f_minus(time_labels, beta)
-f_plus_metro = compute_truncated_f_plus_metro(time_labels, eta, beta)
+#!
+# f_minus = compute_truncated_f_minus(time_labels, beta)
+# f_plus_metro = compute_truncated_f_plus_metro(time_labels, eta, beta)
+
+# # f derivatives checks for quadrature error bound
+# f_minus_deriv = zeros(ComplexF64, N)
+# f_plus_deriv = zeros(ComplexF64, N)
+
+# for i in 2:(N - 1)
+#     f_minus_deriv[i] = (compute_f_minus(time_labels_decimal[i + 1], beta) 
+#                                 -  compute_f_minus(time_labels_decimal[i - 1], beta)) / (2 * t0)
+#     f_plus_deriv[i] = (compute_f_plus_metro(time_labels_decimal[i + 1], eta, beta) 
+#                                 -  compute_f_plus_metro(time_labels_decimal[i - 1], eta, beta)) / (2 * t0)
+# end
+
+# f_minus_deriv[1] = (compute_f_minus(time_labels_decimal[2], beta) 
+#                                 - compute_f_minus(time_labels_decimal[1], beta)) / t0
+# f_minus_deriv[N] = (compute_f_minus(time_labels_decimal[N], beta) 
+#                                 - compute_f_minus(time_labels_decimal[N - 1], beta)) / t0
+# f_plus_deriv[1] = (compute_f_plus_metro(time_labels_decimal[2], eta, beta) 
+#                                 - compute_f_plus_metro(time_labels_decimal[1], eta, beta)) / t0
+# f_plus_deriv[N] = (compute_f_plus_metro(time_labels_decimal[N], eta, beta) 
+#                                 - compute_f_plus_metro(time_labels_decimal[N - 1], eta, beta)) / t0
+
+# @printf("Maximum derivative f plus abs: %s\n", maximum(abs.(f_plus_deriv)))
+# @printf("Maximum derivative f minus abs: %s", maximum(abs.(f_minus_deriv)))
+
+# N_labels_decimal = [-Int(N/2):1:-1; 0:1:Int(N/2)-1]
+
+# my_t = [-5:0.01:5.0;]
+# plot(my_t, imag.(compute_f_plus_metro.(my_t, eta, beta)))
+# # plot(time_labels_decimal, real.(f_minus_deriv), label="f min RE")
+# # plot!(time_labels_decimal, imag.(f_minus_deriv), label="f min IM")
+# plot!(time_labels_decimal, real.(f_plus_deriv), label="f plus RE")
+# plot(time_labels_decimal, imag.(f_plus_deriv), label="f plus IM")
+
 
 # Gauss
 # B_bohr = coherent_gaussian_bohr(hamiltonian, bohr_dict, jump, beta)
@@ -175,11 +216,52 @@ f_plus_metro = compute_truncated_f_plus_metro(time_labels, eta, beta)
 # Oh = construct_metro_oh(jump, hamiltonian, time_labels_no_zero, beta)
 # norm(Oh - Oh_integrated)
 
+# Quadrature error (most basic)
+# t0 * (maximum(time_labels) - minimum(time_labels)) / 2
+
+function riemann_sum(f::Function, time_labels::Vector{Float64}, args...)
+    t0 = time_labels[2] - time_labels[1]
+    sum = sum(f, time_labels)
+end
+
 # Metro
-B_bohr_metro = @time coherent_metro_bohr(hamiltonian, bohr_dict, jump, beta)
+eta = 1e-10
+# atol = 1e-12
+# rtol = 1e-12
+# time_domain = (-100, 100)
+# diag_time_evolve(t) = Diagonal(exp.(1im * hamiltonian.eigvals * t))
+# f_plus_inegrand(s) = (compute_f_plus_metro(s, eta, beta)) 
+#            # diag_time_evolve(s) * jump.in_eigenbasis' * diag_time_evolve(-2 * s) * jump.in_eigenbasis * diag_time_evolve(s))
+
+# f_plus_integral_inf, _ = quadgk(f_plus_inegrand, -Inf, Inf; atol=atol, rtol=rtol)
+# f_plus_integral, _ = quadgk(f_plus_inegrand, time_domain[1], time_domain[2]; atol=atol, rtol=rtol)
+# norm(f_plus_integral_inf - f_plus_integral)
+
+# f_minus_integrand(t) = (compute_f_minus(t, beta) * diag_time_evolve(-t) 
+#                              (jump.in_eigenbasis' * jump.in_eigenbasis / (2pi * sqrt(2))) 
+#                              diag_time_evolve(t))
+# B_infinf, _ = quadgk(f_minus_integrand, -Inf, Inf; atol=atol, rtol=rtol)
+# B, _ = quadgk(f_minus_integrand, time_domain[1], time_domain[2]; atol=atol, rtol=rtol)
+# norm(B - B_infinf)
+
+# ts = [-100.:0.1:100.;]
+# plot(ts, compute_f_minus.(ts, beta))
+# plot(ts, real.(compute_f_plus_metro.(ts, eta, beta)))
+# plot(ts, imag.(compute_f_plus_metro.(ts, eta, beta)))
+
+
+B_bohr_metro = @time coherent_metro_bohr(hamiltonian, bohr_dict, jump, beta) 
 # norm(B_bohr_metro)
-B_time_metro_f = coherent_term_time_metro_f(jump, hamiltonian, f_minus, f_plus_metro, t0)
-norm(B_bohr_metro - B_time_metro_f)
+# B_time_metro_f = coherent_term_time_metro_f(jump, hamiltonian, f_minus, f_plus_metro, t0)
+# B_time_metro_f_integrated = @time coherent_term_time_integrated_metro_f(jump, hamiltonian, eta, beta)
+B_time_metro_f_integrated = @time coherent_term_time_integrated_metro_f(jump, hamiltonian, eta, beta; time_domain=(-100., 100.))
+
+# norm(B_bohr_metro)
+# display(norm(B_bohr_metro - B_time_metro_f))
+display(norm(B_bohr_metro - B_time_metro_f_integrated))
+# norm(B_bohr_metro)
+# eta_error(eta, beta) = min(eta * beta * 0.5 / sqrt(2 * pi^2), (eta * beta * 0.5)^3)
+# eta_error(eta, beta)
 
 
 # B_time_metro = @time coherent_term_time_metro(jump, hamiltonian, b1, b2_metro, t0, beta)
@@ -199,7 +281,6 @@ norm(B_bohr_metro - B_time_metro_f)
 # # show(IOContext(stdout, :limit=>false), MIME"text/plain"(), round.(imag.(B_time_metro), digits=4))
 
 # #* B2 Metro
-# # eta = 0.02
 # # t0_test = 0.01
 # # time_labels_test = t0_test * [-5:1:5;]
 

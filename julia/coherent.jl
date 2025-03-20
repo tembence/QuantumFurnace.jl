@@ -130,6 +130,23 @@ function coherent_time_metro_integrated(jump::JumpOp, hamiltonian::HamHam, time_
     return B * 2
 end
 
+function coherent_term_time_integrated_metro_f(jump::JumpOp, hamiltonian::HamHam, eta::Float64, beta::Float64; 
+    time_domain::Tuple{Float64, Float64} = (-Inf, Inf), atol=1e-12, rtol=1e-12)
+
+    diag_time_evolve(t) = Diagonal(exp.(1im * hamiltonian.eigvals * t))
+    f_plus_inegrand(s) = (compute_f_plus_metro(s, eta, beta) * 
+            diag_time_evolve(s) * jump.in_eigenbasis' * diag_time_evolve(-2 * s) * jump.in_eigenbasis * diag_time_evolve(s))
+
+    f_plus_integral, _ = quadgk(f_plus_inegrand, time_domain[1], time_domain[2]; atol=atol, rtol=rtol)
+
+    f_minus_integrand(t) = (compute_f_minus(t, beta) * diag_time_evolve(-t) 
+                            * (f_plus_integral + jump.in_eigenbasis' * jump.in_eigenbasis / (2pi * sqrt(2))) 
+                            * diag_time_evolve(t))
+    B, _ = quadgk(f_minus_integrand, time_domain[1], time_domain[2]; atol=atol, rtol=rtol)
+
+    return B
+end
+
 function coherent_term_time_metro_exact(jump::JumpOp, hamiltonian::HamHam, time_labels::Vector{Float64}, beta::Float64)
 
     dim = size(hamiltonian.data)
@@ -324,15 +341,15 @@ function coherent_term_timedomain_integrated_metro(jump::JumpOp, hamiltonian::Ha
 
     f1(t) = 1 / cosh(2 * pi * t)
     f2(t) = sin(-t) * exp(-2 * t^2)
-    b1_fn(t) = 2 * sqrt(pi) * exp(1/8) * convolute.(Ref(f1), Ref(f2), t)
+    b1_fn(t) = 2 * sqrt(pi) * exp(1/8) * convolute(Ref(f1), Ref(f2), t)
     b2_metro_fn(t) = (exp(-2 * t^2 - im * t) + (abs(t) <= eta ? 1 : 0) * im * (2 * t + im)) / (sqrt(32) * pi * t * (2 * t + im))
     diag_time_evolve(t) = Diagonal(exp.(1im * hamiltonian.eigvals * t))
     jump_op_in_eigenbasis_dag = jump.in_eigenbasis'
 
     # Inner b2 integral
-    b2_integrand(s) = b2_metro_fn(s) * diag_time_evolve(beta * s) * 
+    b2_integrand(s) = (b2_metro_fn(s) * diag_time_evolve(beta * s) * 
                            (jump_op_in_eigenbasis_dag * diag_time_evolve(- 2 * beta * s) * jump.in_eigenbasis) *
-                           diag_time_evolve(beta * s)
+                           diag_time_evolve(beta * s))
     # b2 function has singularity in t = 0
     eps = 1e-12
     b2_integral_1, _ = quadgk(b2_integrand, time_domain[1], -eps; atol=1e-12, rtol=1e-12)
@@ -351,6 +368,12 @@ function compute_f_minus(time_labels::Vector{Float64}, beta::Float64)
     f1(t) = 1 / cosh(2 * pi * t / beta)
     f2(t) = sin(-t / beta) * exp(-2 * t^2 / beta^2)
     return (1 / (pi * beta^2)) * exp(1/8) * convolute.(Ref(f1), Ref(f2), time_labels)
+end
+
+function compute_f_minus(t::Float64, beta::Float64)
+    f1(t) = 1 / cosh(2 * pi * t / beta)
+    f2(t) = sin(-t / beta) * exp(-2 * t^2 / beta^2)
+    return (1 / (pi * beta^2)) * exp(1/8) * convolute(f1, f2, t)
 end
 
 # Actually faster broadcasting the whole function than taking in a vector argument
