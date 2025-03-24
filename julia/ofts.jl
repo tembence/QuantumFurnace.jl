@@ -103,11 +103,12 @@ function time_oft(jump::JumpOp, energy::Float64, hamiltonian::HamHam, time_label
     return jump_oft
 end
 
-function time_oft_integrated(jump::JumpOp, energy::Float64, hamiltonian::HamHam, beta::Float64)
+#TODO: Check if this matches with time_oft
+function time_oft_integrated(energy::Float64, jump::JumpOp, hamiltonian::HamHam, beta::Float64)
 
     diag_exponentiate(t) = Diagonal(exp.(1im * hamiltonian.eigvals * t))
     integrand(t) = exp.(-t^2 / beta^2 - 1im * energy * t) * diag_exponentiate(t) * jump.in_eigenbasis * diag_exponentiate(-t)
-    jump_oft = quadgk(integrand, -Inf, Inf)[1] / sqrt(2 * pi) * sqrt(sqrt(2 / pi)/beta)
+    jump_oft, _ = quadgk(integrand, -Inf, Inf)[1] / sqrt(2 * pi) * sqrt(sqrt(2 / pi) / beta)
     return jump_oft
 end
 

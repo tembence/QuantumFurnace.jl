@@ -134,8 +134,32 @@ function construct_liouvillian_time_metro(jumps::Vector{JumpOp}, hamiltonian::Ha
             next!(p)
         end
     end
-    prefactor = w0 * t0^2 * (sqrt(2 / pi)/beta) / (2 * pi)  # time ints t0^2, energy int w0, OFT time norm^2, Fourier
+    prefactor = w0 * t0^2 * (sqrt(2 / pi) / beta) / (2 * pi)  # time ints t0^2, energy int w0, OFT time norm^2, Fourier
     return total_liouv_coherent_part .+ prefactor * total_liouv_diss_part
+end
+
+#TODO: Debug this and check DB
+function construct_liouvillian_time_metro_integrated(jumps::Vector{JumpOp}, hamiltonian::HamHam, with_coherent::Bool, 
+    beta::Float64, eta::Float64)
+
+    dim = size(hamiltonian.data, 1)
+    transition_metro(w) = exp(-beta * max(w + 1/(2*beta), 0.0))
+
+    total_liouv_coherent_part = zeros(ComplexF64, dim^2, dim^2)
+    total_liouv_diss_part = zeros(ComplexF64, dim^2, dim^2)
+    p = Progress(Int(length(jumps)), desc="Liouvillian in time (METRO)... integrated")
+    for jump in jumps
+        if with_coherent 
+            coherent_term = coherent_term_time_integrated_metro_f(jump, hamiltonian, eta, beta)
+            total_liouv_coherent_part .+= vectorize_liouvillian_coherent(coherent_term)
+        end
+
+        energy_integrand(w) = transition_metro(w) * vectorize_liouvillian_diss(time_oft_integrated(w, jump, hamiltonian, beta))
+        total_liouv_diss_part .+= quadgk(energy_integrand, -Inf, Inf)[1]
+        next!(p)
+    end
+
+    return total_liouv_coherent_part .+ total_liouv_diss_part  # I think prefactors are taken care of.
 end
 
 function transition_time_metro(jumps::Vector{JumpOp}, hamiltonian::HamHam, time_labels::Vector{Float64},

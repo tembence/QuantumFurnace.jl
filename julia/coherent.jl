@@ -96,6 +96,23 @@ function coherent_term_time_metro_f(jump::JumpOp, hamiltonian::HamHam,
     return B * t0
 end
 
+function coherent_term_time_integrated_metro_f(jump::JumpOp, hamiltonian::HamHam, eta::Float64, beta::Float64; 
+    time_domain::Tuple{Float64, Float64} = (-Inf, Inf), atol=1e-12, rtol=1e-12)
+
+    diag_time_evolve(t) = Diagonal(exp.(1im * hamiltonian.eigvals * t))
+    f_plus_inegrand(s) = (compute_f_plus_metro(s, eta, beta) * 
+            diag_time_evolve(s) * jump.in_eigenbasis' * diag_time_evolve(-2 * s) * jump.in_eigenbasis * diag_time_evolve(s))
+
+    f_plus_integral, _ = quadgk(f_plus_inegrand, time_domain[1], time_domain[2]; atol=atol, rtol=rtol)
+
+    f_minus_integrand(t) = (compute_f_minus(t, beta) * diag_time_evolve(-t) 
+                            * (f_plus_integral + jump.in_eigenbasis' * jump.in_eigenbasis / (2pi * sqrt(2))) 
+                            * diag_time_evolve(t))
+    B, _ = quadgk(f_minus_integrand, time_domain[1], time_domain[2]; atol=atol, rtol=rtol)
+
+    return B
+end
+
 function coherent_time_metro_integrated(jump::JumpOp, hamiltonian::HamHam, time_labels::Vector{Float64}, 
     beta::Float64, eta::Float64)
 
@@ -128,23 +145,6 @@ function coherent_time_metro_integrated(jump::JumpOp, hamiltonian::HamHam, time_
 
     B = quadgk(b1_integrand, -Inf, Inf; atol=atol, rtol=rtol)[1]
     return B * 2
-end
-
-function coherent_term_time_integrated_metro_f(jump::JumpOp, hamiltonian::HamHam, eta::Float64, beta::Float64; 
-    time_domain::Tuple{Float64, Float64} = (-Inf, Inf), atol=1e-12, rtol=1e-12)
-
-    diag_time_evolve(t) = Diagonal(exp.(1im * hamiltonian.eigvals * t))
-    f_plus_inegrand(s) = (compute_f_plus_metro(s, eta, beta) * 
-            diag_time_evolve(s) * jump.in_eigenbasis' * diag_time_evolve(-2 * s) * jump.in_eigenbasis * diag_time_evolve(s))
-
-    f_plus_integral, _ = quadgk(f_plus_inegrand, time_domain[1], time_domain[2]; atol=atol, rtol=rtol)
-
-    f_minus_integrand(t) = (compute_f_minus(t, beta) * diag_time_evolve(-t) 
-                            * (f_plus_integral + jump.in_eigenbasis' * jump.in_eigenbasis / (2pi * sqrt(2))) 
-                            * diag_time_evolve(t))
-    B, _ = quadgk(f_minus_integrand, time_domain[1], time_domain[2]; atol=atol, rtol=rtol)
-
-    return B
 end
 
 function coherent_term_time_metro_exact(jump::JumpOp, hamiltonian::HamHam, time_labels::Vector{Float64}, beta::Float64)
