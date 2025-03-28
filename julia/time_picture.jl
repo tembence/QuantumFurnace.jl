@@ -138,7 +138,7 @@ function construct_liouvillian_time_metro(jumps::Vector{JumpOp}, hamiltonian::Ha
     return total_liouv_coherent_part .+ prefactor * total_liouv_diss_part
 end
 
-#TODO: Debug this and check DB
+# Takes 15 mins / jump for a 2qubit system.
 function construct_liouvillian_time_metro_integrated(jumps::Vector{JumpOp}, hamiltonian::HamHam, with_coherent::Bool, 
     beta::Float64, eta::Float64)
 

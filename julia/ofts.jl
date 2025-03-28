@@ -3,11 +3,13 @@ using SparseArrays
 using Random
 using Printf
 using Plots
+using QuadGK
 
 include("hamiltonian.jl")
 include("trotter.jl")
 include("qi_tools.jl")
 include("structs.jl")
+include("bohr_picture.jl")
 
 function oft(jump::JumpOp, energy::Float64, hamiltonian::HamHam, beta::Float64)
     """sigma_E = 1 / beta. Subnormalized, multiply by sqrt(beta / sqrt(2 * pi))"""
@@ -57,7 +59,7 @@ function trotter_oft(jump::JumpOp, energy::Float64, trotter::TrottTrott, time_la
     return jump_oft
 end
 
-function time_oft(jump::JumpOp, energy::Float64, hamiltonian::HamHam, time_labels::Vector{Float64}, beta::Float64)
+function time_oft(energy::Float64, jump::JumpOp, hamiltonian::HamHam, time_labels::Vector{Float64}, beta::Float64)
     """sigma_E = 1 / beta, subnormalized OFT: multiply by: t0 * sqrt(sqrt(2 / pi)/beta) / sqrt(2 * pi)"""
 
     prefactors = @fastmath exp.(- time_labels.^2 / beta^2 .- 1im * energy * time_labels) # Gauss and Fourier factors
@@ -107,45 +109,71 @@ end
 function time_oft_integrated(energy::Float64, jump::JumpOp, hamiltonian::HamHam, beta::Float64)
 
     diag_exponentiate(t) = Diagonal(exp.(1im * hamiltonian.eigvals * t))
-    integrand(t) = exp.(-t^2 / beta^2 - 1im * energy * t) * diag_exponentiate(t) * jump.in_eigenbasis * diag_exponentiate(-t)
-    jump_oft, _ = quadgk(integrand, -Inf, Inf)[1] / sqrt(2 * pi) * sqrt(sqrt(2 / pi) / beta)
+    integrand(t) = exp(-t^2 / beta^2 - 1im * energy * t) * diag_exponentiate(t) * jump.in_eigenbasis * diag_exponentiate(-t)
+    jump_oft = quadgk(integrand, -Inf, Inf)[1] / sqrt(2 * pi) * sqrt(sqrt(2 / pi) / beta)
     return jump_oft
 end
 
 #* ---------- Test ----------
 
 #* Parameters
-# num_qubits = 4
+# num_qubits = 3
+# dim = 2^num_qubits
 # beta = 10.
-# eig_index = 8
-# jump_site_index = 1
+# eta = 1e-10
+# atol = 1e-12
+# rtol = 1e-12
+# Random.seed!(666)
 
-# #* Hamiltonian
-# # hamiltonian = load("/Users/bence/code/liouvillian_metro/julia/data/hamiltonian_n4.jld")["ideal_ham"]
 # hamiltonian = find_ideal_heisenberg(num_qubits, fill(1.0, 3); batch_size=100)
-# initial_state = hamiltonian.eigvecs[:, eig_index]
 # hamiltonian.bohr_freqs = hamiltonian.eigvals .- transpose(hamiltonian.eigvals)
+# bohr_dict::Dict{Float64, Vector{CartesianIndex{2}}} = create_bohr_dict(hamiltonian)
+# gibbs = gibbs_state_in_eigen(hamiltonian, beta)
+# initial_dm = Matrix{ComplexF64}(I(dim) / dim)
+# @assert norm(real(tr(initial_dm)) - 1.) < 1e-15 "Trace is not 1.0"
+# @assert norm(initial_dm - initial_dm') < 1e-15 "Not Hermitian"
 
-# num_energy_bits = ceil(Int64, log2((0.45 * 4 + 2/beta) / hamiltonian.nu_min)) + 3  # Under Fig. 5. with secular approx.
+# #* Jumps
+# X::Matrix{ComplexF64} = [0 1; 1 0]
+# Y::Matrix{ComplexF64} = [0.0 -im; im 0.0]
+# Z::Matrix{ComplexF64} = [1 0; 0 -1]
+# H::Matrix{ComplexF64} = [1 1; 1 -1] / sqrt(2)
+# id::Matrix{ComplexF64} = I(2)
+# jump_paulis = [[X]]#, [Y], [Z]]
+
+# #* Labels
+# num_energy_bits = 21
 # N = 2^(num_energy_bits)
+# w0 = 0.001
+# t0 = 2 * pi / (N * w0)
+# @printf("t0: %s\n", t0)
 # N_labels = [0:1:Int(N/2)-1; -Int(N/2):1:-1]
-
-# t0 = 2 * pi / (N * hamiltonian.nu_min)
+# energy_labels = w0 * N_labels
+# @assert maximum(energy_labels) >= 2.0
 # time_labels = t0 * N_labels
-# energy_labels = hamiltonian.nu_min * N_labels
-# # OFT normalizations for energy basis
-# Fw = exp.(- beta^2 * (energy_labels).^2 / 4)
-# Fw_norm = sqrt(sum(Fw.^2))
-# ft = exp.(- time_labels.^2 / beta^2)
-# ft_norm = sqrt(sum(ft.^2))
 
-# # energy_labels = energy_labels[abs.(energy_labels) .<= 0.45]  # Energies outside are impossible in a QC
+# jumps::Vector{JumpOp} = []
+# for pauli in jump_paulis
+#     for site in 1:num_qubits
+#     jump_op = Matrix(pad_term(pauli, num_qubits, site))
+#     jump_op_in_eigenbasis = hamiltonian.eigvecs' * jump_op * hamiltonian.eigvecs
+#     jump_in_trotter_basis = zeros(0, 0)
+#     orthogonal = (jump_op == transpose(jump_op))
+#     jump = JumpOp(jump_op,
+#             jump_op_in_eigenbasis,
+#             Dict{Float64, SparseMatrixCSC{ComplexF64, Int64}}(), 
+#             zeros(0),
+#             jump_in_trotter_basis,
+#             orthogonal) 
+#     push!(jumps, jump)
+#     end
+# end
 
-# rand_energy = 0.43
-# phase = rand_energy * N / (2 * pi)
-
-# # Transition weights in the liouv
-# transition_gaussian(energy) = exp(-(beta * energy + 1)^2 / 2)
+#* OFTs Time vs Integrated Metro check
+# w = 0.12
+# oft_summed = time_oft(w, jumps[1], hamiltonian, time_labels, beta) * t0 * sqrt(sqrt(2 / pi) / beta) / sqrt(2 * pi)
+# oft_integrated = time_oft_integrated(w, jumps[1], hamiltonian, beta)
+# norm(oft_summed - oft_integrated)
 
 # #* Trotter
 # num_trotter_steps_per_t0 = 10
@@ -154,29 +182,6 @@ end
 # trotter_error_t0 = compute_trotter_error(hamiltonian, trotter, t0)
 # @printf("Trotter error T: %e\n", trotter_error_T)
 # @printf("Trotter error t0: %e\n", trotter_error_t0)
-
-# #* Jump operators
-# X::Matrix{ComplexF64} = [0 1; 1 0]
-# Y::Matrix{ComplexF64} = [0.0 -im; im 0.0]
-# Z::Matrix{ComplexF64} = [1 0; 0 -1]
-# jump_paulis = [X, Y, Z]
-# all_jumps_generated = []
-
-# # #* X JUMP
-# sites = [1, 2, 3]
-# for site in sites
-# jump_op = Matrix(pad_term([X], num_qubits, site))
-#     jump_op_in_eigenbasis = hamiltonian.eigvecs' * jump_op * hamiltonian.eigvecs
-#     jump_in_trotter_basis = trotter.eigvecs' * jump_op * trotter.eigvecs
-#     orthogonal = (jump_op == adjoint(jump_op))
-#     jump = JumpOp(jump_op,
-#             jump_op_in_eigenbasis,
-#             Dict{Float64, SparseMatrixCSC{ComplexF64, Int64}}(), 
-#             zeros(0),
-#             jump_in_trotter_basis,
-#             orthogonal) #jump_in_trotter_basis
-#     push!(all_jumps_generated, jump)
-# end
 
 # # #! Uncomment for bohr oft
 # # # construct_A_nus(jump, hamiltonian)
@@ -202,7 +207,7 @@ end
 
 # # #* -------------------------------------------- *#
 
-# jump = all_jumps_generated[jump_site_index]
+# jump = jumps[jump_site_index]
 # total_err = 0.0
 # for w in energy_labels
 #     oft_trotter = trotter_oft(jump, w, trotter, time_labels, beta) #/ (ft_norm * sqrt(length(time_labels)))

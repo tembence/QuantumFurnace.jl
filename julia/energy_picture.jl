@@ -205,7 +205,7 @@ function construct_liouvillian_metro(jumps::Vector{JumpOp}, hamiltonian::HamHam,
 
     @showprogress desc="Liouvillian Metro (Energy)..." for jump in jumps
         if with_coherent  # There is no energy formulation of the coherent term, only Bohr and time.
-            coherent_term = coherent_metro_bohr(hamiltonian, bohr_dict, jump, beta)
+            coherent_term = coherent_bohr_metro(hamiltonian, bohr_dict, jump, beta)
             total_liouv_coherent_part .+= vectorize_liouvillian_coherent(coherent_term)
         end
 

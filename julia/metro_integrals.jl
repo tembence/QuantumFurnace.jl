@@ -81,54 +81,38 @@ times = handmade_times
 # times = time_labels
 
 #* Functions
-function riemann_sum(f::Function, time_labels::Vector{Float64}, args...)
-    t0 = time_labels[2] - time_labels[1]
-    return t0 * sum(t -> f(t, args...), time_labels)
-end
-
-function riemann_sum_stretched(f::Function, time_labels::Vector{Float64}, args...)
-    t0 = time_labels[2] - time_labels[1]
-    times = [(-1.0 + t0):t0:(1.0 - t0);]
-    return t0 * sum(t -> f(t / (1-t^2), args...), times)
-end
-
-function riemann_sum(fvals::Vector{<:Number}, t0::Float64)
-    return t0 * sum(fvals)
-end
-
 f_minus = compute_f_minus.(times, beta)
 f_plus_metro = compute_f_plus_metro.(times, eta, beta)
 
-riemann_summed_f_plus_metro = riemann_sum(compute_f_plus_metro, times, eta, beta)
-integrated_f_plus_metro, errp = quadgk(t -> compute_f_plus_metro(t, eta, beta), -Inf, Inf; atol=atol, rtol=rtol)
+# riemann_summed_f_plus_metro = riemann_sum(compute_f_plus_metro, times, eta, beta)
+# integrated_f_plus_metro, errp = quadgk(t -> compute_f_plus_metro(t, eta, beta), -Inf, Inf; atol=atol, rtol=rtol)
 
-@printf("F plus, Riemann - Integrated\n")
-display(norm(riemann_summed_f_plus_metro - integrated_f_plus_metro))
+# @printf("F plus, Riemann - Integrated\n")
+# display(norm(riemann_summed_f_plus_metro - integrated_f_plus_metro))
 
 # diag_time_evolve(t) = Diagonal(exp.(1im * hamiltonian.eigvals * t))
 # f_plus_summand(s) = (compute_f_plus_metro(s, eta, beta) * 
 #     diag_time_evolve(s) * jump.in_eigenbasis' * diag_time_evolve(-2.0 * s) * jump.in_eigenbasis * diag_time_evolve(s))
-w = 0.12
-test_t = 0.1
-diag_time_evolve_w(t) = exp(1im * w * t)
-f_plus_summand_w(s) = compute_f_plus_metro(s, eta, beta) * diag_time_evolve_w(s)
-f_plus_summand(s) = compute_f_plus_metro(s, eta, beta)
+# w = 0.12
+# test_t = 0.1
+# diag_time_evolve_w(t) = exp(1im * w * t)
+# f_plus_summand_w(s) = compute_f_plus_metro(s, eta, beta) * diag_time_evolve_w(s)
+# f_plus_summand(s) = compute_f_plus_metro(s, eta, beta)
 
-f_plus_summand_w(test_t)
-f_plus_summand(test_t)
-f_plus_summand(test_t) * diag_time_evolve_w(test_t)
-diag_time_evolve_w(test_t)
-plot(times, real.(f_plus_summand_w.(times)))
-plot!(times, real.(f_plus_summand.(times)))
-plot(times, imag.(f_plus_summand_w.(times)))
-plot(times, imag.(f_plus_summand.(times)))
+# f_plus_summand_w(test_t)
+# f_plus_summand(test_t)
+# f_plus_summand(test_t) * diag_time_evolve_w(test_t)
+# diag_time_evolve_w(test_t)
+# plot(times, real.(f_plus_summand_w.(times)))
+# plot!(times, real.(f_plus_summand.(times)))
+# plot(times, imag.(f_plus_summand_w.(times)))
+# plot(times, imag.(f_plus_summand.(times)))
 
-riemann_summed_inner = riemann_sum(f_plus_summand_w, times)
-riemann_summed_inner_stretch = riemann_sum_stretched(f_plus_summand_w, times)
-integrated_inner, errpp = quadgk(f_plus_summand_w, -Inf, Inf; atol=atol, rtol=rtol)
-@printf("Full F plus integrand fn, Riemann - Integrated\n")
-display(norm(riemann_summed_inner - integrated_inner))
-display(norm(riemann_summed_inner_stretch - integrated_inner))
+# riemann_summed_inner = riemann_sum(f_plus_summand_w, times)
+# integrated_inner, errpp = quadgk(f_plus_summand_w, -Inf, Inf; atol=atol, rtol=rtol)
+# @printf("Full F plus integrand fn, Riemann - Integrated\n")
+# display(norm(riemann_summed_inner - integrated_inner))
+# display(norm(riemann_summed_inner_stretch - integrated_inner))
 
 
 # riemann_summed_f_minus = riemann_sum(compute_f_minus, times, beta)
@@ -144,12 +128,14 @@ display(norm(riemann_summed_inner_stretch - integrated_inner))
 # f_plus_integral, _ = quadgk(f_plus_inegrand, time_domain[1], time_domain[2]; atol=atol, rtol=rtol)
 # norm(f_plus_integral_inf - f_plus_integral)
 
+#* Truncation
+integrated_f_plus_metro, errp = quadgk(t -> compute_f_plus_metro(t, eta, beta), -Inf, Inf; atol=atol, rtol=rtol)
 
 #* B --- 
 f_minus_truncated = compute_truncated_f_minus(times, beta)
 f_plus_metro_truncated = compute_truncated_f_plus_metro(times, eta, beta)
 
-B_bohr_metro = coherent_metro_bohr(hamiltonian, bohr_dict, jump, beta) 
+B_bohr_metro = coherent_bohr_metro(hamiltonian, bohr_dict, jump, beta) 
 B_time_metro_f = coherent_term_time_metro_f(jump, hamiltonian, f_minus_truncated, f_plus_metro_truncated, t0)
 B_time_metro_f_integrated = coherent_term_time_integrated_metro_f(jump, hamiltonian, eta, beta; time_domain=(-50., 50.))
 

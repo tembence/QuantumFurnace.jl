@@ -392,7 +392,7 @@ end
 
 function compute_truncated_f_plus_metro(time_labels::Vector{Float64}, eta::Float64, beta::Float64; atol::Float64 = 1e-12)
     f_plus = Vector{ComplexF64}(compute_f_plus_metro.(time_labels, eta, beta))
-    good_indices = get_truncated_indices_b(f_plus; atol=atol)
+    good_indices = get_truncated_indices(f_plus; atol=atol)
     return Dict(zip(time_labels[good_indices], f_plus[good_indices]))
 end
 
@@ -400,7 +400,7 @@ function compute_truncated_f_minus(time_labels::Vector{Float64}, beta::Float64; 
 
     f_minus = Vector{ComplexF64}(compute_f_minus(time_labels, beta))
     # Skip all elements where b1 b2 are smaller than 1e-12
-    indices_f_minus = get_truncated_indices_b(f_minus; atol)
+    indices_f_minus = get_truncated_indices(f_minus; atol=atol)
     return Dict(zip(time_labels[indices_f_minus], f_minus[indices_f_minus]))
 end
 
@@ -421,7 +421,7 @@ function compute_truncated_b1(time_labels::Vector{Float64}; atol::Float64 = 1e-1
     b1 = Vector{ComplexF64}(compute_b1(time_labels))
 
     # Skip all elements where b1 b2 are smaller than 1e-14
-    indices_b1 = get_truncated_indices_b(b1; atol)
+    indices_b1 = get_truncated_indices(b1; atol)
     b1_times = time_labels[indices_b1]
     b1_vals = b1[indices_b1]
     
@@ -437,7 +437,7 @@ function compute_truncated_b2(time_labels::Vector{Float64}; atol::Float64 = 1e-1
     b2 = Vector{ComplexF64}(compute_b2(time_labels))
 
     # Skip all elements where b1 b2 are smaller than 1e-14
-    indices_b2 = get_truncated_indices_b(b2; atol)
+    indices_b2 = get_truncated_indices(b2; atol)
     b2_times = time_labels[indices_b2]
     b2_vals = b2[indices_b2]
 
@@ -459,7 +459,7 @@ function compute_truncated_b2_metro(time_labels::Vector{Float64}, eta::Float64; 
     """(3.6)"""
     
     b2_metro = Vector{ComplexF64}(compute_b2_metro(time_labels, eta))
-    indices_b2_metro = get_truncated_indices_b(b2_metro; atol)
+    indices_b2_metro = get_truncated_indices(b2_metro; atol)
     b2_metro_times = time_labels[indices_b2_metro]
     b2_metro_vals = b2_metro[indices_b2_metro]
 
@@ -483,16 +483,15 @@ end
 # end
 
 #* TOOLS --------------------------------------------------------------------------------------------------------------------
-#TODO: Could write up an analytical bound and wouldn't need to check each element.
-function get_truncated_indices_b(b::Vector{ComplexF64}; atol::Float64 = 1e-14)
-   """Find elements in b1, b2 that are larger than `atol`"""
-
-    indices_b = findall(x -> abs(real(x)) >= atol || abs(imag(x)) >= atol, b)
-    # @printf("Number of nonzero elements in b1: %d\n", length(indices_b1))
-    # @printf("Number of nonzero elements in b2: %d\n", length(indices_b2))
-
-    return indices_b
+function get_truncated_indices(fvals::Vector{Float64}; atol::Float64 = 1e-12)
+   """Find elements in `fvals` that are larger than `atol`"""
+    return findall(abs.(fvals) .>= atol)
 end
+
+function get_truncated_indices(fvals::Vector{ComplexF64}; atol::Float64 = 1e-12)
+    """Find elements in `fvals` that are larger than `atol`"""
+     return findall(abs.(fvals) .>= atol)
+ end
 
 function convolute(f::Function, g::Function, t::Float64; atol=1e-12, rtol=1e-12)
     integrand(s) = f(s) * g(t - s)

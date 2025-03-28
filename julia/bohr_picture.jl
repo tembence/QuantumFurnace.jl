@@ -23,7 +23,7 @@ function construct_liouvillian_bohr_gauss(jumps::Vector{JumpOp}, hamiltonian::Ha
     unique_freqs = keys(bohr_dict)
 
     liouv = zeros(ComplexF64, dim^2, dim^2)
-    @showprogress desc="Liouvillian (Bohr)..." for jump in jumps
+    @showprogress desc="Liouvillian (Bohr Gauss)..." for jump in jumps
         # Coherent part
         if with_coherent
             coherent_term = coherent_gaussian_bohr(hamiltonian, bohr_dict, jump, beta)
@@ -301,10 +301,10 @@ function construct_liouvillian_bohr_metro(jumps::Vector{JumpOp}, hamiltonian::Ha
     unique_freqs = keys(bohr_dict)
 
     liouv = zeros(ComplexF64, dim^2, dim^2)
-    @showprogress desc="Liouvillian (Bohr)..." for jump in jumps
+    @showprogress desc="Liouvillian (Bohr Metro)..." for jump in jumps
         # Coherent part
         if with_coherent
-            coherent_term = coherent_metro_bohr(hamiltonian, bohr_dict, jump, beta)
+            coherent_term = coherent_bohr_metro(hamiltonian, bohr_dict, jump, beta)
             liouv .+= vectorize_liouvillian_coherent(coherent_term)
         end
 
@@ -324,7 +324,7 @@ function construct_liouvillian_bohr_metro(jumps::Vector{JumpOp}, hamiltonian::Ha
     return liouv
 end
 
-function coherent_metro_bohr(hamiltonian::HamHam, 
+function coherent_bohr_metro(hamiltonian::HamHam, 
     bohr_dict::Dict{Float64, Vector{CartesianIndex{2}}}, jump::JumpOp, beta::Float64)
 
     dim = size(hamiltonian.data, 1)
@@ -454,6 +454,76 @@ function create_f_metro(nu_1::Float64, nu_2::Float64, beta::Float64)
     """Tanh * alpha. Gaussian parameters = 1/β"""
     alpha_nu1_nu2 = create_alpha_metro(nu_1, nu_2, beta)
     return tanh(-beta * (nu_1 - nu_2) / 4) * alpha_nu1_nu2 / (2im)
+end
+
+#* BETTER LINEAR COMBINATION ------------------------------------------------------------------------------------------------
+function construct_liouvillian_bohr_eh(jumps::Vector{JumpOp}, hamiltonian::HamHam, with_coherent::Bool, 
+    beta::Float64, a::Float64)
+
+    dim = size(hamiltonian.data, 1)
+
+    # Bohr dictionary
+    bohr_dict::Dict{Float64, Vector{CartesianIndex{2}}} = create_bohr_dict(hamiltonian)
+    unique_freqs = keys(bohr_dict)
+
+    liouv = zeros(ComplexF64, dim^2, dim^2)
+    @showprogress desc="Liouvillian (Bohr Eh)..." for jump in jumps
+        # Coherent part
+        if with_coherent
+            coherent_term = coherent_bohr_eh(hamiltonian, bohr_dict, jump, beta, a)
+            liouv .+= vectorize_liouvillian_coherent(coherent_term)
+        end
+
+        # Dissipative part
+        for nu_2 in unique_freqs
+            alpha_nu1_matrix = create_alpha_eh.(hamiltonian.bohr_freqs, nu_2, beta, a)
+
+            A_nu_2::SparseMatrixCSC{ComplexF64} = spzeros(dim, dim)
+            A_nu_2_dagger::SparseMatrixCSC{ComplexF64} = spzeros(dim, dim)
+
+            A_nu_2[bohr_dict[nu_2]] .= jump.in_eigenbasis[bohr_dict[nu_2]]
+            A_nu_2_dagger .= A_nu_2'
+
+            liouv .+= vectorize_liouvillian_diss(alpha_nu1_matrix .* jump.in_eigenbasis, A_nu_2_dagger)
+        end
+    end
+    return liouv
+end
+
+function coherent_bohr_eh(hamiltonian::HamHam, 
+    bohr_dict::Dict{Float64, Vector{CartesianIndex{2}}}, jump::JumpOp, beta::Float64, a::Float64)
+
+    dim = size(hamiltonian.data, 1)
+    unique_freqs = keys(bohr_dict)
+
+    B = zeros(ComplexF64, dim, dim)
+    for nu_2 in unique_freqs
+
+        A_nu_2::SparseMatrixCSC{ComplexF64} = spzeros(dim, dim)
+        A_nu_2[bohr_dict[nu_2]] .= jump.in_eigenbasis[bohr_dict[nu_2]]
+        f_nu1_matrix = create_f_eh.(hamiltonian.bohr_freqs, nu_2, beta, a)
+
+        B .+= A_nu_2' * (f_nu1_matrix .* jump.in_eigenbasis)
+    end
+    return B
+end
+
+function create_f_eh(nu_1::Float64, nu_2::Float64, beta::Float64, a::Float64)
+    alpha_eh = create_alpha_eh(nu_1, nu_2, beta, a)
+    return tanh(-beta * (nu_1 - nu_2) / 4) * alpha_eh / (2im)
+end
+
+function create_alpha_eh(nu_1::Float64, nu_2::Float64, beta::Float64, a::Float64)
+    """For the parallel way use create_alpha_eh.(bohr_freqs, nu_2, beta, a)"""
+    
+    eh = sqrt(4 * a / beta + 1)
+    nu = nu_1 + nu_2
+
+    alpha_nu_1 = (exp(-beta^2 * (nu_1 - nu_2)^2 / 8) 
+        * exp(a / (2 * beta)) * exp(-beta * nu * (1 + eh) / 4) * (
+        erfc((eh - beta * nu) / sqrt(8)) + exp(beta * nu * eh / 2) * erfc((eh + beta * nu) / sqrt(8))
+        ) / 2)
+    return alpha_nu_1
 end
 
 #* TOOLS --------------------------------------------------------------------------------------------------------------------

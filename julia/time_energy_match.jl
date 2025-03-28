@@ -40,6 +40,7 @@ delta = 0.01
 # hamiltonian = create_hamham(hamiltonian_terms, hamiltonian_coeffs, num_qubits)
 hamiltonian = find_ideal_heisenberg(num_qubits, fill(1.0, 3); batch_size=100)
 hamiltonian.bohr_freqs = hamiltonian.eigvals .- transpose(hamiltonian.eigvals)
+bohr_dict::Dict{Float64, Vector{CartesianIndex{2}}} = create_bohr_dict(hamiltonian)
 gibbs = gibbs_state_in_eigen(hamiltonian, beta)
 initial_dm = Matrix{ComplexF64}(I(dim) / dim)
 @assert norm(real(tr(initial_dm)) - 1.) < 1e-15 "Trace is not 1.0"
@@ -104,12 +105,16 @@ end
 # @printf("Last distance to Gibbs: %s\n", results.distances_to_gibbs[end])
 
 #* Time vs Bohr Liouvillians
+eta = 1e-10 #TODO: Run it with 1e-10, 1e-3 lead to 1e-4 L difference.
 # liouv_bohr = @time construct_liouvillian_bohr_gauss(all_jumps_generated, hamiltonian, with_coherent, beta)
 # liouv_time = @time construct_liouvillian_time_gauss(all_jumps_generated, hamiltonian, time_labels, truncated_energies, 
 # with_coherent, beta)
 # @printf("Difference between Liouvillians (GAUSS): %s\n", norm(liouv_bohr - liouv_time))
 
-# liouv_bohr_metro = @time construct_liouvillian_bohr_metro(all_jumps_generated, hamiltonian, with_coherent, beta)
+liouv_bohr_metro = @time construct_liouvillian_bohr_metro(all_jumps_generated, hamiltonian, with_coherent, beta)
+liouv_time_metro_integrated = @time construct_liouvillian_time_metro_integrated(all_jumps_generated, hamiltonian, 
+    with_coherent, beta, eta)
+    
 # liouv_metro = @time construct_liouvillian_metro(all_jumps_generated, hamiltonian, truncated_energies, with_coherent, beta)
 # liouv_metro_truncated = @time construct_liouvillian_metro(all_jumps_generated, hamiltonian, truncated_energies, 
 #     with_coherent, beta)
@@ -120,6 +125,7 @@ end
 # @printf("Difference between Energy - Bohr (METRO): %s\n", norm(liouv_metro - liouv_bohr_metro))
 # @printf("Difference between Energy (TRUNCATED) - Bohr (METRO): %s\n", norm(liouv_metro_truncated - liouv_bohr_metro))
 # @printf("Difference between Energy - Energy (TRUNCATED): %s\n", norm(liouv_metro - liouv_metro_truncated))
+@printf("Difference between Bohr - Time (METRO INT): %s\n", norm(liouv_bohr_metro - liouv_time_metro_integrated))
 
 #* Transition part
 # T_energy_metro = @time transition_metro(all_jumps_generated, hamiltonian, truncated_energies, beta)
@@ -130,15 +136,14 @@ end
 # @printf("Distance between Time and Energy pictures (T METRO): %s\n", norm(T_time_metro - T_energy_metro))
 
 #* Coherent term
-jump = all_jumps_generated[1]
-bohr_dict::Dict{Float64, Vector{CartesianIndex{2}}} = create_bohr_dict(hamiltonian)
+# jump = all_jumps_generated[1]
 
 # b1 = compute_truncated_b1(time_labels)
 # b2 = compute_truncated_b2(time_labels)
 # b2_metro = compute_truncated_b2_metro(time_labels, eta)  #! Needs max(t) ~ 30
 #!
-f_minus = compute_truncated_f_minus(time_labels, beta)
-f_plus_metro = compute_truncated_f_plus_metro(time_labels, eta, beta)
+# f_minus = compute_truncated_f_minus(time_labels, beta)
+# f_plus_metro = compute_truncated_f_plus_metro(time_labels, eta, beta)
 
 # Gauss
 # B_bohr = coherent_gaussian_bohr(hamiltonian, bohr_dict, jump, beta)
@@ -160,15 +165,15 @@ f_plus_metro = compute_truncated_f_plus_metro(time_labels, eta, beta)
 # plot(ts, imag.(compute_f_plus_metro.(ts, eta, beta)))
 
 
-B_bohr_metro = @time coherent_metro_bohr(hamiltonian, bohr_dict, jump, beta) 
+# B_bohr_metro = @time coherent_metro_bohr(hamiltonian, bohr_dict, jump, beta) 
 # norm(B_bohr_metro)
-B_time_metro_f = coherent_term_time_metro_f(jump, hamiltonian, f_minus, f_plus_metro, t0)
+# B_time_metro_f = coherent_term_time_metro_f(jump, hamiltonian, f_minus, f_plus_metro, t0)
 # B_time_metro_f_integrated = @time coherent_term_time_integrated_metro_f(jump, hamiltonian, eta, beta)
-B_time_metro_f_integrated = @time coherent_term_time_integrated_metro_f(jump, hamiltonian, eta, beta; time_domain=(-50., 50.))
+# B_time_metro_f_integrated = @time coherent_term_time_integrated_metro_f(jump, hamiltonian, eta, beta; time_domain=(-50., 50.))
 
 # norm(B_bohr_metro)
-display(norm(B_bohr_metro - B_time_metro_f))
-display(norm(B_bohr_metro - B_time_metro_f_integrated))
+# display(norm(B_bohr_metro - B_time_metro_f))
+# display(norm(B_bohr_metro - B_time_metro_f_integrated))
 # norm(B_bohr_metro)
 # eta_error(eta, beta) = min(eta * beta * 0.5 / sqrt(2 * pi^2), (eta * beta * 0.5)^3)
 # eta_error(eta, beta)
