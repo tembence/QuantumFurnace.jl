@@ -105,7 +105,6 @@ end
 # @printf("Last distance to Gibbs: %s\n", results.distances_to_gibbs[end])
 
 #* Time vs Bohr Liouvillians
-eta = 1e-10 #TODO: Run it with 1e-10, 1e-3 lead to 1e-4 L difference.
 # liouv_bohr = @time construct_liouvillian_bohr_gauss(all_jumps_generated, hamiltonian, with_coherent, beta)
 # liouv_time = @time construct_liouvillian_time_gauss(all_jumps_generated, hamiltonian, time_labels, truncated_energies, 
 # with_coherent, beta)

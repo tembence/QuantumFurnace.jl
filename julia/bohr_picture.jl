@@ -458,7 +458,7 @@ end
 
 #* BETTER LINEAR COMBINATION ------------------------------------------------------------------------------------------------
 function construct_liouvillian_bohr_eh(jumps::Vector{JumpOp}, hamiltonian::HamHam, with_coherent::Bool, 
-    beta::Float64, a::Float64)
+    beta::Float64, a::Float64, b::Float64)
 
     dim = size(hamiltonian.data, 1)
 
@@ -470,13 +470,13 @@ function construct_liouvillian_bohr_eh(jumps::Vector{JumpOp}, hamiltonian::HamHa
     @showprogress desc="Liouvillian (Bohr Eh)..." for jump in jumps
         # Coherent part
         if with_coherent
-            coherent_term = coherent_bohr_eh(hamiltonian, bohr_dict, jump, beta, a)
+            coherent_term = coherent_bohr_eh(hamiltonian, bohr_dict, jump, beta, a, b)
             liouv .+= vectorize_liouvillian_coherent(coherent_term)
         end
 
         # Dissipative part
         for nu_2 in unique_freqs
-            alpha_nu1_matrix = create_alpha_eh.(hamiltonian.bohr_freqs, nu_2, beta, a)
+            alpha_nu1_matrix = create_alpha_eh.(hamiltonian.bohr_freqs, nu_2, beta, a, b)
 
             A_nu_2::SparseMatrixCSC{ComplexF64} = spzeros(dim, dim)
             A_nu_2_dagger::SparseMatrixCSC{ComplexF64} = spzeros(dim, dim)
@@ -491,7 +491,7 @@ function construct_liouvillian_bohr_eh(jumps::Vector{JumpOp}, hamiltonian::HamHa
 end
 
 function coherent_bohr_eh(hamiltonian::HamHam, 
-    bohr_dict::Dict{Float64, Vector{CartesianIndex{2}}}, jump::JumpOp, beta::Float64, a::Float64)
+    bohr_dict::Dict{Float64, Vector{CartesianIndex{2}}}, jump::JumpOp, beta::Float64, a::Float64, b::Float64)
 
     dim = size(hamiltonian.data, 1)
     unique_freqs = keys(bohr_dict)
@@ -501,19 +501,19 @@ function coherent_bohr_eh(hamiltonian::HamHam,
 
         A_nu_2::SparseMatrixCSC{ComplexF64} = spzeros(dim, dim)
         A_nu_2[bohr_dict[nu_2]] .= jump.in_eigenbasis[bohr_dict[nu_2]]
-        f_nu1_matrix = create_f_eh.(hamiltonian.bohr_freqs, nu_2, beta, a)
+        f_nu1_matrix = create_f_eh.(hamiltonian.bohr_freqs, nu_2, beta, a, b)
 
         B .+= A_nu_2' * (f_nu1_matrix .* jump.in_eigenbasis)
     end
     return B
 end
 
-function create_f_eh(nu_1::Float64, nu_2::Float64, beta::Float64, a::Float64)
-    alpha_eh = create_alpha_eh(nu_1, nu_2, beta, a)
+function create_f_eh(nu_1::Float64, nu_2::Float64, beta::Float64, a::Float64, b::Float64)
+    alpha_eh = create_alpha_eh(nu_1, nu_2, beta, a, b)
     return tanh(-beta * (nu_1 - nu_2) / 4) * alpha_eh / (2im)
 end
 
-function create_alpha_eh(nu_1::Float64, nu_2::Float64, beta::Float64, a::Float64)
+function create_alpha_eh(nu_1::Float64, nu_2::Float64, beta::Float64, a::Float64, b::Float64)
     """For the parallel way use create_alpha_eh.(bohr_freqs, nu_2, beta, a)"""
     
     eh = sqrt(4 * a / beta + 1)
@@ -521,8 +521,8 @@ function create_alpha_eh(nu_1::Float64, nu_2::Float64, beta::Float64, a::Float64
 
     alpha_nu_1 = (exp(-beta^2 * (nu_1 - nu_2)^2 / 8) 
         * exp(a / (2 * beta)) * exp(-beta * nu * (1 + eh) / 4) * (
-        erfc((eh - beta * nu) / sqrt(8)) + exp(beta * nu * eh / 2) * erfc((eh + beta * nu) / sqrt(8))
-        ) / 2)
+        erfc((eh * (1 + b) - beta * nu) / sqrt(8 * (1 + b))) 
+        + exp(beta * nu * eh / 2) * erfc((eh * (1 + b) + beta * nu) / sqrt(8 * (1 + b)))) / 2)
     return alpha_nu_1
 end
 

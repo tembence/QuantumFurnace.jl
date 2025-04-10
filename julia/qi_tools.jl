@@ -166,21 +166,6 @@ function are_we_tp(liouv::Matrix{ComplexF64})
     @printf("Are we TP?: %s\n", vec_id' * time_evolved_vec)
 end
 
-#* Sum / integral
-function riemann_sum(f::Function, grid::Vector{Float64})
-    """Uniform grid, rectangle method"""
-    d0 = grid[2] - grid[1]
-    return d0 * sum(f, grid)
-end
-
-function riemann_sum(fvals::Vector{Float64}, d0::Float64)
-    return d0 * sum(fvals)
-end
-
-function riemann_sum(fvals::Vector{ComplexF64}, d0::Float64)
-    return d0 * sum(fvals)
-end
-
 # num_qubits = 4
 # beta = 10.
 # hamiltonian = load("/Users/bence/code/liouvillian_metro/julia/data/hamiltonian_n4.jld")["ideal_ham"]
