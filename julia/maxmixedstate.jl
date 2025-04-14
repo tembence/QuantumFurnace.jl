@@ -11,7 +11,6 @@ using Plots
 
 include("hamiltonian.jl")
 include("ofts.jl")
-include("trotter.jl")
 include("qi_tools.jl")
 include("spectral_analysis.jl")
 include("coherent.jl")

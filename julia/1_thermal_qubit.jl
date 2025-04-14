@@ -5,7 +5,6 @@ using JLD
 
 include("hamiltonian.jl")
 include("ofts.jl")
-include("trotter.jl")
 include("qi_tools.jl")
 include("thermalize_with_alg.jl")
 include("coherent.jl")

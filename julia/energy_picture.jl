@@ -10,13 +10,62 @@ using QuadGK
 
 include("hamiltonian.jl")
 include("qi_tools.jl")
-include("structs.jl")
 include("bohr_picture.jl")
 include("ofts.jl")
 
+#* Linear Combinations -----------------------------------------------------------------------------------------------------------------------
+function construct_liouvillian_energy(jumps::Vector{JumpOp}, hamiltonian::HamHam, energy_labels::Vector{Float64}, 
+    with_coherent::Bool, beta::Float64, a::Float64, b::Float64)
+
+    dim = size(hamiltonian.data, 1)
+    w0 = energy_labels[2] - energy_labels[1]
+    bohr_dict::Dict{Float64, Vector{CartesianIndex{2}}} = create_bohr_dict(hamiltonian)
+
+    transition = pick_transition(beta, a, b)
+
+    total_liouv_coherent_part = zeros(ComplexF64, dim^2, dim^2)
+    total_liouv_diss_part = zeros(ComplexF64, dim^2, dim^2)
+
+    @showprogress desc="Liouvillian (Energy)..." for jump in jumps
+        if with_coherent  # There is no energy formulation of the coherent term, only Bohr and time.
+            coherent_term = coherent_bohr(hamiltonian, bohr_dict, jump, beta, a, b)
+            total_liouv_coherent_part .+= vectorize_liouvillian_coherent(coherent_term)
+        end
+
+        for w in energy_labels
+            jump_oft = oft(jump, w, hamiltonian, beta)
+            total_liouv_diss_part .+= transition(w) * vectorize_liouvillian_diss(jump_oft)
+        end
+    end
+    oft_norm_squared = beta / sqrt(2 * pi)
+    return total_liouv_coherent_part .+ w0 * oft_norm_squared * total_liouv_diss_part
+end
+
+function pick_transition(beta::Float64, a::Float64, b::Float64)
+
+    sqrtA = sqrt((4 * a / beta + 1) / 8)
+    if (b == 0 && a != 0)  # No time singularity but kinky Metro in energy
+        return w -> begin
+            sqrtB = beta * abs(w + 1 / (2 * beta)) / sqrt(2)
+            return exp((- 2 * sqrtA * sqrtB - beta * w / 2 - 1 / 4))
+        end
+    elseif (b != 0 && a != 0)  # No time singularity and no kinky Metro (Glauberish)
+        return w -> begin
+            sqrtB = beta * abs(w + 1 / (2 * beta)) / sqrt(2)
+            transition_eh = exp((- 2 * sqrtA * sqrtB - beta * w / 2 - 1 / 4))
+
+            return (transition_eh * (erfc(sqrtA * sqrt(b) - sqrtB / sqrt(b)) 
+                + exp(4 * sqrtA * sqrtB) * erfc(sqrtA * sqrt(b) + sqrtB / sqrt(b))) / 2)
+        end
+    elseif a == 0  # Time singularity and kinky Metro
+        return w -> begin
+            return exp(-beta * max(w + 1/(2 * beta), 0.0))
+        end
+    end
+end
 
 #* GAUSS --------------------------------------------------------------------------------------------------------------------
-function construct_liouvillian_gauss(jumps::Vector{JumpOp}, hamiltonian::HamHam, energy_labels::Vector{Float64}, 
+function construct_liouvillian_energy_gauss(jumps::Vector{JumpOp}, hamiltonian::HamHam, energy_labels::Vector{Float64}, 
     with_coherent::Bool, beta::Float64)
 
     dim = size(hamiltonian.data, 1)
@@ -26,19 +75,20 @@ function construct_liouvillian_gauss(jumps::Vector{JumpOp}, hamiltonian::HamHam,
 
     total_liouv_coherent_part = zeros(ComplexF64, dim^2, dim^2)
     total_liouv_diss_part = zeros(ComplexF64, dim^2, dim^2)
-
-    @showprogress desc="Liouvillian (Energy)..." for jump in jumps
+    p = Progress(Int(length(jumps) * length(energy_labels)), desc="Liouvillian (ENERGY GAUSS)...")
+    for jump in jumps
         if with_coherent  # There is no energy formulation of the coherent term, only Bohr and time.
-            coherent_term = coherent_gaussian_bohr(hamiltonian, bohr_dict, jump, beta)
+            coherent_term = coherent_bohr_gauss(hamiltonian, bohr_dict, jump, beta)
             total_liouv_coherent_part .+= vectorize_liouvillian_coherent(coherent_term)
         end
 
         for w in energy_labels
             jump_oft = oft(jump, w, hamiltonian, beta)
             total_liouv_diss_part .+= transition_gauss(w) * vectorize_liouvillian_diss(jump_oft)
+            next!(p)
         end
     end
-    oft_norm_squared = beta / sqrt(2 * pi)  #! sqrt(8 * pi) -> sqrt(2 * pi)
+    oft_norm_squared = beta / sqrt(2 * pi)
     return total_liouv_coherent_part .+ w0 * oft_norm_squared * total_liouv_diss_part
 end
 
@@ -64,7 +114,7 @@ function thermalize_gauss(jumps::Vector{JumpOp}, hamiltonian::HamHam, initial_dm
         for jump in jumps
             # Coherent part
             if with_coherent
-                coherent_term = coherent_gaussian_bohr(hamiltonian, bohr_dict, jump, beta)
+                coherent_term = coherent_bohr_gauss(hamiltonian, bohr_dict, jump, beta)
                 coherent_dm_part .+= - 1im * (coherent_term * evolved_dm - evolved_dm * coherent_term)
             end
 
@@ -191,149 +241,75 @@ function create_alpha_from_gaussians_integrated(nu_1::Float64, nu_2::Float64, nu
     return alpha_nu1_nu2
 end
 
-#* METRO --------------------------------------------------------------------------------------------------------------------
-function construct_liouvillian_metro(jumps::Vector{JumpOp}, hamiltonian::HamHam, energy_labels::Vector{Float64}, 
-    with_coherent::Bool, beta::Float64)
-
-    dim = size(hamiltonian.data, 1)
-    w0 = energy_labels[2] - energy_labels[1]
-    bohr_dict::Dict{Float64, Vector{CartesianIndex{2}}} = create_bohr_dict(hamiltonian)
-    transition_metro(w) = exp(-beta * max(w + 1/(2*beta), 0.0))
-
-    total_liouv_coherent_part = zeros(ComplexF64, dim^2, dim^2)
-    total_liouv_diss_part = zeros(ComplexF64, dim^2, dim^2)
-
-    @showprogress desc="Liouvillian Metro (Energy)..." for jump in jumps
-        if with_coherent  # There is no energy formulation of the coherent term, only Bohr and time.
-            coherent_term = coherent_bohr_metro(hamiltonian, bohr_dict, jump, beta)
-            total_liouv_coherent_part .+= vectorize_liouvillian_coherent(coherent_term)
-        end
-
-        for w in energy_labels
-            jump_oft = oft(jump, w, hamiltonian, beta)
-            total_liouv_diss_part .+= transition_metro(w) * vectorize_liouvillian_diss(jump_oft)
-        end
-    end
-    oft_norm_squared = beta / sqrt(2 * pi) #! sqrt(8 * pi) -> sqrt(2 * pi)
-    return total_liouv_coherent_part .+ w0 * oft_norm_squared * total_liouv_diss_part
-end
-
-function transition_metro(jumps::Vector{JumpOp}, hamiltonian::HamHam, energy_labels::Vector{Float64}, 
-    beta::Float64)
-
-    dim = size(hamiltonian.data, 1)
-    w0 = energy_labels[2] - energy_labels[1]
-    transition_metro(w) = exp(-beta * max(w + 1/(2 * beta), 0.0))
-
-    total_liouv_transition = zeros(ComplexF64, dim^2, dim^2)
-    for jump in jumps
-        for w in energy_labels
-            jump_oft = oft(jump, w, hamiltonian, beta)
-
-            vectorized_transition = transition_metro(w) * kron(jump_oft, conj(jump_oft))
-            total_liouv_transition .+=  vectorized_transition 
-        end
-    end
-    return w0 * beta * total_liouv_transition / sqrt(2 * pi)
-end
-
-function integrate_gamma_M(nu_1::Float64, nu_2::Float64, energy_labels::Vector{Float64}, beta::Float64)
-
-    transition_metro(w) = exp(-beta * max(w + 1/(2 * beta), 0.0))
-    integrand(w) = transition_metro(w) * exp(-beta^2 * (w - nu_1)^2 / 4) * exp(-beta^2 * (w - nu_2)^2 / 4)
-    # integrand(w) = exp(-beta^2 * (w - nu_1)^2 / 4) * exp(-beta^2 * (w - nu_2)^2 / 4)
-    w0 = energy_labels[2] - energy_labels[1]
-
-    resulting_alpha_M = 0.0
-    for w in energy_labels
-        integrand_w = integrand(w)
-        resulting_alpha_M += integrand_w
-    end
-
-    return w0 * beta * resulting_alpha_M / sqrt(2*pi)
-end
-
-function integrate_gamma_gauss(nu_1::Float64, nu_2::Float64, energy_labels::Vector{Float64}, beta::Float64)
-
-    transition_gauss(w) = exp(-beta^2 * (w + 1/beta)^2 /2)
-    integrand(w) = transition_gauss(w) * exp(-beta^2 * (w - nu_1)^2 / 4) * exp(-beta^2 * (w - nu_2)^2 / 4)
-    w0 = energy_labels[2] - energy_labels[1]
-
-    resulting_alpha_gauss = 0.0
-    for w in energy_labels
-        integrand_w = integrand(w)
-        resulting_alpha_gauss += integrand_w
-    end
-
-    return w0 * beta * resulting_alpha_gauss / sqrt(2*pi)
-end
-
-#* Eh -----------------------------------------------------------------------------------------------------------------------
-function construct_liouvillian_eh(jumps::Vector{JumpOp}, hamiltonian::HamHam, energy_labels::Vector{Float64}, 
-    with_coherent::Bool, beta::Float64, a::Float64, b::Float64)
-
-    dim = size(hamiltonian.data, 1)
-    w0 = energy_labels[2] - energy_labels[1]
-    bohr_dict::Dict{Float64, Vector{CartesianIndex{2}}} = create_bohr_dict(hamiltonian)
-
-    transition_eh = pick_transition_eh(beta, a, b)
-
-    total_liouv_coherent_part = zeros(ComplexF64, dim^2, dim^2)
-    total_liouv_diss_part = zeros(ComplexF64, dim^2, dim^2)
-
-    @showprogress desc="Liouvillian Eh (Energy)..." for jump in jumps
-        if with_coherent  # There is no energy formulation of the coherent term, only Bohr and time.
-            coherent_term = coherent_bohr_eh(hamiltonian, bohr_dict, jump, beta, a, b)
-            total_liouv_coherent_part .+= vectorize_liouvillian_coherent(coherent_term)
-        end
-
-        for w in energy_labels
-            jump_oft = oft(jump, w, hamiltonian, beta)
-            total_liouv_diss_part .+= transition_eh(w) * vectorize_liouvillian_diss(jump_oft)
-        end
-    end
-    oft_norm_squared = beta / sqrt(2 * pi)
-    return total_liouv_coherent_part .+ w0 * oft_norm_squared * total_liouv_diss_part
-end
-
-function pick_transition_eh(beta::Float64, a::Float64, b::Float64)
-
-    sqrtA = sqrt((4 * a / beta + 1) / 8)
-    if (b == 0 && a != 0)  # No time singularity but kinky Metro in energy
-        return w -> begin
-            sqrtB = beta * abs(w + 1 / (2 * beta)) / sqrt(2)
-            return exp((- 2 * sqrtA * sqrtB - beta * w / 2 - 1 / 4))
-        end
-    elseif (b != 0 && a != 0)  # No time singularity and no kinky Metro (Glauberish)
-        return w -> begin
-            sqrtB = beta * abs(w + 1 / (2 * beta)) / sqrt(2)
-            transition_eh = exp((- 2 * sqrtA * sqrtB - beta * w / 2 - 1 / 4))
-
-            return (transition_eh * (erfc(sqrtA * sqrt(b) - sqrtB / sqrt(b)) 
-                + exp(4 * sqrtA * sqrtB) * erfc(sqrtA * sqrt(b) + sqrtB / sqrt(b))) / 2)
-        end
-    elseif a == 0  # Time singularity and kinky Metro
-        return w -> begin
-            return exp(-beta * max(w + 1/(2 * beta), 0.0))
-        end
-    end
-end
-
 #* TOOLS --------------------------------------------------------------------------------------------------------------------
-function truncate_energy_labels(energy_labels::Vector{Float64}, integrand::Function, extra_args::Tuple; cutoff::Float64=1e-12)
-    """Function should be given as `func(w, nu1, nu2, beta)`."""
+function create_energy_labels(num_energy_bits::Int64, w0::Float64)
+    N = 2^(num_energy_bits)
+    N_labels = [0:1:Int(N/2)-1; -Int(N/2):1:-1]
+    energy_labels = w0 * N_labels
+    @assert maximum(energy_labels) >= 2.0  # For good results
+    return energy_labels
+end
 
-    integrand_lb(w) = integrand(w, -0.45, -0.45, extra_args...)
-    computed_energies_lb = integrand_lb.(energy_labels)
-    truncated_energies_lb = energy_labels[abs.(computed_energies_lb) .>= cutoff]
-    energy_lowerbound = minimum(truncated_energies_lb)
+function truncate_energy_labels(energy_labels::Vector{Float64}, beta::Float64, a::Float64, b::Float64,
+    with_linear_combination::Bool; cutoff::Float64=1e-12)
 
-    integrand_ub(w) = integrand(w, 0.45, 0.45, extra_args...)
-    computed_energies_ub = integrand_ub.(energy_labels)
-    truncated_energies_ub = energy_labels[abs.(computed_energies_ub) .>= cutoff]
-    energy_upperbound = maximum(truncated_energies_ub)
+    if with_linear_combination
+        transition = pick_transition(beta, a, b)  # Linear combination of Gaussians
+    else
+        transition = w -> exp(-beta^2 * (w + 1/beta)^2 /2)  # Single Gaussian
+    end
 
-    return energy_labels[energy_lowerbound .<= energy_labels .<= energy_upperbound]
+    gaussfilter(w, nu, beta) = exp(-beta^2 * (w - nu)^2 / 4) * sqrt(beta / sqrt(2 * pi))
+    integrand_lb(w) = transition(w) * gaussfilter(w, -0.45, beta)^2
+    integrand_ub(w) = transition(w) * gaussfilter(w, 0.45, beta)^2
+
+    min_label_for_lb = Inf
+    max_label_for_ub = -Inf
+    for w in energy_labels
+        # Finding LB
+        integrand_lb_val = integrand_lb(w)
+        if abs(integrand_lb_val) >= cutoff
+            min_label_for_lb = min(min_label_for_lb, w)
+        end
+        # Finding UB
+        integrand_ub_val = integrand_ub(w)
+        if abs(integrand_ub_val) >= cutoff
+            max_label_for_ub = max(max_label_for_ub, w)
+        end
+    end
+
+    return energy_labels[min_label_for_lb .<= energy_labels .<= max_label_for_ub]
 end
 #* --------------------------------------------------------------------------------------------------------------------------
 #* --------------------------------------------------------------------------------------------------------------------------
+
+# function integrate_gamma_M(nu_1::Float64, nu_2::Float64, energy_labels::Vector{Float64}, beta::Float64)
+
+#     transition_metro(w) = exp(-beta * max(w + 1/(2 * beta), 0.0))
+#     integrand(w) = transition_metro(w) * exp(-beta^2 * (w - nu_1)^2 / 4) * exp(-beta^2 * (w - nu_2)^2 / 4)
+#     # integrand(w) = exp(-beta^2 * (w - nu_1)^2 / 4) * exp(-beta^2 * (w - nu_2)^2 / 4)
+#     w0 = energy_labels[2] - energy_labels[1]
+
+#     resulting_alpha_M = 0.0
+#     for w in energy_labels
+#         integrand_w = integrand(w)
+#         resulting_alpha_M += integrand_w
+#     end
+
+#     return w0 * beta * resulting_alpha_M / sqrt(2*pi)
+# end
+
+# function integrate_gamma_gauss(nu_1::Float64, nu_2::Float64, energy_labels::Vector{Float64}, beta::Float64)
+
+#     transition_gauss(w) = exp(-beta^2 * (w + 1/beta)^2 /2)
+#     integrand(w) = transition_gauss(w) * exp(-beta^2 * (w - nu_1)^2 / 4) * exp(-beta^2 * (w - nu_2)^2 / 4)
+#     w0 = energy_labels[2] - energy_labels[1]
+
+#     resulting_alpha_gauss = 0.0
+#     for w in energy_labels
+#         integrand_w = integrand(w)
+#         resulting_alpha_gauss += integrand_w
+#     end
+
+#     return w0 * beta * resulting_alpha_gauss / sqrt(2*pi)
+# end

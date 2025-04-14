@@ -10,11 +10,6 @@ using QuadGK
 
 include("hamiltonian.jl")
 include("qi_tools.jl")
-include("structs.jl")
-include("bohr_gauss.jl")
-include("energy_gauss.jl")
-include("time_gauss.jl")
-include("trotter_gauss.jl")
 include("ofts.jl")
 
 #* Configs

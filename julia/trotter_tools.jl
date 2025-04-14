@@ -7,7 +7,6 @@ using Distributed
 
 include("hamiltonian.jl")
 include("qi_tools.jl")
-include("structs.jl")
 
 #! Maybe 1 Trotter step / t0 is still too good, because it deviates from OFT's by 1e-3 - 1e-4
 function create_trotter(hamiltonian::HamHam, t0::Float64, num_trotter_steps_per_t0::Int64)

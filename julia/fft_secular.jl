@@ -59,7 +59,7 @@ cutoff = 0.45
 energy_labels_045 = energy_labels
 # Turn all entires to zero above and below cutoff
 F_gauss_trunc = F_gauss_vals
-for i in 1:length(energy_labels)
+for i in eachindex(energy_labels)
     if abs(energy_labels[i]) > cutoff
         F_gauss_trunc[i] = 0
         energy_labels_045[i] = 0

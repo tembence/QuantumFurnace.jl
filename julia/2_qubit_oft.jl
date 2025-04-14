@@ -36,10 +36,10 @@ display(hamiltonian.data)
 sigmax::Matrix{ComplexF64} = [0 1; 1 0]
 jump_op = Matrix(pad_term([sigmax], num_qubits, jump_site_index))
 jump_op_in_eigenbasis = hamiltonian.eigvecs' * jump_op * hamiltonian.eigvecs
-jump = JumpOp(jump_op,
-        jump_op_in_eigenbasis,
-        Dict{Float64, SparseMatrixCSC{ComplexF64, Int64}}(), 
-        zeros(0))
+# jump = JumpOp(jump_op,
+#         jump_op_in_eigenbasis,
+#         Dict{Float64, SparseMatrixCSC{ComplexF64, Int64}}(), 
+#         zeros(0))
 construct_A_nus(jump, hamiltonian)
 
 #* Labels

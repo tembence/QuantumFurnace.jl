@@ -1,252 +1,140 @@
 using LinearAlgebra
 using Random
 using Printf
-using ProgressMeter
 using JLD
+using Revise
 
 include("hamiltonian.jl")
-include("ofts.jl")
-include("trotter.jl")
 include("qi_tools.jl")
-include("thermalize_with_alg.jl")
-include("coherent.jl")
-include("spectral_analysis.jl")
+include("misc_tools.jl")
+include("structs.jl")
+include("oven.jl")
 
-#TODO: memory map parallelization
-
-@enum FurnaceType GAUSS = 1 METRO = 2 TROTT_GAUSS = 3 TROTT_METRO = 4 TIME_GAUSS = 5
-
-#* Parameters
-num_qubits = 3
-delta = 0.01
-mixing_time = 1 * delta
-num_liouv_steps = Int(round(mixing_time / delta, digits=0))
+#* Config
+num_qubits = 4
+dim = 2^num_qubits
 beta = 10.
-eta = 0.02  # Just don't make it smaller than 0.018
-eig_index = 3
-Random.seed!(666)
+a = 0.0  # a = beta / 50.
+b = 0.0  # b = 0.5
+eta = 0.02
+with_coherent = true
+with_linear_combination = false
+picture = TIME
+num_energy_bits = 13
+w0 = 0.01
+t0 = 2pi / (2^num_energy_bits * w0)
 
-save_it = false
-furnace = GAUSS
-with_coherent = true  #TODO: Check how close B is between Trotter and ideal
+config = LiouvConfig(
+    num_qubits = num_qubits, 
+    with_coherent = with_coherent,
+    with_linear_combination = with_linear_combination, 
+    picture = picture,
+    beta = beta,
+    a = a,
+    b = b,
+    num_energy_bits = num_energy_bits,
+    w0 = w0,
+    t0 = t0,
+    eta = eta
+)
+
+print_press(config)
 
 #* Hamiltonian
-ham_filename(n) = @sprintf("/Users/bence/code/liouvillian_metro/julia/data/hamiltonian_n%d.jld", n)
-hamiltonian = load(ham_filename(num_qubits))["ideal_ham"]
-
-# coeffs = fill(1.0, 3)
-# hamiltonian = find_ideal_heisenberg(num_qubits, coeffs; batch_size=1)
-
-initial_dm = zeros(ComplexF64, size(hamiltonian.data))
-initial_dm[eig_index, eig_index] = 1.0  # In eigenbasis
-initial_dm[eig_index + 1, eig_index + 1] = 1.0
-initial_dm /= tr(initial_dm)
-
-# maxmixed = hamiltonian.eigvecs' * I(2^num_qubits) / 2^num_qubits * hamiltonian.eigvecs
-# maxmixed /= tr(maxmixed)
-# ones_dm = ones(ComplexF64, 2^num_qubits, 2^num_qubits)
-# ones /= tr(ones)
-# initial_dm = ones
-
+hamiltonian = find_ideal_heisenberg(num_qubits, fill(1.0, 3); batch_size=100)
 hamiltonian.bohr_freqs = hamiltonian.eigvals .- transpose(hamiltonian.eigvals)
-
-#* Gibbs
 gibbs = gibbs_state_in_eigen(hamiltonian, beta)
-gibbs_largest_eigval = real(eigen(gibbs).values[1])
+initial_dm = Matrix{ComplexF64}(I(dim) / dim)
+@assert norm(real(tr(initial_dm)) - 1.) < 1e-15 "Trace is not 1.0"
+@assert norm(initial_dm - initial_dm') < 1e-15 "Not Hermitian"
 
-#* Fourier labels
-# Coherent terms only become significant if we take r + 1 at least. Only matches with energy domain version if r + 3 or more
-num_energy_bits = ceil(Int64, log2((0.45 * 4 + 2/beta) / hamiltonian.nu_min)) + 3 # Under Fig. 5. with secular approx.
-
-# Transition weights in the liouv // Jump rate squared
-if furnace == GAUSS || furnace == TROTT_GAUSS || furnace == TIME_GAUSS
-    transition(energy) = exp(-(beta * energy + 1)^2 / 2)  # Calling this again and again is as fast as storing it.
-elseif furnace == METRO || furnace == TROTT_METRO
-    transition(energy) = exp(-beta * maximum([energy + 1/(2*beta), 0]))  # Can't really be truncated
-else
-    println("Furnace type hasn't been chosen")
-end
-
-#* Trotter
-if furnace == TROTT_GAUSS || furnace == TROTT_METRO 
-    filter_gauss_t(t) = exp(- t^2 / beta^2)
-    t0 = 2 * pi / (hamiltonian.nu_min * 2^num_energy_bits)
-    num_trotter_steps_per_t0 = 1000
-    trotter = create_trotter(hamiltonian, t0, num_trotter_steps_per_t0)
-    trotter_error_T = compute_trotter_error(hamiltonian, trotter, 2^num_energy_bits * t0)
-    gibbs = trotter.eigvecs' * gibbs_state(hamiltonian, beta) * trotter.eigvecs
-    @printf("Num trotter steps / t0: %d\n", num_trotter_steps_per_t0)
-    @printf("Max order Trotter error on an OFT: %s\n", trotter_error_T)
-elseif furnace == GAUSS || furnace == METRO
-    # OFT normalizations for energy basis
-    filter_gauss_w(energy) = exp.(- beta^2 * (energy).^2 / 4)
-elseif furnace == TIME_GAUSS
-    filter_gauss_t(t) = exp(- t^2 / beta^2)
-end
-
-#* Jump operators
+#* Jumps
 X::Matrix{ComplexF64} = [0 1; 1 0]
 Y::Matrix{ComplexF64} = [0.0 -im; im 0.0]
 Z::Matrix{ComplexF64} = [1 0; 0 -1]
-jump_paulis = [[X], [Y], [Z]]
+H::Matrix{ComplexF64} = [1 1; 1 -1] / sqrt(2)
+id::Matrix{ComplexF64} = I(2)
+jump_paulis = [[X], [Y], [Z], [H]]
 
-# All jumps once
-all_jumps_generated::Vector{JumpOp} = []
+jumps::Vector{JumpOp} = []
 for pauli in jump_paulis
     for site in 1:num_qubits
     jump_op = Matrix(pad_term(pauli, num_qubits, site))
     jump_op_in_eigenbasis = hamiltonian.eigvecs' * jump_op * hamiltonian.eigvecs
-    if furnace == TROTT_GAUSS || furnace == TROTT_METRO
-        jump_in_trotter_basis = trotter.eigvecs' * jump_op * trotter.eigvecs
-    else
-        jump_in_trotter_basis = zeros(0, 0)
-    end
-    orthogonal = (jump_op == adjoint(jump_op))
+    jump_in_trotter_basis = zeros(0, 0)
+    orthogonal = (jump_op == transpose(jump_op))
     jump = JumpOp(jump_op,
             jump_op_in_eigenbasis,
             Dict{Float64, SparseMatrixCSC{ComplexF64, Int64}}(), 
             zeros(0),
             jump_in_trotter_basis,
             orthogonal) 
-    push!(all_jumps_generated, jump)
+    push!(jumps, jump)
     end
 end
 
-# Random jumps
-# all_random_jumps_generated::Vector{JumpOp} = []
-# for _ in 1:(num_liouv_steps * 3 * num_qubits + 1)
-#     random_site = rand(1:num_qubits)
-#     random_pauli = rand(jump_paulis)
-#     jump_op = Matrix(pad_term(random_pauli, num_qubits, random_site))
-#     jump_op_in_eigenbasis = hamiltonian.eigvecs' * jump_op * hamiltonian.eigvecs
-#     # jump_in_trotter_basis = trotter.eigvecs' * jump_op * trotter.eigvecs
-#     jump = JumpOp(jump_op,
-#             jump_op_in_eigenbasis,
-#             Dict{Float64, SparseMatrixCSC{ComplexF64, Int64}}(), 
-#             zeros(0),
-#             zeros(0, 0)) #jump_in_trotter_basis)
-#     push!(all_random_jumps_generated, jump)
-# end
-
-#* The Press
-@printf("Number of qubits: %d\n", num_qubits)
-@printf("Number of energy bits: %d\n", num_energy_bits)
-@printf("Energy unit: %e\n", hamiltonian.nu_min)
-@printf("Mixing time: %s\n", mixing_time)
-@printf("Delta: %s\n", delta)
-
-#* ////////////////////////// Algorithm //////////////////////////
-if furnace == GAUSS
-    therm_results = thermalize_gaussian(all_jumps_generated, hamiltonian, with_coherent, initial_dm, num_energy_bits,
-    filter_gauss_w, transition, delta, mixing_time, beta)
-elseif furnace == METRO
-    therm_results = thermalize_metro(all_jumps_generated, hamiltonian, with_coherent, initial_dm,
-    num_energy_bits, filter_gauss_w, transition, eta, delta, mixing_time, beta)
-elseif furnace == TROTT_GAUSS
-    therm_results = thermalize_gaussian_trotter(all_jumps_generated, hamiltonian, trotter, with_coherent, initial_dm,
-    num_energy_bits, filter_gauss_t, transition, delta, mixing_time, beta)
-elseif furnace == TROTT_METRO
-    therm_results = thermalize_metro_trotter(all_jumps_generated, hamiltonian, trotter, with_coherent, initial_dm,
-    num_energy_bits, filter_gauss_t, transition, eta, delta, mixing_time, beta)
-elseif furnace == TIME_GAUSS
-    therm_results = thermalize_gaussian_ideal_time(all_jumps_generated, hamiltonian, with_coherent, initial_dm, num_energy_bits,
-    filter_gauss_t, transition, delta, mixing_time, beta)
-end
-
-evolved_dm = therm_results.evolved_dm
-distances_to_gibbs = therm_results.distances_to_gibbs
-
-#* ////////////////////////// Liouv construction //////////////////////////
-if furnace == GAUSS
-    liouv_matrix = construct_liouvillian_gauss(all_jumps_generated, hamiltonian, with_coherent, num_energy_bits, 
-    filter_gauss_w, transition, beta)
-elseif furnace == METRO
-    liouv_matrix = construct_liouvillian_metro(all_jumps_generated, hamiltonian, with_coherent, num_energy_bits, 
-    filter_gauss_w, transition, eta, beta)
-elseif furnace == TROTT_GAUSS
-    liouv_matrix = construct_liouvillian_gauss_trotter(all_jumps_generated, hamiltonian, trotter, with_coherent, num_energy_bits, 
-    filter_gauss_t, transition, beta)
-elseif furnace == TROTT_METRO
-    liouv_matrix = construct_liouvillian_metro_trotter(all_jumps_generated, hamiltonian, trotter, with_coherent, num_energy_bits, 
-    filter_gauss_t, transition, eta, beta)
-elseif furnace == TIME_GAUSS
-    liouv_matrix = construct_liouvillian_gauss_ideal_time(all_jumps_generated, hamiltonian, with_coherent, num_energy_bits, 
-    filter_gauss_t, transition, beta)
-end
-
-#* Check on Liouvillian Matrix
-# liouv_eigvals = eigvals(liouv_matrix)
-# one_vec = vec(I(2^num_qubits))
-# norm(liouv_matrix' * one_vec)
-
-initial_dm = zeros(ComplexF64, size(hamiltonian.data))
-initial_dm[eig_index, eig_index] = 1.0  # In eigenbasis
-initial_dm[eig_index + 1, eig_index + 1] = 1.0
-initial_dm /= tr(initial_dm)
-
-evolved_vec = vec(evolved_dm)
-initial_vec = vec(initial_dm)
-
-vec_lindbladian_time_evolved = initial_vec + mixing_time * liouv_matrix * initial_vec
-norm(vec_lindbladian_time_evolved - evolved_vec)
-
-liouv = LiouvLiouv(liouv_matrix, zeros(0, 0), 0.0, 0.0)
-trdist_eps = 1e-3
-mixing_time_bound(liouv, trdist_eps)
-@printf("spectral gap Liouv: %s\n", liouv.spectral_gap)
-@printf("Mixing time bound: %s\n", liouv.mixing_time_bound)
+#* Liouvillian
+liouv = construct_liouvillian(jumps, config; hamiltonian=hamiltonian)
 
 #* Spectral analysis
-# Stationary DM / vectorized
-stationary_dm = liouv.steady_state
-stationary_vec = vec(stationary_dm)
+liouv_eigvals, liouv_eigvecs = eigen(liouv) 
+steady_state_vec = liouv_eigvecs[:, end]
+steady_state_dm = reshape(steady_state_vec, size(hamiltonian.data))
+steady_state_dm /= tr(steady_state_dm)
 
-# # Gibbs and evolved vectorized
-gibbs_vec = vec(gibbs)
-evolved_vec = vec(evolved_dm)
+lambda2 = liouv_eigvals[end] - liouv_eigvals[end-1]
+@printf("Lambda2: %s\n", lambda2)
 
-# HS distances
-dist_evolved_dm_gibbs_vec = norm(evolved_vec - gibbs_vec)
-dist_ss_gibbs_vec = norm(stationary_vec - gibbs_vec)
-dist_ss_evolved_dm_vec = norm(stationary_vec - evolved_vec)  
-
-println("\nHS distances:")
-@printf("HS norm evolved DM to Gibbs vec: %s\n", dist_evolved_dm_gibbs_vec)
-@printf("--HS norm SS to Gibbs: %s\n", dist_ss_gibbs_vec)
-@printf("HS norm evolved DM to SS: %s\n", dist_ss_evolved_dm_vec)
-
-# Trace distances
-println("\nTrace distances:")
-min_dist = minimum(distances_to_gibbs)
-# max_mixed_dm = Matrix(I, 2^num_qubits, 2^num_qubits) / 2^num_qubits
-# dist_to_maxmixed = tracedistance_nh(Operator(b, best_evolved_dm), Operator(b, max_mixed_dm))
-trdist_ss_evolved_dm = trace_distance_nh(evolved_dm, stationary_dm)
-
-@printf("Last distance to Gibbs: %s\n", distances_to_gibbs[end])
-@printf("Minimum distance to Gibbs: %s\n", min_dist)
-# @printf("Variance of last 10 distances to Gibbs: %s\n", var(distances_to_gibbs[end-10:end]))
-# @printf("Distance to max mixed: %s\n", dist_to_maxmixed)
-@printf("Trace distance evolved DM to SS: %s\n", trdist_ss_evolved_dm)
+@printf("Steady state closeness to Gibbs for Liouvillian (Energy): %s\n", norm(steady_state_dm - gibbs))
 
 
-trdist_ss_gibbs = trace_distance_nh(gibbs, stationary_dm)  # Is trdist small to Gibbs?
-@printf("Trace distance Gibbs to SS: %s\n", trdist_ss_gibbs)
-println("\nStationarity checks:")
-is_it_zero = liouv.data * gibbs_vec # Is Gibbs a steady state?
-@printf("Is Gibbs a steady state? L(π) = %s\n", norm(is_it_zero))
 
-is_evolved_zero = liouv.data * evolved_vec
-@printf("Is evolved a steady state? L(ρ) = %s\n", norm(is_evolved_zero))
 
-if save_it == true
-    if with_coherent == false
-        filename(furnace, n, r) = @sprintf("/Users/bence/code/liouvillian_metro/julia/data/%s_n%d_r%d.jld", furnace, n, r)
-    else
-        filename(furnace, n, r) = @sprintf("/Users/bence/code/liouvillian_metro/julia/data/%s_n%d_r%d_B_100.jld", furnace, n, r)
-    end
-    # Save objects with jld
-    save(filename(furnace, num_qubits, num_energy_bits), "alg_results", therm_results, "liouv", liouv)
-end
+
+
+
+
+
+
+
+
+
+
+#TODO: memory map parallelization
+# #* Hamiltonian
+# ham_filename(n) = @sprintf("/Users/bence/code/liouvillian_metro/julia/data/hamiltonian_n%d.jld", n)
+# hamiltonian = load(ham_filename(num_qubits))["ideal_ham"]
+
+# #* ////////////////////////// Algorithm //////////////////////////
+# if furnace == GAUSS
+#     therm_results = thermalize_gaussian(all_jumps_generated, hamiltonian, with_coherent, initial_dm, num_energy_bits,
+#     filter_gauss_w, transition, delta, mixing_time, beta)
+# elseif furnace == METRO
+#     therm_results = thermalize_metro(all_jumps_generated, hamiltonian, with_coherent, initial_dm,
+#     num_energy_bits, filter_gauss_w, transition, eta, delta, mixing_time, beta)
+# elseif furnace == TROTT_GAUSS
+#     therm_results = thermalize_gaussian_trotter(all_jumps_generated, hamiltonian, trotter, with_coherent, initial_dm,
+#     num_energy_bits, filter_gauss_t, transition, delta, mixing_time, beta)
+# elseif furnace == TROTT_METRO
+#     therm_results = thermalize_metro_trotter(all_jumps_generated, hamiltonian, trotter, with_coherent, initial_dm,
+#     num_energy_bits, filter_gauss_t, transition, eta, delta, mixing_time, beta)
+# elseif furnace == TIME_GAUSS
+#     therm_results = thermalize_gaussian_ideal_time(all_jumps_generated, hamiltonian, with_coherent, initial_dm, num_energy_bits,
+#     filter_gauss_t, transition, delta, mixing_time, beta)
+# end
+
+# evolved_dm = therm_results.evolved_dm
+# distances_to_gibbs = therm_results.distances_to_gibbs
+
+# if save_it == true
+#     if with_coherent == false
+#         filename(furnace, n, r) = @sprintf("/Users/bence/code/liouvillian_metro/julia/data/%s_n%d_r%d.jld", furnace, n, r)
+#     else
+#         filename(furnace, n, r) = @sprintf("/Users/bence/code/liouvillian_metro/julia/data/%s_n%d_r%d_B_100.jld", furnace, n, r)
+#     end
+#     # Save objects with jld
+#     save(filename(furnace, num_qubits, num_energy_bits), "alg_results", therm_results, "liouv", liouv)
+# end
 # lll = load(filename(furnace, num_qubits, num_energy_bits))["liouv"]
 # rrr = load(filename(furnace, num_qubits, num_energy_bits))["alg_results"]
 

@@ -6,9 +6,7 @@ using Plots
 using QuadGK
 
 include("hamiltonian.jl")
-include("trotter.jl")
 include("qi_tools.jl")
-include("structs.jl")
 include("bohr_picture.jl")
 
 function oft(jump::JumpOp, energy::Float64, hamiltonian::HamHam, beta::Float64)

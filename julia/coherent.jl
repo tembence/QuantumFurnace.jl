@@ -10,13 +10,12 @@ using SparseArrays
 
 include("hamiltonian.jl")
 include("ofts.jl")
-include("trotter.jl")
 include("qi_tools.jl")
 
 #* COHERENT TERMS -----------------------------------------------------------------------------------------------------------
 # (3.1) and Proposition III.1
 # Has to be on a symmetric time domain, otherwise it can't be Hermitian.
-function coherent_term_time(jump::JumpOp, hamiltonian::HamHam, 
+function coherent_term_time_b(jump::JumpOp, hamiltonian::HamHam, 
     b1::Dict{Float64, ComplexF64}, b2::Dict{Float64, ComplexF64}, t0::Float64, beta::Float64)
     """Coherent term for the Gaussian AND Metropolis case IF jump op is [A Adag, H] = 0 (X, Y, Z)
     written in timedomain and using ideal time evolution.
@@ -42,7 +41,7 @@ function coherent_term_time(jump::JumpOp, hamiltonian::HamHam,
     return B * t0^2  # Correction in b2 already
 end
 
-function coherent_term_time_f(jump::JumpOp, hamiltonian::HamHam, 
+function coherent_term_time(jump::JumpOp, hamiltonian::HamHam, 
     f_minus::Dict{Float64, ComplexF64}, f_plus::Dict{Float64, ComplexF64}, t0::Float64)
 
     dim = size(hamiltonian.data)
@@ -57,12 +56,18 @@ function coherent_term_time_f(jump::JumpOp, hamiltonian::HamHam,
     end
 
     # Outer summand f_minus
+    # A is Hermitian
     B = zeros(ComplexF64, dim)
     for t in keys(f_minus)
         U_t = diag_time_evolve(t)
-        B .+= f_minus[t] * U_t' * (f_plus_summand * t0 + jump.in_eigenbasis' * jump.in_eigenbasis / (2pi * sqrt(2))) * U_t
+        B .+= f_minus[t] * U_t' * f_plus_summand * U_t
     end
-    return B * t0
+    # If A is non-Hermitian
+    # for t in keys(f_minus)
+    #     U_t = diag_time_evolve(t)
+    #     B .+= f_minus[t] * U_t' * (f_plus_summand * t0 + jump.in_eigenbasis' * jump.in_eigenbasis / (2pi * sqrt(2))) * U_t
+    # end
+    return B * t0^2
 end
 
 function coherent_term_time_integrated_metro_f(jump::JumpOp, hamiltonian::HamHam, eta::Float64, beta::Float64; 
@@ -239,16 +244,14 @@ end
 
 #* B1 AND B2 ----------------------------------------------------------------------------------------------------------------
 # Corollary III.1, every parameter = 1 / beta
-function compute_f_minus(time_labels::Vector{Float64}, beta::Float64)
-    f1(t) = 1 / cosh(2 * pi * t / beta)
-    f2(t) = sin(-t / beta) * exp(-2 * t^2 / beta^2)
-    return (1 / (pi * beta^2)) * exp(1/8) * convolute.(Ref(f1), Ref(f2), time_labels)
-end
-
 function compute_f_minus(t::Float64, beta::Float64)
     f1(t) = 1 / cosh(2 * pi * t / beta)
     f2(t) = sin(-t / beta) * exp(-2 * t^2 / beta^2)
     return (1 / (pi * beta^2)) * exp(1/8) * convolute(f1, f2, t)
+end
+
+function compute_f_plus(t::Float64, beta::Float64)
+    return 2 * exp(-4 * t^2 / beta^2 - 2im * t / beta) / beta
 end
 
 function compute_f_plus_eh(t::Float64, beta::Float64, a::Float64, b::Float64)
@@ -258,7 +261,7 @@ function compute_f_plus_eh(t::Float64, beta::Float64, a::Float64, b::Float64)
 end
 
 # Actually faster broadcasting the whole function than taking in a vector argument
-function compute_f_plus_metro(t::Float64, eta::Float64, beta::Float64)
+function compute_f_plus_metro(t::Float64, beta::Float64, eta::Float64)
 
     if abs(t) < 1e-12  # Handle t=0
         return complex(sqrt(1 / 2pi) / beta) 
@@ -271,36 +274,35 @@ function compute_f_plus_metro(t::Float64, eta::Float64, beta::Float64)
     return (sqrt(1 / 2pi) / beta) * numerator / denominator
 end
 
+function compute_truncated_f_minus(time_labels::Vector{Float64}, beta::Float64; atol::Float64 = 1e-12)
+    f_minus = Vector{ComplexF64}(compute_f_minus.(time_labels, beta))
+    # Skip all elements where b1 b2 are smaller than 1e-12
+    indices_f_minus = get_truncated_indices(f_minus; atol=atol)
+    return Dict(zip(time_labels[indices_f_minus], f_minus[indices_f_minus]))
+end
+
+function compute_truncated_f_plus(time_labels::Vector{Float64}, beta::Float64; atol::Float64 = 1e-12)
+    f_plus = Vector{ComplexF64}(compute_f_plus.(time_labels, beta))
+    indices_f_plus = get_truncated_indices(f_plus; atol=atol)
+    return Dict(zip(time_labels[indices_f_plus], f_plus[indices_f_plus]))
+end
+
 function compute_truncated_f_plus_eh(time_labels::Vector{Float64}, beta::Float64, a::Float64, b::Float64; atol::Float64 = 1e-12)
     f_plus = Vector{ComplexF64}(compute_f_plus_eh.(time_labels, beta, a, b))
     good_indices = get_truncated_indices(f_plus; atol=atol)
     return Dict(zip(time_labels[good_indices], f_plus[good_indices]))
 end
 
-function compute_truncated_f_plus_metro(time_labels::Vector{Float64}, eta::Float64, beta::Float64; atol::Float64 = 1e-12)
-    f_plus = Vector{ComplexF64}(compute_f_plus_metro.(time_labels, eta, beta))
+function compute_truncated_f_plus_metro(time_labels::Vector{Float64}, beta::Float64, eta::Float64; atol::Float64 = 1e-12)
+    f_plus = Vector{ComplexF64}(compute_f_plus_metro.(time_labels, beta, eta))
     good_indices = get_truncated_indices(f_plus; atol=atol)
     return Dict(zip(time_labels[good_indices], f_plus[good_indices]))
-end
-
-function compute_truncated_f_minus(time_labels::Vector{Float64}, beta::Float64; atol::Float64 = 1e-12)
-
-    f_minus = Vector{ComplexF64}(compute_f_minus(time_labels, beta))
-    # Skip all elements where b1 b2 are smaller than 1e-12
-    indices_f_minus = get_truncated_indices(f_minus; atol=atol)
-    return Dict(zip(time_labels[indices_f_minus], f_minus[indices_f_minus]))
 end
 
 function compute_b1(time_labels::Vector{Float64})
     f1(t) = 1 / cosh(2 * pi * t)
     f2(t) = sin(-t) * exp(-2 * t^2)
     return 2 * sqrt(pi) * exp(1/8) * convolute.(Ref(f1), Ref(f2), time_labels)
-end
-
-function b1_fn(T::Float64)
-    f1(t) = 1 / cosh(2 * pi * t)
-    f2(t) = sin(-t) * exp(-2 * t^2)
-    return 2 * sqrt(pi) * exp(1/8) * convolute.(Ref(f1), Ref(f2), T)
 end
 
 function compute_truncated_b1(time_labels::Vector{Float64}; atol::Float64 = 1e-14)
@@ -330,44 +332,6 @@ function compute_truncated_b2(time_labels::Vector{Float64}; atol::Float64 = 1e-1
 
     return Dict(zip(b2_times, b2_vals))
 end
-
-function compute_b2_metro(time_labels::Vector{Float64}, eta::Float64)
-
-    time_labels_no_zero = time_labels[2:end]  # Remove t = 0.0
-    b2_metro::Vector{ComplexF64} = (exp.(-2 * time_labels_no_zero.^2 .- 1im * time_labels_no_zero) ./ (time_labels_no_zero .* (2 * time_labels_no_zero .+ 1im)))
-
-    # (1, 1, 1 (at eta), 0, 0, ..., 0)
-    indices_below_eta = findall(t -> abs(t) <= eta, time_labels_no_zero)
-    b2_metro[indices_below_eta] .+= (0.0 + 1.0im) ./ time_labels_no_zero[indices_below_eta]
-    return 2 * b2_metro / (4 * pi * sqrt(2))  # x2 for the correction
-end
-
-function compute_truncated_b2_metro(time_labels::Vector{Float64}, eta::Float64; atol::Float64 = 1e-14)
-    """(3.6)"""
-    
-    b2_metro = Vector{ComplexF64}(compute_b2_metro(time_labels, eta))
-    indices_b2_metro = get_truncated_indices(b2_metro; atol)
-    b2_metro_times = time_labels[indices_b2_metro]
-    b2_metro_vals = b2_metro[indices_b2_metro]
-
-    return Dict(zip(b2_metro_times, b2_metro_vals))
-end
-
-
-# function compute_b2_metro_explicit(time_labels::Vector{Float64}, eta::Float64)
-
-#     time_labels_no_zero = time_labels[2:end]  # Remove t = 0.0
-#     b2_metro = zeros(ComplexF64, length(time_labels_no_zero))
-
-#     for i in eachindex(b2_metro)
-#         t = time_labels_no_zero[i]
-#         if abs(t) <= eta
-#             b2_metro[i] += (0.0 + 1.0im) / t
-#         end
-#         b2_metro[i] += exp(-2 * t^2 - 1im * t) / (t * (2 * t + 1im))
-#     end
-#     return b2_metro / (4 * pi * sqrt(2))
-# end
 
 #* TOOLS --------------------------------------------------------------------------------------------------------------------
 function get_truncated_indices(fvals::Vector{Float64}; atol::Float64 = 1e-12)

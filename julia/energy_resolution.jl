@@ -7,7 +7,6 @@ using Distributions
 
 include("hamiltonian.jl")
 include("qi_tools.jl")
-include("structs.jl")
 
 #* Functions
 gauss_filter(w, nu, sigmaE) = exp(- (w - nu)^2 / (4 * sigmaE^2)) * sqrt(beta / sqrt(2 * pi))

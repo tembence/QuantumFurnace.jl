@@ -11,7 +11,6 @@ using QuadGK
 include("hamiltonian.jl")
 include("ofts.jl")
 include("qi_tools.jl")
-include("structs.jl")
 include("coherent.jl")
 
 function construct_liouvillian_gauss_trotter(jumps::Vector{JumpOp}, trotter::TrottTrott, time_labels::Vector{Float64},

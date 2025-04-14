@@ -68,19 +68,19 @@ end
 jump = jumps[2]
 
 #* Bohr Liouvillians
-liouv_bohr_eh = @time construct_liouvillian_bohr_eh(jumps, hamiltonian, with_coherent, beta, a, b)
-# liouv_bohr_gauss = @time construct_liouvillian_bohr_gauss(jumps, hamiltonian, with_coherent, beta)
-liouv_bohr_metro = @time construct_liouvillian_bohr_metro(jumps, hamiltonian, with_coherent, beta)
+# liouv_bohr_eh = @time construct_liouvillian_bohr(jumps, hamiltonian, with_coherent, beta, a, b)
+liouv_bohr_gauss = @time construct_liouvillian_bohr_gauss(jumps, hamiltonian, with_coherent, beta)
+# liouv_bohr_metro = @time construct_liouvillian_bohr(jumps, hamiltonian, with_coherent, beta, 0.0, 0.0)
 
-# liouv_eigvals, liouv_eigvecs = eigen(liouv_bohr_eh) 
-# steady_state_vec = liouv_eigvecs[:, end]
-# steady_state_dm = reshape(steady_state_vec, size(hamiltonian.data))
-# steady_state_dm /= tr(steady_state_dm)
+liouv_eigvals, liouv_eigvecs = eigen(liouv_bohr_eh) 
+steady_state_vec = liouv_eigvecs[:, end]
+steady_state_dm = reshape(steady_state_vec, size(hamiltonian.data))
+steady_state_dm /= tr(steady_state_dm)
 
-# lambda2 = liouv_eigvals[end] - liouv_eigvals[end-1]
-# @printf("Lambda2: %s\n", lambda2)
+lambda2 = liouv_eigvals[end] - liouv_eigvals[end-1]
+@printf("Lambda2: %s\n", lambda2)
 
-# @printf("Steady state closeness to Gibbs for Liouvillian (Energy): %s\n", norm(steady_state_dm - gibbs))
+@printf("Steady state closeness to Gibbs for Liouvillian (Energy): %s\n", norm(steady_state_dm - gibbs))
 
 #* Labels
 w0 = 1e-2
@@ -94,8 +94,6 @@ N_labels = [0:1:Int(N/2)-1; -Int(N/2):1:-1]
 energy_labels = w0 * N_labels
 @assert maximum(energy_labels) >= 2.0
 time_labels = t0 * N_labels
-
-print_press(num_qubits=num_qubits, beta=beta, a=a, b=b, t0=t0, w0=w0, num_energy_bits=num_energy_bits)
 
 # Helping functions
 sqrtA(a, beta) = sqrt((4 * a / beta + 1) / 8)
@@ -131,12 +129,15 @@ eh_energy_integrand_smooth(w, nu_1, nu_2, beta, a, b) = (
 # nu_2 = 0.0
 # plot(energies, eh_energy_integrand.(energies, nu_1, nu_2, beta, a))
 # plot!(energies, eh_energy_integrand_smooth.(energies, nu_1, nu_2, beta, a, b))
-truncated_energies = truncate_energy_labels(energy_labels, eh_energy_integrand_smooth, (beta, a, b))
+truncated_energies = truncate_energy_labels(energy_labels, beta, a, b, true)
 # Checked truncation, Liouv is insanely close to nontruncated.
 
 #* Energy Liouvillian
-liouv_energy_eh = @time construct_liouvillian_eh(jumps, hamiltonian, truncated_energies, with_coherent, beta, a, b)
+liouv_energy_eh = @time construct_liouvillian_energy(jumps, hamiltonian, truncated_energies, with_coherent, beta, a, b)
 liouv_energy_metro = @time construct_liouvillian_metro(jumps, hamiltonian, truncated_energies, with_coherent, beta)
+liouv_energy_metro2 = @time construct_liouvillian_energy(jumps, hamiltonian, truncated_energies, with_coherent, beta, 0.0, 0.0)
+norm(liouv_energy_metro - liouv_energy_metro2)
+
 norm(liouv_energy_eh - liouv_bohr_eh)
 norm(liouv_energy_metro - liouv_bohr_metro)
 

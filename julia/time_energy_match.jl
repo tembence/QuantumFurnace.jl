@@ -25,8 +25,10 @@ ENV["ROWS"] = "128"
 #* Configs
 num_qubits = 2
 dim = 2^num_qubits
-num_energy_bits = 21
+num_energy_bits = 10
 beta = 10.
+a = 0.0
+b = 0.0
 Random.seed!(666)
 with_coherent = true
 
@@ -47,8 +49,9 @@ initial_dm = Matrix{ComplexF64}(I(dim) / dim)
 @assert norm(initial_dm - initial_dm') < 1e-15 "Not Hermitian"
 
 N = 2^(num_energy_bits)
-w0 = 0.001
-t0 = 2 * pi / (N * w0)
+t0 = 0.1
+w0 = 2pi / (N * t0)
+
 @printf("Smallest Bohr frequency: %s\n", hamiltonian.nu_min)
 @printf("Chosen w0: %s\n", w0)
 N_labels = [0:1:Int(N/2)-1; -Int(N/2):1:-1]
@@ -57,13 +60,7 @@ energy_labels = w0 * N_labels
 time_labels = t0 * N_labels
 
 #* Energy labels truncation
-
-gauss_energy_integrand(w, nu_1, nu_2, beta) = ((beta / sqrt(2*pi)) * exp(-beta^2 * (w + 1/beta)^2 /2)
-                                                    * exp(-beta^2 * (w - nu_1)^2 / 4) * exp(-beta^2 * (w - nu_2)^2 / 4))
-metro_energy_integrand(w, nu_1, nu_2, beta) = (exp(-beta * max(w + 1/(2*beta), 0.0))
-                                                    * exp(-beta^2 * (w - nu_1)^2 / 4) * exp(-beta^2 * (w - nu_2)^2 / 4))
-
-truncated_energies = truncate_energy_labels(energy_labels, metro_energy_integrand, beta)
+truncated_energies = truncate_energy_labels(energy_labels, beta, a, b, false)
 
 #* Jumps
 X::Matrix{ComplexF64} = [0 1; 1 0]
@@ -71,7 +68,7 @@ Y::Matrix{ComplexF64} = [0.0 -im; im 0.0]
 Z::Matrix{ComplexF64} = [1 0; 0 -1]
 H::Matrix{ComplexF64} = [1 1; 1 -1] / sqrt(2)
 id::Matrix{ComplexF64} = I(2)
-jump_paulis = [[X]]#, [Y], [Z]] #! Identity
+jump_paulis = [[X], [Y], [Z], [H]]
 
 # All jumps once
 all_jumps_generated::Vector{JumpOp} = []
@@ -91,6 +88,8 @@ for pauli in jump_paulis
     end
 end
 
+jump = all_jumps_generated[2]
+
 #* Thermalization
 # results = @time thermalize_gauss(all_jumps_generated, hamiltonian, initial_dm, energy_labels, with_coherent, 
 # delta, mixing_time, beta)
@@ -105,14 +104,34 @@ end
 # @printf("Last distance to Gibbs: %s\n", results.distances_to_gibbs[end])
 
 #* Time vs Bohr Liouvillians
-# liouv_bohr = @time construct_liouvillian_bohr_gauss(all_jumps_generated, hamiltonian, with_coherent, beta)
-# liouv_time = @time construct_liouvillian_time_gauss(all_jumps_generated, hamiltonian, time_labels, truncated_energies, 
-# with_coherent, beta)
+liouv_bohr = @time construct_liouvillian_bohr_gauss(all_jumps_generated, hamiltonian, with_coherent, beta)
+liouv_time = @time construct_liouvillian_time_gauss(all_jumps_generated, hamiltonian, time_labels, truncated_energies, 
+with_coherent, beta)
+liouv_time2 = @time construct_liouvillian_time_gauss2(all_jumps_generated, hamiltonian, time_labels, truncated_energies, 
+with_coherent, beta)
+
+norm(liouv_bohr - liouv_time)
+norm(liouv_bohr - liouv_time2)
+norm(liouv_time2 - liouv_time)
+
+f_minus = compute_truncated_f_minus(time_labels, beta; atol=1e-14)
+f_plus = compute_truncated_f_plus(time_labels, beta; atol=1e-14)
+coherent_term = coherent_term_time(jump, hamiltonian, f_minus, f_plus, t0)
+
+b1 = compute_truncated_b1(time_labels)
+b2 = compute_truncated_b2(time_labels)
+coherent_term_b = coherent_term_time_b(jump, hamiltonian, b1, b2, t0, beta)
+
+coherent_bohr_g = coherent_bohr_gauss(hamiltonian, bohr_dict, jump, beta)
+norm(coherent_term - coherent_term_b)
+norm(coherent_bohr_g - coherent_term)
+norm(coherent_bohr_g - coherent_term_b)
+
 # @printf("Difference between Liouvillians (GAUSS): %s\n", norm(liouv_bohr - liouv_time))
 
-liouv_bohr_metro = @time construct_liouvillian_bohr_metro(all_jumps_generated, hamiltonian, with_coherent, beta)
-liouv_time_metro_integrated = @time construct_liouvillian_time_metro_integrated(all_jumps_generated, hamiltonian, 
-    with_coherent, beta, eta)
+# liouv_bohr_metro = @time construct_liouvillian_bohr_metro(all_jumps_generated, hamiltonian, with_coherent, beta)
+# liouv_time_metro_integrated = @time construct_liouvillian_time_metro_integrated(all_jumps_generated, hamiltonian, 
+#     with_coherent, beta, eta)
     
 # liouv_metro = @time construct_liouvillian_metro(all_jumps_generated, hamiltonian, truncated_energies, with_coherent, beta)
 # liouv_metro_truncated = @time construct_liouvillian_metro(all_jumps_generated, hamiltonian, truncated_energies, 

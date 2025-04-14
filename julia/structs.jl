@@ -1,19 +1,27 @@
 
-#TODO: Think this Config struct over, not sure about it.
-struct Config
-    num_qubits::Int64
-    num_energy_bits::Int64
-    w0::Float64
-    mixing_time::Float64
-    delta::Float64
-    beta::Float64
-    initial_dm::Matrix{ComplexF64}
+using Base
+
+@enum Picture BOHR ENERGY TIME TROTTER
+
+# Let's keep this structure, and have the "give w0 for desired energy integral error" type of config optimization
+# before the construct_liouvillian function
+@kwdef struct LiouvConfig
+    num_qubits::Int64 
     with_coherent::Bool
-    jumps_are_random::Bool
-    furnace::Symbol
-    transition_cutoff::Float64
-    coherent_cutoff::Float64
+    with_linear_combination::Bool
+    picture::Picture
+    beta::Float64
+    a::Float64
+    b::Float64
+    num_energy_bits::Int64 = -1
+    t0::Float64 = -1.
+    w0::Float64 = -1.
+    eta::Float64 = -1.
+    num_trotter_steps_per_t0::Int64 = -1
 end
+
+# struct mutable ThermConfig
+# end
 
 mutable struct HamHam
     data::Matrix{ComplexF64}
@@ -29,7 +37,6 @@ mutable struct HamHam
     rescaling_factor::Float64
 end
 
-#TODO: Add orthogonality
 mutable struct JumpOp
     data::Matrix{ComplexF64}
     in_eigenbasis::Matrix{ComplexF64}
