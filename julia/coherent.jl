@@ -15,32 +15,6 @@ include("qi_tools.jl")
 #* COHERENT TERMS -----------------------------------------------------------------------------------------------------------
 # (3.1) and Proposition III.1
 # Has to be on a symmetric time domain, otherwise it can't be Hermitian.
-function coherent_term_time_b(jump::JumpOp, hamiltonian::HamHam, 
-    b1::Dict{Float64, ComplexF64}, b2::Dict{Float64, ComplexF64}, t0::Float64, beta::Float64)
-    """Coherent term for the Gaussian AND Metropolis case IF jump op is [A Adag, H] = 0 (X, Y, Z)
-    written in timedomain and using ideal time evolution.
-    Working in the energy eigenbasis for the time evolutions, where H is diagonal.
-        sigma_E = sigma_gamma = w_gamma = 1 / beta"""
-    
-    diag_time_evolve(t) = Diagonal(exp.(1im * hamiltonian.eigvals * t))
-
-    # Inner b2 sum
-    b2_integral = zeros(ComplexF64, size(hamiltonian.data))
-    for s in keys(b2)
-        time_evolution_inner = diag_time_evolve(beta * s)
-        b2_integral .+= b2[s] * (time_evolution_inner * jump.in_eigenbasis' 
-                            * (time_evolution_inner')^2 * jump.in_eigenbasis * time_evolution_inner)
-    end
-
-    # Outer b1 sum
-    B = zeros(ComplexF64, size(hamiltonian.data))
-    for t in keys(b1)
-        time_evolution_outer = diag_time_evolve(beta * t)
-        B .+= b1[t] * time_evolution_outer' * b2_integral * time_evolution_outer
-    end
-    return B * t0^2  # Correction in b2 already
-end
-
 function coherent_term_time(jump::JumpOp, hamiltonian::HamHam, 
     f_minus::Dict{Float64, ComplexF64}, f_plus::Dict{Float64, ComplexF64}, t0::Float64)
 
@@ -70,75 +44,32 @@ function coherent_term_time(jump::JumpOp, hamiltonian::HamHam,
     return B * t0^2
 end
 
-function coherent_term_time_integrated_metro_f(jump::JumpOp, hamiltonian::HamHam, eta::Float64, beta::Float64; 
-    time_domain::Tuple{Float64, Float64} = (-Inf, Inf), atol=1e-12, rtol=1e-12)
+function coherent_term_trotter2(jump::JumpOp, trotter::TrottTrott, 
+    f_minus::Dict{Float64, ComplexF64}, f_plus::Dict{Float64, ComplexF64})
 
-    diag_time_evolve(t) = Diagonal(exp.(1im * hamiltonian.eigvals * t))
-    f_plus_inegrand(s) = (compute_f_plus_metro(s, eta, beta) * 
-            diag_time_evolve(s) * jump.in_eigenbasis' * diag_time_evolve(-2 * s) * jump.in_eigenbasis * diag_time_evolve(s))
+    dim = size(trotter.eigvecs)
+    eigvals_t0_diag = Diagonal(trotter.eigvals_t0)
 
-    f_plus_integral, _ = quadgk(f_plus_inegrand, time_domain[1], time_domain[2]; atol=atol, rtol=rtol)
+    # Inner summand f_plus
+    f_plus_summand = zeros(ComplexF64, dim)
+    for s in keys(f_plus)
+        num_t0_steps = ceil((abs(s) / trotter.t0))
+        trott_U_s = eigvals_t0_diag^num_t0_steps
+        trott_U_2s = trott_U_s^2
 
-    f_minus_integrand(t) = (compute_f_minus(t, beta) * diag_time_evolve(-t) 
-                            * (f_plus_integral + jump.in_eigenbasis' * jump.in_eigenbasis / (2pi * sqrt(2))) 
-                            * diag_time_evolve(t))
-    B, _ = quadgk(f_minus_integrand, time_domain[1], time_domain[2]; atol=atol, rtol=rtol)
-
-    return B
-end
-
-function coherent_time_metro_integrated(jump::JumpOp, hamiltonian::HamHam, time_labels::Vector{Float64}, 
-    beta::Float64, eta::Float64)
-
-    dim = size(hamiltonian.data)
-    atol = 1e-12
-    rtol = 1e-12
-
-    # For debugging:
-    min_time = minimum(time_labels)
-    max_time = maximum(time_labels)
-
-    U(t) = Diagonal(exp.(1im * hamiltonian.eigvals * t))
-    A = jump.in_eigenbasis
-    b2_integrand(t) = (exp(-2 * t^2 - 1im * t) * U(beta * t) * A' * U(-2 * beta * t) * A * U(beta * t) 
-        / (t * (2 * t + 1im) * 4 * sqrt(2) * pi))
-
-    b2_integrand_eta(t) = 1im * U(beta * t) * A' * U(-2 * beta * t) * A * U(beta * t) / (t * 4 * sqrt(2) * pi)
-
-    eps = 1e-15
-    b2_integral_1 = quadgk(b2_integrand, -Inf, -eps; atol=atol, rtol=rtol)[1]
-    b2_integral_2 = quadgk(b2_integrand, eps, Inf; atol=atol, rtol=rtol)[1]
-    b2_integral_eta_1 = quadgk(b2_integrand_eta, -eta, -eps; atol=atol, rtol=rtol)[1]
-    b2_integral_eta_2 = quadgk(b2_integrand_eta, eps, eta; atol=atol, rtol=rtol)[1]
-    b2_integral_total = b2_integral_1 + b2_integral_2 + b2_integral_eta_1 + b2_integral_eta_2
-
-    f1(t) = 1 / cosh(2 * pi * t)
-    f2(t) = sin(-t) * exp(-2 * t^2)
-    b1(t) = 2 * sqrt(pi) * exp(1/8) * convolute(f1, f2, t)
-    b1_integrand(t) = b1(t) * U(-beta * t) * (b2_integral_total + A' * A / (16 * sqrt(2) * pi)) * U(beta * t)
-
-    B = quadgk(b1_integrand, -Inf, Inf; atol=atol, rtol=rtol)[1]
-    return B * 2
-end
-
-function coherent_term_time_metro_exact(jump::JumpOp, hamiltonian::HamHam, time_labels::Vector{Float64}, beta::Float64)
-
-    dim = size(hamiltonian.data)
-    t0 = time_labels[2] - time_labels[1]
-    time_labels_no_zero = time_labels[2:end]
-    diag_time_evolve(t) = Diagonal(exp.(1im * hamiltonian.eigvals * t))
-
-    f_minus = compute_truncated_f_minus(time_labels_no_zero, beta)
-    # Oh = construct_metro_oh(jump, hamiltonian, time_labels_no_zero, beta) #!
-    Oh = construct_metro_oh_integrated(jump, hamiltonian, beta)
-
-    B = zeros(ComplexF64, dim)
-    for t in keys(f_minus)
-        U_t = diag_time_evolve(t)
-        B .+= f_minus[t] * U_t' * Oh * U_t
+        f_plus_summand .+= f_plus[s] * trott_U_s * jump.in_trotter_basis' * trott_U_2s' * jump.in_trotter_basis * trott_U_s
     end
 
-    return t0 * B
+    # Outer summand f_minus
+    # A is Hermitian (if A is non-Hermitian, see coherent_term_time)
+    B = zeros(ComplexF64, dim)
+    for t in keys(f_minus)
+        num_t0_steps = ceil((abs(t) / trotter.t0))
+        trott_U_t = eigvals_t0_diag^num_t0_steps
+        B .+= f_minus[t] * trott_U_t' * f_plus_summand * trott_U_t
+    end
+
+    return B * t0^2  # B in Trotter basis
 end
 
 function coherent_term_trotter(jump::JumpOp, trotter::TrottTrott, 
@@ -192,6 +123,70 @@ function coherent_term_trotter(jump::JumpOp, trotter::TrottTrott,
     # end
 
     return B * trotter.t0^2 * 2
+end
+
+function coherent_term_time_b(jump::JumpOp, hamiltonian::HamHam, 
+    b1::Dict{Float64, ComplexF64}, b2::Dict{Float64, ComplexF64}, t0::Float64, beta::Float64)
+    """Coherent term for the Gaussian AND Metropolis case IF jump op is [A Adag, H] = 0 (X, Y, Z)
+    written in timedomain and using ideal time evolution.
+    Working in the energy eigenbasis for the time evolutions, where H is diagonal.
+        sigma_E = sigma_gamma = w_gamma = 1 / beta"""
+    
+    diag_time_evolve(t) = Diagonal(exp.(1im * hamiltonian.eigvals * t))
+
+    # Inner b2 sum
+    b2_integral = zeros(ComplexF64, size(hamiltonian.data))
+    for s in keys(b2)
+        time_evolution_inner = diag_time_evolve(beta * s)
+        b2_integral .+= b2[s] * (time_evolution_inner * jump.in_eigenbasis' 
+                            * (time_evolution_inner')^2 * jump.in_eigenbasis * time_evolution_inner)
+    end
+
+    # Outer b1 sum
+    B = zeros(ComplexF64, size(hamiltonian.data))
+    for t in keys(b1)
+        time_evolution_outer = diag_time_evolve(beta * t)
+        B .+= b1[t] * time_evolution_outer' * b2_integral * time_evolution_outer
+    end
+    return B * t0^2  # Correction in b2 already
+end
+
+
+function coherent_term_time_integrated_metro(jump::JumpOp, hamiltonian::HamHam, eta::Float64, beta::Float64; 
+    time_domain::Tuple{Float64, Float64} = (-Inf, Inf), atol=1e-12, rtol=1e-12)
+
+    diag_time_evolve(t) = Diagonal(exp.(1im * hamiltonian.eigvals * t))
+    f_plus_inegrand(s) = (compute_f_plus_metro(s, eta, beta) * 
+            diag_time_evolve(s) * jump.in_eigenbasis' * diag_time_evolve(-2 * s) * jump.in_eigenbasis * diag_time_evolve(s))
+
+    f_plus_integral, _ = quadgk(f_plus_inegrand, time_domain[1], time_domain[2]; atol=atol, rtol=rtol)
+
+    f_minus_integrand(t) = (compute_f_minus(t, beta) * diag_time_evolve(-t) 
+                            * (f_plus_integral + jump.in_eigenbasis' * jump.in_eigenbasis / (2pi * sqrt(2))) 
+                            * diag_time_evolve(t))
+    B, _ = quadgk(f_minus_integrand, time_domain[1], time_domain[2]; atol=atol, rtol=rtol)
+
+    return B
+end
+
+function coherent_term_time_metro_exact(jump::JumpOp, hamiltonian::HamHam, time_labels::Vector{Float64}, beta::Float64)
+
+    dim = size(hamiltonian.data)
+    t0 = time_labels[2] - time_labels[1]
+    time_labels_no_zero = time_labels[2:end]
+    diag_time_evolve(t) = Diagonal(exp.(1im * hamiltonian.eigvals * t))
+
+    f_minus = compute_truncated_f_minus(time_labels_no_zero, beta)
+    # Oh = construct_metro_oh(jump, hamiltonian, time_labels_no_zero, beta) #!
+    Oh = construct_metro_oh_integrated(jump, hamiltonian, beta)
+
+    B = zeros(ComplexF64, dim)
+    for t in keys(f_minus)
+        U_t = diag_time_evolve(t)
+        B .+= f_minus[t] * U_t' * Oh * U_t
+    end
+
+    return t0 * B
 end
 
 function coherent_term_timedomain_integrated_gauss(jump::JumpOp, hamiltonian::HamHam, beta::Float64, 

@@ -13,7 +13,41 @@ include("ofts.jl")
 include("qi_tools.jl")
 include("coherent.jl")
 
-function construct_liouvillian_gauss_trotter(jumps::Vector{JumpOp}, trotter::TrottTrott, time_labels::Vector{Float64},
+function construct_liouvillian_trotter_gauss2(jumps::Vector{JumpOp}, trotter::TrottTrott, time_labels::Vector{Float64},
+    energy_labels::Vector{Float64}, with_coherent::Bool, beta::Float64)
+
+    dim = size(trotter.eigvecs, 1)
+    w0 = energy_labels[2] - energy_labels[1]
+    transition_gauss(w) = exp(-beta^2 * (w + 1/beta)^2 /2)
+
+    if with_coherent  # Steup for coherent term in time domain
+        f_minus = compute_truncated_f_minus(time_labels, beta)
+        f_plus = compute_truncated_f_plus(time_labels, beta)
+    end
+
+    total_liouv_coherent_part = zeros(ComplexF64, dim^2, dim^2)
+    total_liouv_diss_part = zeros(ComplexF64, dim^2, dim^2)
+    p = Progress(Int(length(jumps) * length(energy_labels)), desc="Liouvillian (TROTTER GAUSS)...")
+    for jump in jumps
+        if with_coherent  # There is no energy formulation of the coherent term, only Bohr and time.
+            coherent_term = coherent_term_trotter2(jump, trotter, f_minus, f_plus)
+            # coherent_term = trotter.trafo_from_eigen_to_trotter' * coherent_term * trotter.trafo_from_eigen_to_trotter
+            total_liouv_coherent_part .+= vectorize_liouvillian_coherent(coherent_term)
+        end
+
+        for w in energy_labels
+            jump_oft = trotter_oft(jump, w, trotter, time_labels, beta) # t0 * sqrt((sqrt(2 / pi)/beta) / (2 * pi))
+            # jump_oft = trotter.trafo_from_eigen_to_trotter' * jump_oft * trotter.trafo_from_eigen_to_trotter
+            total_liouv_diss_part .+= transition_gauss(w) * vectorize_liouvillian_diss(jump_oft)
+            next!(p)
+        end
+    end
+    
+    prefactor = w0 * t0^2 * (sqrt(2 / pi)/beta) / (2 * pi)
+    return total_liouv_coherent_part .+ prefactor * total_liouv_diss_part  # L in Trotter basis
+end
+
+function construct_liouvillian_trotter_gauss(jumps::Vector{JumpOp}, trotter::TrottTrott, time_labels::Vector{Float64},
     energy_labels::Vector{Float64}, with_coherent::Bool, beta::Float64)
 
     dim = size(trotter.eigvecs, 1)

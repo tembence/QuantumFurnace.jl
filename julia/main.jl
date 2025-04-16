@@ -2,7 +2,6 @@ using LinearAlgebra
 using Random
 using Printf
 using JLD
-using Revise
 
 include("hamiltonian.jl")
 include("qi_tools.jl")
@@ -15,10 +14,10 @@ num_qubits = 4
 dim = 2^num_qubits
 beta = 10.
 a = 0.0  # a = beta / 50.
-b = 0.0  # b = 0.5
-eta = 0.02
+b = 0.2  # b = 0.5
+eta = 0.2
 with_coherent = true
-with_linear_combination = false
+with_linear_combination = true
 picture = TIME
 num_energy_bits = 13
 w0 = 0.01
@@ -39,7 +38,7 @@ config = LiouvConfig(
 )
 
 print_press(config)
-
+is_config_valid(config)
 #* Hamiltonian
 hamiltonian = find_ideal_heisenberg(num_qubits, fill(1.0, 3); batch_size=100)
 hamiltonian.bohr_freqs = hamiltonian.eigvals .- transpose(hamiltonian.eigvals)

@@ -20,6 +20,7 @@ function construct_liouvillian_time(jumps::Vector{JumpOp}, hamiltonian::HamHam, 
     dim = size(hamiltonian.data, 1)
     w0 = energy_labels[2] - energy_labels[1]
     t0 = time_labels[2] - time_labels[1]
+    oft_time_labels = truncate_time_labels_for_oft(time_labels, beta)
 
     transition = pick_transition(beta, a, b)
 
@@ -43,7 +44,7 @@ function construct_liouvillian_time(jumps::Vector{JumpOp}, hamiltonian::HamHam, 
         end
 
         for w in energy_labels
-            jump_oft = time_oft(w, jump, hamiltonian, time_labels, beta) # subnorm = t0 * sqrt((sqrt(2 / pi)/beta) / (2 * pi))
+            jump_oft = time_oft(jump, w, hamiltonian, oft_time_labels, beta) # subnorm = t0 * sqrt((sqrt(2 / pi)/beta) / (2 * pi))
             total_liouv_diss_part .+= transition(w) * vectorize_liouvillian_diss(jump_oft)
             next!(p)
         end
@@ -59,6 +60,8 @@ function construct_liouvillian_time_gauss(jumps::Vector{JumpOp}, hamiltonian::Ha
     dim = size(hamiltonian.data, 1)
     w0 = energy_labels[2] - energy_labels[1]
     t0 = time_labels[2] - time_labels[1]
+    oft_time_labels = truncate_time_labels_for_oft(time_labels, beta)
+
     transition_gauss(w) = exp(-beta^2 * (w + 1/beta)^2 /2)
 
     if with_coherent  # Steup for coherent term in time domain
@@ -76,7 +79,7 @@ function construct_liouvillian_time_gauss(jumps::Vector{JumpOp}, hamiltonian::Ha
         end
 
         for w in energy_labels
-            jump_oft = time_oft(w, jump, hamiltonian, time_labels, beta) # t0 * sqrt((sqrt(2 / pi)/beta) / (2 * pi))
+            jump_oft = time_oft(jump, w, hamiltonian, oft_time_labels, beta) # t0 * sqrt((sqrt(2 / pi)/beta) / (2 * pi))
             total_liouv_diss_part .+= transition_gauss(w) * vectorize_liouvillian_diss(jump_oft)
             next!(p)
         end
@@ -131,6 +134,12 @@ function thermalize_gauss_time(jumps::Vector{JumpOp}, hamiltonian::HamHam, initi
         push!(distances_to_gibbs, dist)
     end
     return HotAlgorithmResults(evolved_dm, distances_to_gibbs, time_steps)
+end
+
+#* TOOLS
+function truncate_time_labels_for_oft(time_labels::Vector{Float64}, beta::Float64; cutoff::Float64 = 1e-12)
+    filter_gauss_t(t, beta) = exp(-t^2 / beta^2) * sqrt((sqrt(2 / pi)/beta) / (2 * pi))
+    return time_labels[abs.(filter_gauss_t.(time_labels, beta)) .>= cutoff]
 end
 
 #! Gauss with b's somehow gave slightly closer results to the Bohr picture.
