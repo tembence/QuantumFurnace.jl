@@ -47,6 +47,11 @@ initial_dm = Matrix{ComplexF64}(I(dim) / dim)
 @assert norm(real(tr(initial_dm)) - 1.) < 1e-15 "Trace is not 1.0"
 @assert norm(initial_dm - initial_dm') < 1e-15 "Not Hermitian"
 
+#* Trotter
+trotter = create_trotter(hamiltonian, t0, num_trotter_steps_per_t0)
+trotter_error_T = compute_trotter_error(hamiltonian, trotter, 2^num_energy_bits * t0)
+gibbs_in_trotter = trotter.eigvecs' * gibbs_state(hamiltonian, beta) * trotter.eigvecs
+
 #* Jumps
 X::Matrix{ComplexF64} = [0 1; 1 0]
 Y::Matrix{ComplexF64} = [0.0 -im; im 0.0]
@@ -60,7 +65,7 @@ for pauli in jump_paulis
     for site in 1:num_qubits
     jump_op = Matrix(pad_term(pauli, num_qubits, site))
     jump_op_in_eigenbasis = hamiltonian.eigvecs' * jump_op * hamiltonian.eigvecs
-    jump_in_trotter_basis = zeros(0, 0)
+    jump_in_trotter_basis = trotter.eigvecs' * jump_op * trotter.eigvecs
     orthogonal = (jump_op == transpose(jump_op))
     jump = JumpOp(jump_op,
             jump_op_in_eigenbasis,

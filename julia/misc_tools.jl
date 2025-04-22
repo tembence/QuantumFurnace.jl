@@ -46,7 +46,6 @@ function print_press(config::LiouvConfig)
     println("-----------------")
 end
 
-#TODO: Rewrite this whole thing such that, only the actual problems are showing up as errors
 function is_config_valid(config::Union{LiouvConfig})::Bool
     errors = String[]
 
@@ -99,7 +98,7 @@ function is_config_valid(config::Union{LiouvConfig})::Bool
         push!(errors, "Unknown picture type.")
     end
 
-    if (config.b != 0. && config.a == 0.)
+    if (config.b != 0. && config.a == 0. && config.with_linear_combination)
         push!(errors, "For linear combinations when b > 0, then we need, a > 0.")
     end
 
