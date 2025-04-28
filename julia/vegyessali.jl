@@ -16,7 +16,7 @@ include("structs.jl")
 include("oven.jl")
 include("ofts.jl")
 include("trotter_picture.jl")
-include("trotter_tools.jl")
+include("timelike_tools.jl")
 
 function showall(io, x, limit = false) 
     println(io, summary(x), ":")
@@ -24,7 +24,7 @@ function showall(io, x, limit = false)
 end
 
 #* Config
-num_qubits = 10
+num_qubits = 5
 dim = 2^num_qubits
 beta = 10.
 a = 0.0  # a = beta / 50.
@@ -33,10 +33,9 @@ eta = 0.2
 with_coherent = true
 with_linear_combination = false
 picture = TIME
-num_energy_bits = 13
+num_energy_bits = 12
 w0 = 0.01
 t0 = 2pi / (2^num_energy_bits * w0)
-num_trotter_steps_per_t0 = 1
 
 config = LiouvConfig(
     num_qubits = num_qubits, 
@@ -62,22 +61,11 @@ initial_dm = Matrix{ComplexF64}(I(dim) / dim)
 @assert norm(real(tr(initial_dm)) - 1.) < 1e-15 "Trace is not 1.0"
 @assert norm(initial_dm - initial_dm') < 1e-15 "Not Hermitian"
 
-
-
-trottU = @time trotterize2(hamiltonian, t0, num_trotter_steps_per_t0)
-trottU2 = @time (trotterize2(hamiltonian, t0 / num_trotter_steps_per_t0, 1))^num_trotter_steps_per_t0
-
-
 #* Trotter 
-#FIXME: Remember the bases!
+num_trotter_steps_per_t0 = 1
 trotter = create_trotter(hamiltonian, t0, num_trotter_steps_per_t0)
 trotter_error_T = compute_trotter_error(hamiltonian, trotter, 2^num_energy_bits * t0)
 gibbs_in_trotter = trotter.eigvecs' * gibbs_state(hamiltonian, beta) * trotter.eigvecs
-
-norm(trottU2 - trottU)
-trottU = hamiltonian.eigvecs' * trottU * hamiltonian.eigvecs
-U = Diagonal(exp.(1im * hamiltonian.eigvals * t0))
-norm(trottU - U)
 
 #* Jumps
 X::Matrix{ComplexF64} = [0 1; 1 0]
@@ -104,19 +92,3 @@ for pauli in jump_paulis
     end
 end
 
-jump = jumps[2]
-w = 0.12
-energy_labels = create_energy_labels(num_energy_bits, w0)
-truncated_energy_labels = truncate_energy_labels(energy_labels, beta, a, b, with_linear_combination)
-time_labels = energy_labels .* (t0 / w0)
-time_labels = [0.0]
-
-oft_w = oft(jump, w, hamiltonian, beta) * sqrt(beta / sqrt(2 * pi))
-oft_t = time_oft(jump, w, hamiltonian, time_labels, beta) * t0 * sqrt((sqrt(2 / pi)/beta) / (2 * pi))
-oft_trott = trotter_oft(jump, w, trotter, time_labels, beta) * t0 * sqrt((sqrt(2 / pi)/beta) / (2 * pi))
-oft_trott_ineigen  = hamiltonian.eigvecs' * trotter.eigvecs * oft_trott * trotter.eigvecs' * hamiltonian.eigvecs
-
-norm(oft_t - jump.in_eigenbasis * I(2^num_qubits) * t0 * sqrt((sqrt(2 / pi)/beta) / (2 * pi)))
-norm(oft_trott_ineigen - jump.in_eigenbasis * I(2^num_qubits) * t0 * sqrt((sqrt(2 / pi)/beta) / (2 * pi)))  #FIXME:
-norm(oft_w - oft_t)
-norm(oft_t - oft_trott_ineigen)

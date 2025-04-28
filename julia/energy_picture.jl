@@ -89,6 +89,8 @@ function construct_liouvillian_energy_gauss(jumps::Vector{JumpOp}, hamiltonian::
         end
     end
     oft_norm_squared = beta / sqrt(2 * pi)
+    println("HAH")
+    println(norm(total_liouv_coherent_part))
     return total_liouv_coherent_part .+ w0 * oft_norm_squared * total_liouv_diss_part
 end
 

@@ -7,7 +7,7 @@ include("qi_tools.jl")
 include("misc_tools.jl")
 include("structs.jl")
 include("oven.jl")
-include("trotter_tools.jl")
+include("timelike_tools.jl")
 include("coherent.jl")
 include("ofts.jl")
 include("energy_picture.jl")
@@ -68,52 +68,54 @@ for pauli in jump_paulis
     end
 end
 
-jump = jumps[2]
-w = -0.5
-truncated_time_labels_for_oft = truncate_time_labels_for_oft(time_labels, beta)
-mid_point = findlast(t -> t >= 0, truncated_time_labels_for_oft) # Up to positive times
-range_of_t0_steps = [0:1:Int(truncated_time_labels_for_oft[mid_point] / t0)]
-truncated_time_labels_for_oft[mid_point] / t0
+#* Trotter OFT checks
+# jump = jumps[2]
+# w = 0.12
+# energy_labels = create_energy_labels(num_energy_bits, w0)
+# truncated_energy_labels = truncate_energy_labels(energy_labels, beta, a, b, with_linear_combination)
+# time_labels = energy_labels .* (t0 / w0)
 
-oft_w = oft(jump, w, hamiltonian, beta) * sqrt(beta / sqrt(2 * pi))
-oft_t = @time time_oft(jump, w, hamiltonian, truncated_time_labels_for_oft, beta) * t0 * sqrt((sqrt(2 / pi)/beta) / (2 * pi))
-oft_trott = trotter_oft(jump, w, trotter, truncated_time_labels_for_oft, beta) * t0 * sqrt((sqrt(2 / pi)/beta) / (2 * pi))
+# time_labels_for_oft = truncate_time_labels_for_oft(time_labels, beta)
+# oft_trott = @time trotter_oft(jump, w, trotter, time_labels_for_oft, beta) * t0 * sqrt((sqrt(2 / pi)/beta) / (2 * pi))
+# oft_trott_ineigen  = hamiltonian.eigvecs' * trotter.eigvecs * oft_trott * trotter.eigvecs' * hamiltonian.eigvecs
+# oft_w = oft(jump, w, hamiltonian, beta) * sqrt(beta / sqrt(2 * pi))
+# oft_t = @time time_oft(jump, w, hamiltonian, time_labels, beta) * t0 * sqrt((sqrt(2 / pi)/beta) / (2 * pi))
 
-norm(oft_t - oft_w)
-norm(oft_t - oft_trott)  #FIXME:
+# norm(oft_trott_ineigen - oft_t)
+# norm(oft_t - oft_w)
 
-# liouv_bohr = nothing
-# liouv_time = nothing
-# liouv_trotter = nothing
-# pictures = [BOHR, TIME]
-# for picture in pictures
-#     config = LiouvConfig(
-#         num_qubits = num_qubits, 
-#         with_coherent = with_coherent,
-#         with_linear_combination = with_linear_combination, 
-#         picture = picture,
-#         beta = beta,
-#         a = a,
-#         b = b,
-#         num_energy_bits = num_energy_bits,
-#         w0 = w0,
-#         t0 = t0,
-#         eta = eta,
-#         num_trotter_steps_per_t0 = num_trotter_steps_per_t0
-#     )
+liouv_bohr = nothing
+liouv_time = nothing
+liouv_trotter = nothing
+pictures = [BOHR, TIME]
+for picture in pictures
+    config = LiouvConfig(
+        num_qubits = num_qubits, 
+        with_coherent = with_coherent,
+        with_linear_combination = with_linear_combination, 
+        picture = picture,
+        beta = beta,
+        a = a,
+        b = b,
+        num_energy_bits = num_energy_bits,
+        w0 = w0,
+        t0 = t0,
+        eta = eta,
+        num_trotter_steps_per_t0 = num_trotter_steps_per_t0
+    )
 
-#     print_press(config)
+    print_press(config)
 
-#     if picture == BOHR
-#         liouv_bohr = construct_liouvillian(jumps, config; hamiltonian=hamiltonian)
-#     elseif picture == TIME
-#         liouv_time = construct_liouvillian(jumps, config; hamiltonian=hamiltonian)
-#     elseif picture == TROTTER
-#         liouv_trotter = construct_liouvillian(jumps, config; trotter=trotter)
-#     end
-# end
+    if picture == BOHR
+        liouv_bohr = construct_liouvillian(jumps, config; hamiltonian=hamiltonian)
+    elseif picture == TIME
+        liouv_time = construct_liouvillian(jumps, config; hamiltonian=hamiltonian)
+    elseif picture == TROTTER
+        liouv_trotter = construct_liouvillian(jumps, config; trotter=trotter)
+    end
+end
 
-# @printf("Distance time-bohr: %s\n", norm(liouv_bohr - liouv_time))
-# @printf("Distance time-trotter: %s\n", norm(liouv_trotter - liouv_time))
-# @printf("Distance trotter-bohr: %s\n", norm(liouv_trotter - liouv_bohr))
+@printf("Distance time-bohr: %s\n", norm(liouv_bohr - liouv_time))
+@printf("Distance time-trotter: %s\n", norm(liouv_trotter - liouv_time))
+@printf("Distance trotter-bohr: %s\n", norm(liouv_trotter - liouv_bohr))
 

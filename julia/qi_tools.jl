@@ -7,8 +7,9 @@ using JLD
 
 include("hamiltonian.jl")
 
-function vectorize_liouvillian_diss(jump_1::Union{SparseMatrixCSC{ComplexF64}, Matrix{ComplexF64}},
-    jump_2::Union{SparseMatrixCSC{ComplexF64}, Matrix{ComplexF64}})
+# function vectorize_liouvillian_diss(jump_1::Union{SparseMatrixCSC{ComplexF64}, Matrix{ComplexF64}},
+#     jump_2::Union{SparseMatrixCSC{ComplexF64}, Matrix{ComplexF64}})
+function vectorize_liouvillian_diss(jump_1::AbstractMatrix{ComplexF64}, jump_2::AbstractMatrix{ComplexF64})
 
     """L = J1 * X * J2 - 0.5 * (J2 * J1 * X + X * J2 * J1)"""
     dim = size(jump_1)[1]

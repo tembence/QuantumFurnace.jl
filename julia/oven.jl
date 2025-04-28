@@ -25,6 +25,8 @@ function construct_liouvillian(jumps::Vector{JumpOp}, config::LiouvConfig;
         error("Invalid parameter combination")
     end
 
+    print_press(config)
+
     if config.picture==BOHR
         if config.with_linear_combination
             return construct_liouvillian_bohr(jumps, hamiltonian, config.with_coherent, config.beta, config.a, config.b)
@@ -59,16 +61,17 @@ function construct_liouvillian(jumps::Vector{JumpOp}, config::LiouvConfig;
                 config.with_coherent, config.beta)
         end
     end
-    if config.picture == TROTTER  #TODO:
+    if config.picture == TROTTER
         energy_labels = create_energy_labels(config.num_energy_bits, config.w0)
         truncated_energy_labels = truncate_energy_labels(energy_labels, config.beta,
         config.a, config.b, config.with_linear_combination)
         time_labels = energy_labels .* (config.t0 / config.w0)
 
         if config.with_linear_combination
-            return nothing
+            return construct_liouvillian_trotter(jumps, trotter, time_labels, truncated_energy_labels,
+            config.with_coherent, config.beta, config.a, config.b)
         else
-            return construct_liouvillian_trotter_gauss2(jumps, trotter, time_labels, truncated_energy_labels,
+            return construct_liouvillian_trotter_gauss(jumps, trotter, time_labels, truncated_energy_labels,
                 config.with_coherent, config.beta)
         end
     end

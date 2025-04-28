@@ -8,14 +8,12 @@ using Distributed
 include("hamiltonian.jl")
 include("qi_tools.jl")
 
-#! Maybe 1 Trotter step / t0 is still too good, because it deviates from OFT's by 1e-3 - 1e-4
 function create_trotter(hamiltonian::HamHam, t0::Float64, num_trotter_steps_per_t0::Int64)
 
-    trott2_1step_of_t0 = trotterize2(hamiltonian, t0/num_trotter_steps_per_t0, 1)
-    trott_eigvals, trott_eigvecs = eigen(trott2_1step_of_t0)
-    trott2_t0_eigvals = trott_eigvals.^num_trotter_steps_per_t0
-    unitary_from_eigen_to_trotter = trott_eigvecs' * hamiltonian.eigvecs
-    return TrottTrott(t0, num_trotter_steps_per_t0, trott2_t0_eigvals, trott_eigvecs, unitary_from_eigen_to_trotter)
+    trottU_t0 = trotterize2(hamiltonian, t0, num_trotter_steps_per_t0)
+    trottU_t0_eigvals, trottU_eigvecs = eigen(trottU_t0)
+    unitary_from_eigen_to_trotter = trottU_eigvecs' * hamiltonian.eigvecs
+    return TrottTrott(t0, num_trotter_steps_per_t0, trottU_t0_eigvals, trottU_eigvecs, unitary_from_eigen_to_trotter)
 end
 
 function trotttrotterize2(trotter::TrottTrott, T::Float64)
@@ -38,7 +36,7 @@ function expm_pauli_padded(paulistring::Vector{String}, coeff::Float64, num_qubi
 
     pauli_term = pauli_string_to_matrix(paulistring)
     padded_term = pad_term(pauli_term, num_qubits, position)
-    expm = cos(coeff) * I(2^num_qubits) + im * sin(coeff) * padded_term
+    expm = cos(coeff) * I(2^num_qubits) + 1im * sin(coeff) * padded_term
     return expm
 end
 
@@ -103,7 +101,7 @@ function trotterize(hamiltonian::HamHam, T::Float64, num_trotter_steps::Int64)
 end
 
 function trotterize2(hamiltonian::HamHam, T::Float64, num_trotter_steps::Int64)
-    """2nd order Trotter"""
+    """2nd order Trotter in computational basis"""
     timestep::Float64 = T / num_trotter_steps
     num_qubits::Int64 = Int(log2(size(hamiltonian.data)[1]))
 
@@ -145,6 +143,11 @@ function trotterize2(hamiltonian::HamHam, T::Float64, num_trotter_steps::Int64)
         end
     end
     return U
+end
+
+function truncate_time_labels_for_oft(time_labels::Vector{Float64}, beta::Float64; cutoff::Float64 = 1e-12)
+    filter_gauss_t(t, beta) = exp(-t^2 / beta^2) * sqrt((sqrt(2 / pi)/beta) / (2 * pi))
+    return time_labels[abs.(filter_gauss_t.(time_labels, beta)) .>= cutoff]
 end
 
 function trotter_diag(hamiltonian::HamHam, T::Float64, num_trotter_steps::Int64)

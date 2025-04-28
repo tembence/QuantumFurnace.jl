@@ -15,9 +15,9 @@ include("qi_tools.jl")
 #* COHERENT TERMS -----------------------------------------------------------------------------------------------------------
 # (3.1) and Proposition III.1
 # Has to be on a symmetric time domain, otherwise it can't be Hermitian.
-function coherent_term_time(jump::JumpOp, hamiltonian::HamHam, 
-    f_minus::Dict{Float64, ComplexF64}, f_plus::Dict{Float64, ComplexF64}, t0::Float64)
-
+function coherent_term_time(jump::JumpOp, hamiltonian::HamHam, f_minus::Dict{Float64, ComplexF64}, 
+    f_plus::Dict{Float64, ComplexF64}, t0::Float64)
+    
     dim = size(hamiltonian.data)
     diag_time_evolve(t) = Diagonal(exp.(1im * hamiltonian.eigvals * t))
 
@@ -36,6 +36,7 @@ function coherent_term_time(jump::JumpOp, hamiltonian::HamHam,
         U_t = diag_time_evolve(t)
         B .+= f_minus[t] * U_t' * f_plus_summand * U_t
     end
+
     # If A is non-Hermitian
     # for t in keys(f_minus)
     #     U_t = diag_time_evolve(t)
@@ -44,85 +45,34 @@ function coherent_term_time(jump::JumpOp, hamiltonian::HamHam,
     return B * t0^2
 end
 
-function coherent_term_trotter2(jump::JumpOp, trotter::TrottTrott, 
+function coherent_term_trotter(jump::JumpOp, trotter::TrottTrott, 
     f_minus::Dict{Float64, ComplexF64}, f_plus::Dict{Float64, ComplexF64})
 
     dim = size(trotter.eigvecs)
-    eigvals_t0_diag = Diagonal(trotter.eigvals_t0)
+    trotter_time_evolution(n::Int64) = Diagonal(trotter.eigvals_t0 .^ n)  # n - number of t0 time chunks
 
     # Inner summand f_plus
     f_plus_summand = zeros(ComplexF64, dim)
     for s in keys(f_plus)
-        num_t0_steps = ceil((abs(s) / trotter.t0))
-        trott_U_s = eigvals_t0_diag^num_t0_steps
-        trott_U_2s = trott_U_s^2
+        num_t0_steps = Int(round(s / trotter.t0))
 
-        f_plus_summand .+= f_plus[s] * trott_U_s * jump.in_trotter_basis' * trott_U_2s' * jump.in_trotter_basis * trott_U_s
+        trott_U_s = trotter_time_evolution(num_t0_steps)
+        trott_U_2s = trotter_time_evolution(2 * num_t0_steps)
+
+        f_plus_summand .+= (f_plus[s] *
+            trott_U_s * jump.in_trotter_basis' * trott_U_2s' * jump.in_trotter_basis * trott_U_s)
     end
-
-    # Outer summand f_minus
-    # A is Hermitian (if A is non-Hermitian, see coherent_term_time)
     B = zeros(ComplexF64, dim)
     for t in keys(f_minus)
-        num_t0_steps = ceil((abs(t) / trotter.t0))
-        trott_U_t = eigvals_t0_diag^num_t0_steps
+        num_t0_steps = Int(round(t / trotter.t0))
+        trott_U_t = trotter_time_evolution(num_t0_steps)
+
         B .+= f_minus[t] * trott_U_t' * f_plus_summand * trott_U_t
     end
 
+    # Outer summand f_minus
+    # A is Hermitian (if A is non-Hermitian, see coherent_term_times
     return B * t0^2  # B in Trotter basis
-end
-
-function coherent_term_trotter(jump::JumpOp, trotter::TrottTrott, 
-    b1::Dict{Float64, ComplexF64}, b2::Dict{Float64, ComplexF64}, beta::Float64)
-
-    # diag_time_evolve(t) = Diagonal(trotter.eigvals_t0.^Int(ceil(t / trotter.t0))) # Trotter steps
-
-    jump_op_in_trotter_basis_dag = jump.in_trotter_basis'
-    eigvals_t0_diag = Diagonal(trotter.eigvals_t0)
-
-    # Inner b2 integral
-    b2_integral = zeros(ComplexF64, size(trotter.eigvecs))
-    for s in keys(b2)
-        num_t0_steps = ceil((abs(s) * beta / trotter.t0))
-        trott_U_plus = eigvals_t0_diag^num_t0_steps
-        trott_U_minus = conj(trott_U_plus)
-
-        # less allocs this way:
-        temp_op = (s >= 0.0) ? (b2[s] * trott_U_plus * 
-        (jump_op_in_trotter_basis_dag * trott_U_minus^2 * jump.in_trotter_basis) *
-        trott_U_plus) : (b2[s] * trott_U_minus * 
-        (jump_op_in_trotter_basis_dag * trott_U_plus^2 * jump.in_trotter_basis) *
-        trott_U_minus)
-        b2_integral .+= temp_op
-    end
-    # Inner b2 integral
-    # b2_integral = zeros(ComplexF64, size(hamiltonian.data))
-    # for s in keys(b2)
-    #     time_evolution_inner = eigvals_t0_diag^ceil((abs(s) / trotter.t0))
-    #     b2_integral .+= (b2[s] * time_evolution_inner * 
-    #     (jump_op_in_trotter_basis_dag * (time_evolution_inner')^2 * jump.in_trotter_basis) *
-    #     time_evolution_inner)
-    # end
-
-    # Outer b1 integral
-    B = zeros(ComplexF64, size(trotter.eigvecs))
-    for t in keys(b1)
-        num_t0_steps = ceil((abs(t) * beta / trotter.t0))
-        trott_U_plus = eigvals_t0_diag^num_t0_steps
-        trott_U_minus = conj(trott_U_plus)
-
-        # less allocs this way:
-        temp_op = (t >= 0.0) ? (b1[t] * trott_U_minus * b2_integral * trott_U_plus) : 
-        (b1[t] * trott_U_plus * b2_integral * trott_U_minus)
-        B .+= temp_op
-    end
-
-    # for t in keys(b1)
-    #     time_evolution_outer = diag_time_evolve(beta * t)
-    #     B .+= b1[t] * time_evolution_outer' * b2_integral * time_evolution_outer
-    # end
-
-    return B * trotter.t0^2 * 2
 end
 
 function coherent_term_time_b(jump::JumpOp, hamiltonian::HamHam, 
@@ -240,12 +190,14 @@ end
 #* B1 AND B2 ----------------------------------------------------------------------------------------------------------------
 # Corollary III.1, every parameter = 1 / beta
 function compute_f_minus(t::Float64, beta::Float64)
+    """For all cases the same"""
     f1(t) = 1 / cosh(2 * pi * t / beta)
     f2(t) = sin(-t / beta) * exp(-2 * t^2 / beta^2)
     return (1 / (pi * beta^2)) * exp(1/8) * convolute(f1, f2, t)
 end
 
 function compute_f_plus(t::Float64, beta::Float64)
+    """Gaussian case"""
     return 2 * exp(-4 * t^2 / beta^2 - 2im * t / beta) / beta
 end
 

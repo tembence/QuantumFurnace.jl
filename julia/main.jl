@@ -10,35 +10,40 @@ include("structs.jl")
 include("oven.jl")
 
 #* Config
-num_qubits = 4
+num_qubits = 5
 dim = 2^num_qubits
 beta = 10.
-a = 0.0  # a = beta / 50.
-b = 0.2  # b = 0.5
-eta = 0.2
+a = beta / 50 # a = beta / 50.
+b = 0.5  # b = 0.5
+eta = 0.0
 with_coherent = true
 with_linear_combination = true
-picture = TIME
+pictures = [BOHR, ENERGY, TIME, TROTTER]
 num_energy_bits = 13
 w0 = 0.01
 t0 = 2pi / (2^num_energy_bits * w0)
+num_trotter_steps_per_t0 = 10
 
-config = LiouvConfig(
-    num_qubits = num_qubits, 
-    with_coherent = with_coherent,
-    with_linear_combination = with_linear_combination, 
-    picture = picture,
-    beta = beta,
-    a = a,
-    b = b,
-    num_energy_bits = num_energy_bits,
-    w0 = w0,
-    t0 = t0,
-    eta = eta
-)
+configs::Vector{LiouvConfig} = []
+for picture in pictures
+    config = LiouvConfig(
+        num_qubits = num_qubits, 
+        with_coherent = with_coherent,
+        with_linear_combination = with_linear_combination, 
+        picture = picture,
+        beta = beta,
+        a = a,
+        b = b,
+        num_energy_bits = num_energy_bits,
+        w0 = w0,
+        t0 = t0,
+        eta = eta,
+        num_trotter_steps_per_t0 = num_trotter_steps_per_t0
+    )
+    is_config_valid(config)
+    push!(configs, config)
+end
 
-print_press(config)
-is_config_valid(config)
 #* Hamiltonian
 hamiltonian = find_ideal_heisenberg(num_qubits, fill(1.0, 3); batch_size=100)
 hamiltonian.bohr_freqs = hamiltonian.eigvals .- transpose(hamiltonian.eigvals)
@@ -78,10 +83,17 @@ for pauli in jump_paulis
 end
 
 #* Liouvillian
-liouv = construct_liouvillian(jumps, config; hamiltonian=hamiltonian)
+liouv_bohr = construct_liouvillian(jumps, configs[1]; hamiltonian=hamiltonian)
+# liouv_energy = construct_liouvillian(jumps, configs[2]; hamiltonian=hamiltonian)
+liouv_time = construct_liouvillian(jumps, configs[3]; hamiltonian=hamiltonian)
+liouv_trotter = construct_liouvillian(jumps, configs[4]; trotter=trotter)
+
+norm(liouv_bohr - liouv_time)
+norm(liouv_trotter - liouv_time)
+# norm(liouv_time - liouv_energy)
 
 #* Spectral analysis
-liouv_eigvals, liouv_eigvecs = eigen(liouv) 
+liouv_eigvals, liouv_eigvecs = eigen(liouv_trotter) 
 steady_state_vec = liouv_eigvecs[:, end]
 steady_state_dm = reshape(steady_state_vec, size(hamiltonian.data))
 steady_state_dm /= tr(steady_state_dm)
@@ -89,7 +101,7 @@ steady_state_dm /= tr(steady_state_dm)
 lambda2 = liouv_eigvals[end] - liouv_eigvals[end-1]
 @printf("Lambda2: %s\n", lambda2)
 
-@printf("Steady state closeness to Gibbs for Liouvillian (Energy): %s\n", norm(steady_state_dm - gibbs))
+@printf("Steady state closeness to Gibbs for Liouvillian: %s\n", norm(steady_state_dm - gibbs))
 
 
 

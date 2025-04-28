@@ -23,7 +23,8 @@ function construct_liouvillian_bohr(jumps::Vector{JumpOp}, hamiltonian::HamHam, 
     unique_freqs = keys(bohr_dict)
 
     liouv = zeros(ComplexF64, dim^2, dim^2)
-    @showprogress desc="Liouvillian (Bohr)..." for jump in jumps
+    p = Progress(Int(length(jumps) * length(unique_freqs)), desc="Liouvillian (BOHR)...")
+    for jump in jumps
         # Coherent part
         if with_coherent
             coherent_term = coherent_bohr(hamiltonian, bohr_dict, jump, beta, a, b)
@@ -31,16 +32,14 @@ function construct_liouvillian_bohr(jumps::Vector{JumpOp}, hamiltonian::HamHam, 
         end
 
         # Dissipative part
-        for nu_2 in unique_freqs
+        for nu_2 in unique_freqs  #TODO: Reduce this for loop, by knowing that unique freqs is symmetric in + -
             alpha_nu1_matrix = create_alpha.(hamiltonian.bohr_freqs, nu_2, beta, a, b)
 
             A_nu_2::SparseMatrixCSC{ComplexF64} = spzeros(dim, dim)
-            A_nu_2_dagger::SparseMatrixCSC{ComplexF64} = spzeros(dim, dim)
-
             A_nu_2[bohr_dict[nu_2]] .= jump.in_eigenbasis[bohr_dict[nu_2]]
-            A_nu_2_dagger .= A_nu_2'
 
-            liouv .+= vectorize_liouvillian_diss(alpha_nu1_matrix .* jump.in_eigenbasis, A_nu_2_dagger)
+            liouv .+= vectorize_liouvillian_diss(alpha_nu1_matrix .* jump.in_eigenbasis, A_nu_2')
+            next!(p)
         end
     end
     return liouv
@@ -70,7 +69,6 @@ function create_f(nu_1::Float64, nu_2::Float64, beta::Float64, a::Float64, b::Fl
 end
 
 function create_alpha(nu_1::Float64, nu_2::Float64, beta::Float64, a::Float64, b::Float64)
-    """For the parallel way use create_alpha_eh.(bohr_freqs, nu_2, beta, a)"""
     
     eh = sqrt(4 * a / beta + 1)
     nu = nu_1 + nu_2
@@ -92,7 +90,8 @@ function construct_liouvillian_bohr_gauss(jumps::Vector{JumpOp}, hamiltonian::Ha
     unique_freqs = keys(bohr_dict)
 
     liouv = zeros(ComplexF64, dim^2, dim^2)
-    @showprogress desc="Liouvillian (Bohr Gauss)..." for jump in jumps
+    p = Progress(Int(length(jumps) * length(unique_freqs)), desc="Liouvillian (BOHR GAUSS)...")
+    for jump in jumps
         # Coherent part
         if with_coherent
             coherent_term = coherent_bohr_gauss(hamiltonian, bohr_dict, jump, beta)
@@ -104,12 +103,10 @@ function construct_liouvillian_bohr_gauss(jumps::Vector{JumpOp}, hamiltonian::Ha
             alpha_nu1_matrix = create_alpha_gauss.(hamiltonian.bohr_freqs, nu_2, beta)
 
             A_nu_2::SparseMatrixCSC{ComplexF64} = spzeros(dim, dim)
-            A_nu_2_dagger::SparseMatrixCSC{ComplexF64} = spzeros(dim, dim)
-
             A_nu_2[bohr_dict[nu_2]] .= jump.in_eigenbasis[bohr_dict[nu_2]]
-            A_nu_2_dagger .= A_nu_2'
 
-            liouv .+= vectorize_liouvillian_diss(alpha_nu1_matrix .* jump.in_eigenbasis, A_nu_2_dagger)
+            liouv .+= vectorize_liouvillian_diss(alpha_nu1_matrix .* jump.in_eigenbasis, A_nu_2')
+            next!(p)
         end
     end
     return liouv

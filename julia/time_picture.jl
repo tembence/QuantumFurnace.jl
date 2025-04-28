@@ -12,6 +12,7 @@ include("hamiltonian.jl")
 include("ofts.jl")
 include("qi_tools.jl")
 include("coherent.jl")
+include("timelike_tools.jl")
 
 #* Linear combinations -----------------------------------------------------------------------------------------------------------------------
 function construct_liouvillian_time(jumps::Vector{JumpOp}, hamiltonian::HamHam, time_labels::Vector{Float64},
@@ -137,10 +138,6 @@ function thermalize_gauss_time(jumps::Vector{JumpOp}, hamiltonian::HamHam, initi
 end
 
 #* TOOLS
-function truncate_time_labels_for_oft(time_labels::Vector{Float64}, beta::Float64; cutoff::Float64 = 1e-12)
-    filter_gauss_t(t, beta) = exp(-t^2 / beta^2) * sqrt((sqrt(2 / pi)/beta) / (2 * pi))
-    return time_labels[abs.(filter_gauss_t.(time_labels, beta)) .>= cutoff]
-end
 
 #! Gauss with b's somehow gave slightly closer results to the Bohr picture.
 # function construct_liouvillian_time_gauss(jumps::Vector{JumpOp}, hamiltonian::HamHam, time_labels::Vector{Float64},
