@@ -45,6 +45,75 @@ function construct_liouvillian_bohr(jumps::Vector{JumpOp}, hamiltonian::HamHam, 
     return liouv
 end
 
+function thermalize_bohr(jumps::Vector{JumpOp}, hamiltonian::HamHam, evolving_dm::Matrix{ComplexF64}, with_coherent::Bool, 
+    beta::Float64, a::Float64, b::Float64, mixing_time::Float64, delta::Float64, unravel::Bool)
+
+    dim = size(hamiltonian.data, 1)
+    num_liouv_steps = Int(ceil(mixing_time / delta))
+    gibbs = Hermitian(gibbs_state_in_eigen(hamiltonian, beta))
+
+    if unravel
+        @printf("Unraveling => actual_num_liouv_steps = num_jumps * num_liouv_steps = %i\n", length(jumps) * num_liouv_steps)
+        @printf("Mixing time thus also becomes longer: %f\n", mixing_time * length(jumps))
+        time_steps = [0.0:delta:(length(jumps) * num_liouv_steps * delta);]
+    else
+        time_steps = [0.0:delta:(num_liouv_steps * delta);]
+    end
+
+    # Bohr dictionary
+    bohr_dict::Dict{Float64, Vector{CartesianIndex{2}}} = create_bohr_dict(hamiltonian)
+    unique_freqs = keys(bohr_dict)
+
+    distances_to_gibbs = [trace_distance_h(Hermitian(evolving_dm), gibbs)]
+
+    # This implementation applies all jumps at once for one Liouvillian step.
+    p = Progress(Int(num_liouv_steps * length(jumps) * length(unique_freqs)), desc="Thermalize (BOHR)...")
+    for step in 1:num_liouv_steps
+        step_coherent = zeros(ComplexF64, dim, dim)
+        step_dissipative = zeros(ComplexF64, dim, dim)
+
+        for jump in jumps  # Apply the sum of jumps at once or unravel
+            jump_coherent = zeros(ComplexF64, dim, dim)
+            jump_dissipative = zeros(ComplexF64, dim, dim)
+            # Coherent part
+            if with_coherent
+                coherent_term = coherent_bohr(hamiltonian, bohr_dict, jump, beta, a , b)
+                jump_coherent .+= - 1im * (coherent_term * evolving_dm - evolving_dm * coherent_term)
+            end
+
+            # Dissipative part
+            for nu_2 in keys(bohr_dict)
+                A_nu_2::SparseMatrixCSC{ComplexF64} = spzeros(dim, dim)
+                indices_nu_2 = bohr_dict[nu_2]
+                A_nu_2[indices_nu_2] .= jump.in_eigenbasis[indices_nu_2]
+
+                alpha_A_nu1 = create_alpha.(hamiltonian.bohr_freqs, nu_2, beta, a, b) .* jump.in_eigenbasis
+
+                jump_dissipative .+= (alpha_A_nu1 * evolving_dm * A_nu_2' - 0.5 * (A_nu_2' * alpha_A_nu1 * evolving_dm 
+                                                + evolving_dm * A_nu_2' * alpha_A_nu1))
+                next!(p)
+            end
+
+            if !(unravel)  # Accumulate
+                step_coherent .+= jump_coherent
+                step_dissipative .+= jump_dissipative
+            else # Apply immediately
+                evolving_dm .+= delta * (jump_coherent + jump_dissipative)
+                dist = trace_distance_h(Hermitian(evolving_dm), gibbs)
+                push!(distances_to_gibbs, dist)
+            end
+        end
+
+        if !(unravel)
+            evolving_dm .+= delta * (step_coherent + step_dissipative)
+            dist = trace_distance_h(Hermitian(evolving_dm), gibbs)
+            push!(distances_to_gibbs, dist)
+        end
+
+    end
+    return HotAlgorithmResults(evolving_dm, distances_to_gibbs, time_steps)
+end
+
 function coherent_bohr(hamiltonian::HamHam, 
     bohr_dict::Dict{Float64, Vector{CartesianIndex{2}}}, jump::JumpOp, beta::Float64, a::Float64, b::Float64)
 
@@ -113,29 +182,40 @@ function construct_liouvillian_bohr_gauss(jumps::Vector{JumpOp}, hamiltonian::Ha
 end
 
 
-function thermalize_bohr_gauss(jumps::Vector{JumpOp}, hamiltonian::HamHam, initial_dm::Matrix{ComplexF64}, 
-    delta::Float64, mixing_time::Float64, beta::Float64)
-    
+function thermalize_bohr_gauss(jumps::Vector{JumpOp}, hamiltonian::HamHam, evolving_dm::Matrix{ComplexF64}, 
+    with_coherent::Bool, beta::Float64, mixing_time::Float64, delta::Float64, unravel::Bool)
+
     dim = size(hamiltonian.data, 1)
-    num_liouv_steps = Int(round(mixing_time / delta, digits=0))
+    num_liouv_steps = Int(ceil(mixing_time / delta))
     gibbs = Hermitian(gibbs_state_in_eigen(hamiltonian, beta))
+
+    if unravel
+        @printf("Unraveling => actual_num_liouv_steps = num_jumps * num_liouv_steps = %i\n", length(jumps) * num_liouv_steps)
+        @printf("Mixing time thus also becomes longer: %f\n", mixing_time * length(jumps))
+        time_steps = [0.0:delta:(length(jumps) * num_liouv_steps * delta);]
+    else
+        time_steps = [0.0:delta:(num_liouv_steps * delta);]
+    end
 
     # Bohr dictionary
     bohr_dict::Dict{Float64, Vector{CartesianIndex{2}}} = create_bohr_dict(hamiltonian)
+    unique_freqs = keys(bohr_dict)
 
-    distances_to_gibbs = [trace_distance_h(Hermitian(initial_dm), gibbs)]
-    time_steps = [0.0:delta:(mixing_time);]
-    evolved_dm = copy(initial_dm)
+    distances_to_gibbs = [trace_distance_h(Hermitian(evolving_dm), gibbs)]
+
     # This implementation applies all jumps at once for one Liouvillian step.
-    @showprogress dt=1 desc="Thermalize (Bohr Gaussian)..." for step in 1:num_liouv_steps
-        coherent_dm_part = zeros(ComplexF64, dim, dim)
-        dissipative_dm_part = zeros(ComplexF64, dim, dim)
+    p = Progress(Int(num_liouv_steps * length(jumps) * length(unique_freqs)), desc="Thermalize (BOHR GAUSS)...")
+    for step in 1:num_liouv_steps
+        step_coherent = zeros(ComplexF64, dim, dim)
+        step_dissipative = zeros(ComplexF64, dim, dim)
 
         for jump in jumps  # Apply the sum of jumps at once
+            jump_coherent = zeros(ComplexF64, dim, dim)
+            jump_dissipative = zeros(ComplexF64, dim, dim)
             # Coherent part
             if with_coherent
                 coherent_term = coherent_bohr_gauss(hamiltonian, bohr_dict, jump, beta)
-                coherent_dm_part .+= - 1im * (coherent_term * evolved_dm - evolved_dm * coherent_term)
+                jump_coherent .+= - 1im * (coherent_term * evolving_dm - evolving_dm * coherent_term)
             end
 
             # Dissipative part
@@ -143,19 +223,30 @@ function thermalize_bohr_gauss(jumps::Vector{JumpOp}, hamiltonian::HamHam, initi
                 A_nu_2::SparseMatrixCSC{ComplexF64} = spzeros(dim, dim)
                 A_nu_2[bohr_dict[nu_2]] .= jump.in_eigenbasis[bohr_dict[nu_2]]
 
-                alpha_nu1_matrix = create_alpha_gauss.(hamiltonian.bohr_freqs, nu_2, beta)
+                alpha_A_nu1 = create_alpha_gauss.(hamiltonian.bohr_freqs, nu_2, beta) .* jump.in_eigenbasis
 
-                dissipative_dm_part .+= ((alpha_nu1_matrix .* jump.in_eigenbasis) * evolved_dm * A_nu_2' 
-                                        - 0.5 * (A_nu_2' * (alpha_nu1_matrix .* jump.in_eigenbasis) * evolved_dm 
-                                                + evolved_dm * A_nu_2' * (alpha_nu1_matrix .* jump.in_eigenbasis)))
+                jump_dissipative .+= (alpha_A_nu1 * evolving_dm * A_nu_2' - 0.5 * (A_nu_2' * alpha_A_nu1 * evolving_dm 
+                                                + evolving_dm * A_nu_2' * alpha_A_nu1))
+                next!(p)
+            end
+
+            if !(unravel)  # Accumulate
+                step_coherent .+= jump_coherent
+                step_dissipative .+= jump_dissipative
+            else # Apply immediately
+                evolving_dm .+= delta * (jump_coherent + jump_dissipative)
+                dist = trace_distance_h(Hermitian(evolving_dm), gibbs)
+                push!(distances_to_gibbs, dist)
             end
         end
-
-        evolved_dm .+= delta * (coherent_dm_part + dissipative_dm_part)
-        dist = trace_distance_h(Hermitian(evolved_dm), gibbs)
-        push!(distances_to_gibbs, dist)
+        
+        if !(unravel)
+            evolving_dm .+= delta * (step_coherent + step_dissipative)
+            dist = trace_distance_h(Hermitian(evolving_dm), gibbs)
+            push!(distances_to_gibbs, dist)
+        end
     end
-    return HotAlgorithmResults(evolved_dm, distances_to_gibbs, time_steps)
+    return HotAlgorithmResults(evolving_dm, distances_to_gibbs, time_steps)
 end
 
 function coherent_bohr_gauss(hamiltonian::HamHam, 

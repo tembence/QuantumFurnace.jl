@@ -41,6 +41,73 @@ function construct_liouvillian_energy(jumps::Vector{JumpOp}, hamiltonian::HamHam
     return total_liouv_coherent_part .+ w0 * oft_norm_squared * total_liouv_diss_part
 end
 
+function thermalize_energy(jumps::Vector{JumpOp}, hamiltonian::HamHam, evolving_dm::Matrix{ComplexF64},
+    energy_labels::Vector{Float64}, with_coherent::Bool, beta::Float64, a::Float64, b::Float64, 
+    mixing_time::Float64, delta::Float64, unravel::Bool)
+
+    w0 = energy_labels[2] - energy_labels[1]
+    dim = size(hamiltonian.data, 1)
+    gibbs = Hermitian(gibbs_state_in_eigen(hamiltonian, beta))
+    oft_prefactor = beta / sqrt(2 * pi)  # discrete sum w0 + OFT normalization^2 + Fourier factor
+
+    transition = pick_transition(beta, a, b)
+
+    bohr_dict::Dict{Float64, Vector{CartesianIndex{2}}} = create_bohr_dict(hamiltonian)
+
+    num_liouv_steps = Int(ceil(mixing_time / delta))
+    if unravel
+        @printf("Unraveling => actual_num_liouv_steps = num_jumps * num_liouv_steps = %i\n", length(jumps) * num_liouv_steps)
+        @printf("Mixing time thus also becomes longer: %f\n", mixing_time * length(jumps))
+        time_steps = [0.0:delta:(length(jumps) * num_liouv_steps * delta);]
+    else
+        time_steps = [0.0:delta:(num_liouv_steps * delta);]
+    end
+
+    distances_to_gibbs = [trace_distance_h(Hermitian(evolving_dm), gibbs)]
+
+    p = Progress(Int(num_liouv_steps * length(jumps) * length(energy_labels)), desc="Thermalize (ENERGY)...")
+    for step in 1:num_liouv_steps
+        step_coherent = zeros(ComplexF64, dim, dim)
+        step_dissipative = zeros(ComplexF64, dim, dim)
+
+        for jump in jumps
+            jump_coherent = zeros(ComplexF64, dim, dim)
+            jump_dissipative = zeros(ComplexF64, dim, dim)
+
+            # Coherent part
+            if with_coherent
+                coherent_term = coherent_bohr(hamiltonian, bohr_dict, jump, beta, a, b)
+                jump_coherent .+= - 1im * (coherent_term * evolving_dm - evolving_dm * coherent_term)
+            end
+
+            # Dissipative part
+            for w in energy_labels
+                jump_oft = oft(jump, w, hamiltonian, beta)
+                jump_dag_jump = jump_oft' * jump_oft
+                jump_dissipative .+= transition(w) * (
+                    jump_oft * evolving_dm * jump_oft' - 0.5 * (jump_dag_jump * evolving_dm + evolving_dm * jump_dag_jump))
+                next!(p)
+            end
+
+            if !(unravel)  # Accumulate
+                step_coherent .+= jump_coherent
+                step_dissipative .+= jump_dissipative
+            else # Apply immediately
+                evolving_dm .+= delta * (jump_coherent + w0 * oft_prefactor * jump_dissipative)
+                dist = trace_distance_h(Hermitian(evolving_dm), gibbs)
+                push!(distances_to_gibbs, dist)
+            end
+        end
+        
+        if !(unravel)
+            evolving_dm .+= delta * (step_coherent + w0 * oft_prefactor * step_dissipative)
+            dist = trace_distance_h(Hermitian(evolving_dm), gibbs)
+            push!(distances_to_gibbs, dist)
+        end
+    end
+    return HotAlgorithmResults(evolving_dm, distances_to_gibbs, time_steps)
+end
+
 function pick_transition(beta::Float64, a::Float64, b::Float64)
 
     sqrtA = sqrt((4 * a / beta + 1) / 8)
@@ -89,52 +156,72 @@ function construct_liouvillian_energy_gauss(jumps::Vector{JumpOp}, hamiltonian::
         end
     end
     oft_norm_squared = beta / sqrt(2 * pi)
-    println("HAH")
-    println(norm(total_liouv_coherent_part))
     return total_liouv_coherent_part .+ w0 * oft_norm_squared * total_liouv_diss_part
 end
 
-function thermalize_gauss(jumps::Vector{JumpOp}, hamiltonian::HamHam, initial_dm::Matrix{ComplexF64},
-    energy_labels::Vector{Float64}, with_coherent::Bool, delta::Float64, mixing_time::Float64, beta::Float64)
+function thermalize_energy_gauss(jumps::Vector{JumpOp}, hamiltonian::HamHam, evolving_dm::Matrix{ComplexF64},
+    energy_labels::Vector{Float64}, with_coherent::Bool, beta::Float64, mixing_time::Float64, delta::Float64, unravel::Bool)
 
     w0 = energy_labels[2] - energy_labels[1]
     dim = size(hamiltonian.data, 1)
-    num_liouv_steps = Int(round(mixing_time / delta, digits=0))
     gibbs = Hermitian(gibbs_state_in_eigen(hamiltonian, beta))
+    oft_prefactor = beta / sqrt(2 * pi)  # discrete sum w0 + OFT normalization^2 + Fourier factor
     transition_gauss(w) = exp(-beta^2 * (w + 1/beta)^2 /2)
 
     bohr_dict::Dict{Float64, Vector{CartesianIndex{2}}} = create_bohr_dict(hamiltonian)
 
-    distances_to_gibbs = [trace_distance_h(Hermitian(initial_dm), gibbs)]
-    time_steps = [0.0:delta:(mixing_time);]
-    evolved_dm = copy(initial_dm)
-    # This implementation applies all jumps at once for one Liouvillian step.
-    @showprogress dt=1 desc="Thermalize (Gaussian)..." for step in 1:num_liouv_steps
-        coherent_dm_part = zeros(ComplexF64, dim, dim)
-        dissipative_dm_part = zeros(ComplexF64, dim, dim)
+    num_liouv_steps = Int(ceil(mixing_time / delta))
+    if unravel
+        @printf("Unraveling => actual_num_liouv_steps = num_jumps * num_liouv_steps = %i\n", length(jumps) * num_liouv_steps)
+        @printf("Mixing time thus also becomes longer: %f\n", mixing_time * length(jumps))
+        time_steps = [0.0:delta:(length(jumps) * num_liouv_steps * delta);]
+    else
+        time_steps = [0.0:delta:(num_liouv_steps * delta);]
+    end
+
+    distances_to_gibbs = [trace_distance_h(Hermitian(evolving_dm), gibbs)]
+
+    p = Progress(Int(num_liouv_steps * length(jumps) * length(energy_labels)), desc="Thermalize (ENERGY GAUSS)...")
+    for step in 1:num_liouv_steps
+        step_coherent = zeros(ComplexF64, dim, dim)
+        step_dissipative = zeros(ComplexF64, dim, dim)
 
         for jump in jumps
+            jump_coherent = zeros(ComplexF64, dim, dim)
+            jump_dissipative = zeros(ComplexF64, dim, dim)
+
             # Coherent part
             if with_coherent
                 coherent_term = coherent_bohr_gauss(hamiltonian, bohr_dict, jump, beta)
-                coherent_dm_part .+= - 1im * (coherent_term * evolved_dm - evolved_dm * coherent_term)
+                jump_coherent .+= - 1im * (coherent_term * evolving_dm - evolving_dm * coherent_term)
             end
 
             # Dissipative part
             for w in energy_labels
                 jump_oft = oft(jump, w, hamiltonian, beta)
                 jump_dag_jump = jump_oft' * jump_oft
-                dissipative_dm_part .+= transition_gauss(w) * (jump_oft * evolved_dm * jump_oft' 
-                                                                - 0.5 * (jump_dag_jump * evolved_dm 
-                                                                        + evolved_dm * jump_dag_jump))
+                jump_dissipative .+= transition_gauss(w) * (
+                    jump_oft * evolving_dm * jump_oft' - 0.5 * (jump_dag_jump * evolving_dm + evolving_dm * jump_dag_jump))
+                next!(p)
+            end
+
+            if !(unravel)  # Accumulate
+                step_coherent .+= jump_coherent
+                step_dissipative .+= jump_dissipative
+            else # Apply immediately
+                evolving_dm .+= delta * (jump_coherent + w0 * oft_prefactor * jump_dissipative)
+                dist = trace_distance_h(Hermitian(evolving_dm), gibbs)
+                push!(distances_to_gibbs, dist)
             end
         end
-        oft_prefactor = w0 * beta / sqrt(2 * pi)  # discrete sum w0 + OFT normalization^2 + Fourier factor
-        evolved_dm .+= delta * (coherent_dm_part + oft_prefactor * dissipative_dm_part)
-        dist = trace_distance_h(Hermitian(evolved_dm), gibbs)
-        push!(distances_to_gibbs, dist)
+
+        if !(unravel)
+            evolving_dm .+= delta * (step_coherent + w0 * oft_prefactor * step_dissipative)
+            dist = trace_distance_h(Hermitian(evolving_dm), gibbs)
+            push!(distances_to_gibbs, dist)
+        end
     end
-    return HotAlgorithmResults(evolved_dm, distances_to_gibbs, time_steps)
+    return HotAlgorithmResults(evolving_dm, distances_to_gibbs, time_steps)
 end
 
 function transition_gauss_vectorized(jumps::Vector{JumpOp}, hamiltonian::HamHam, energy_labels::Vector{Float64}, 

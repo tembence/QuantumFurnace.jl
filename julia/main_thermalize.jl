@@ -10,23 +10,30 @@ include("structs.jl")
 include("oven.jl")
 
 #* Config
-num_qubits = 5
+num_qubits = 3
 dim = 2^num_qubits
 beta = 10.
-a = beta / 50 # a = beta / 50.
+a = beta / 50. # a = beta / 50.
 b = 0.5  # b = 0.5
-eta = 0.0
+eta = 0.2
 with_coherent = true
-with_linear_combination = true
-pictures = [BOHR, ENERGY, TIME, TROTTER]
+with_linear_combination = false
+pictures = [TROTTER]
 num_energy_bits = 13
 w0 = 0.01
 t0 = 2pi / (2^num_energy_bits * w0)
 num_trotter_steps_per_t0 = 10
+# Thermalizing configs:
+mixing_time = 10.0
+delta = 0.1
+unravel = false
+if unravel
+    # mixing_time /= (4 * num_qubits)
+end
 
-configs::Vector{LiouvConfig} = []
+configs::Vector{ThermalizeConfig} = []
 for picture in pictures
-    config = LiouvConfig(
+    config = ThermalizeConfig(
         num_qubits = num_qubits, 
         with_coherent = with_coherent,
         with_linear_combination = with_linear_combination, 
@@ -38,7 +45,10 @@ for picture in pictures
         w0 = w0,
         t0 = t0,
         eta = eta,
-        num_trotter_steps_per_t0 = num_trotter_steps_per_t0
+        num_trotter_steps_per_t0 = num_trotter_steps_per_t0, 
+        mixing_time = mixing_time,
+        delta = delta,
+        unravel = unravel
     )
     is_config_valid(config)
     push!(configs, config)
@@ -82,27 +92,11 @@ for pauli in jump_paulis
     end
 end
 
-#* Liouvillian
-liouv_bohr = construct_liouvillian(jumps, configs[1]; hamiltonian=hamiltonian)
-# liouv_energy = construct_liouvillian(jumps, configs[2]; hamiltonian=hamiltonian)
-liouv_time = construct_liouvillian(jumps, configs[3]; hamiltonian=hamiltonian)
-liouv_trotter = construct_liouvillian(jumps, configs[4]; trotter=trotter)
-
-norm(liouv_bohr - liouv_time)
-norm(liouv_trotter - liouv_time)
-# norm(liouv_time - liouv_energy)
-
-#* Spectral analysis
-liouv_eigvals, liouv_eigvecs = eigen(liouv_trotter) 
-steady_state_vec = liouv_eigvecs[:, end]
-steady_state_dm = reshape(steady_state_vec, size(hamiltonian.data))
-steady_state_dm /= tr(steady_state_dm)
-
-lambda2 = liouv_eigvals[end] - liouv_eigvals[end-1]
-@printf("Lambda2: %s\n", lambda2)
-
-@printf("Steady state closeness to Gibbs for Liouvillian: %s\n", norm(steady_state_dm - gibbs))
-
+#* Thermalization
+# results = thermalize(jumps, configs[1], initial_dm; hamiltonian=hamiltonian)
+results = thermalize(jumps, configs[1], initial_dm; trotter=trotter)
+plot(results.time_steps, results.distances_to_gibbs)
+println(results.distances_to_gibbs[end])
 
 
 

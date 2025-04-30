@@ -19,34 +19,7 @@ function riemann_sum(fvals::Vector{ComplexF64}, d0::Float64)
     return d0 * sum(fvals)
 end
 
-function print_press(config::LiouvConfig)
-    params = [
-        ("picture", config.picture),
-        ("num_qubits", config.num_qubits),
-        ("num_energy_bits", config.num_energy_bits),
-        ("beta", config.beta),
-        ("a", config.a),
-        ("b", config.b),
-        ("eta", config.eta),
-        ("t0", config.t0),
-        ("w0", config.w0),
-        ("with_coherent", config.with_coherent),
-        ("with_linear_combination", config.with_linear_combination),
-        ("num_trotter_steps_per_t0", config.num_trotter_steps_per_t0)
-    ]
-    provided = filter(p -> p[2] != -1.0, params)
-    if isempty(provided)
-        return
-    end
-
-    println("--- The Press ---")
-    for (name, value) in provided
-        println("$name: $value")
-    end
-    println("-----------------")
-end
-
-function is_config_valid(config::Union{LiouvConfig})::Bool
+function is_config_valid(config::Union{LiouvConfig, ThermalizeConfig})::Bool
     errors = String[]
 
     # Check based on the picture type.
@@ -110,4 +83,61 @@ function is_config_valid(config::Union{LiouvConfig})::Bool
     end
 
     return true
+end
+
+function print_press(config::LiouvConfig)
+    params = [
+        ("picture", config.picture),
+        ("num_qubits", config.num_qubits),
+        ("num_energy_bits", config.num_energy_bits),
+        ("beta", config.beta),
+        ("a", config.a),
+        ("b", config.b),
+        ("eta", config.eta),
+        ("t0", config.t0),
+        ("w0", config.w0),
+        ("with_coherent", config.with_coherent),
+        ("with_linear_combination", config.with_linear_combination),
+        ("num_trotter_steps_per_t0", config.num_trotter_steps_per_t0)
+    ]
+    provided = filter(p -> p[2] != -1.0, params)
+    if isempty(provided)
+        return
+    end
+
+    println("--- The Press ---")
+    for (name, value) in provided
+        println("$name: $value")
+    end
+    println("-----------------")
+end
+
+function print_press(config::ThermalizeConfig)
+    params = [
+        ("picture", config.picture),
+        ("num_qubits", config.num_qubits),
+        ("num_energy_bits", config.num_energy_bits),
+        ("beta", config.beta),
+        ("a", config.a),
+        ("b", config.b),
+        ("eta", config.eta),
+        ("t0", config.t0),
+        ("w0", config.w0),
+        ("with_coherent", config.with_coherent),
+        ("with_linear_combination", config.with_linear_combination),
+        ("num_trotter_steps_per_t0", config.num_trotter_steps_per_t0),
+        ("mixing time", config.mixing_time),
+        ("delta", config.delta),
+        ("unravel", config.unravel)
+    ]
+    provided = filter(p -> p[2] != -1.0, params)
+    if isempty(provided)
+        return
+    end
+
+    println("--- The Press ---")
+    for (name, value) in provided
+        println("$name: $value")
+    end
+    println("-----------------")
 end

@@ -20,8 +20,25 @@ using Base
     num_trotter_steps_per_t0::Int64 = -1
 end
 
-# struct mutable ThermConfig
-# end
+@kwdef struct ThermalizeConfig
+    num_qubits::Int64 
+    with_coherent::Bool
+    with_linear_combination::Bool
+    picture::Picture
+    beta::Float64
+    a::Float64
+    b::Float64
+    num_energy_bits::Int64 = -1
+    t0::Float64 = -1.
+    w0::Float64 = -1.
+    eta::Float64 = -1.
+    num_trotter_steps_per_t0::Int64 = -1
+
+    # For thermalization the configs:
+    mixing_time::Float64
+    delta::Float64
+    unravel::Bool
+end
 
 mutable struct HamHam
     data::Matrix{ComplexF64}

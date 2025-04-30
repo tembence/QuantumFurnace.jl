@@ -10,7 +10,8 @@ include("structs.jl")
 
 # Could add a term coeff dict, to make find ideal hamiltonian, trotter, more generic, instead of Heisenberg
 
-function create_hamham(terms::Vector{Vector{String}}, coeffs::Vector{Float64}, num_qubits::Int64)
+function create_hamham(terms::Vector{Vector{String}}, coeffs::Vector{Float64}, num_qubits::Int64; 
+    periodic::Bool = true)
     """Creates a HamHam object from terms and coefficients. Only for NN terms for now."""
 
     sigmax::Matrix{ComplexF64} = [0 1; 1 0]
@@ -26,7 +27,7 @@ function create_hamham(terms::Vector{Vector{String}}, coeffs::Vector{Float64}, n
         end
     end
 
-    base_hamiltonian = construct_base_ham(terms_matrices, coeffs, num_qubits)
+    base_hamiltonian = construct_base_ham(terms_matrices, coeffs, num_qubits; periodic=periodic)
 
     rescaling_factor, shift = rescaling_and_shift_factors(base_hamiltonian)
     rescaled_hamiltonian::Hermitian{ComplexF64, Matrix{ComplexF64}} = base_hamiltonian / rescaling_factor + 
@@ -190,7 +191,7 @@ function find_ideal_heisenberg(num_qubits::Int64,
 end
 
 function construct_base_ham(terms::Vector{Vector{Matrix{ComplexF64}}}, coeffs::Vector{Float64},
-    num_qubits::Int64)
+    num_qubits::Int64; periodic::Bool = true)
     
     if length(terms) != length(coeffs)
         throw(ArgumentError("The number of terms and coefficients must be equal"))
@@ -199,7 +200,7 @@ function construct_base_ham(terms::Vector{Vector{Matrix{ComplexF64}}}, coeffs::V
     hamiltonian::SparseMatrixCSC{ComplexF64} = spzeros(2^num_qubits, 2^num_qubits)
     for (i, term) in enumerate(terms)
         for q in 1:num_qubits
-            padded_term = pad_term(term, num_qubits, q)
+            padded_term = pad_term(term, num_qubits, q; periodic=periodic)  # e.g. term = XX
             hamiltonian += coeffs[i] * padded_term
         end
     end
@@ -208,7 +209,7 @@ function construct_base_ham(terms::Vector{Vector{Matrix{ComplexF64}}}, coeffs::V
 end
 
 function construct_symbreak_terms(symbreak_term::Vector{Matrix{ComplexF64}}, 
-    num_qubits::Int64, rand_seed::Int64 = 666)
+    num_qubits::Int64; rand_seed::Int64 = 666, periodic::Bool = true)
 
     # set random seed
     Random.seed!(rand_seed)
@@ -216,7 +217,7 @@ function construct_symbreak_terms(symbreak_term::Vector{Matrix{ComplexF64}},
 
     symbreak_hamiltonian::SparseMatrixCSC{ComplexF64} = spzeros(2^num_qubits, 2^num_qubits)
     for q in 1:num_qubits
-        symbreak_hamiltonian += symbreak_coeffs[q] * pad_term(symbreak_term, num_qubits, q)
+        symbreak_hamiltonian += symbreak_coeffs[q] * pad_term(symbreak_term, num_qubits, q; periodic=periodic)
     end
 
     return Hermitian(Matrix(symbreak_hamiltonian))
@@ -237,15 +238,15 @@ function construct_symbreak_terms(symbreak_term::Vector{Matrix{ComplexF64}},
     return Hermitian(Matrix(symbreak_hamiltonian))
 end
 
-function pad_term(terms::Vector{Matrix{ComplexF64}}, num_qubits::Int64, position::Int)
+function pad_term(terms::Vector{Matrix{ComplexF64}}, num_qubits::Int64, position::Int; periodic::Bool = true)
     
     term_length = length(terms)
-    # @printf("Term length: %d\n", term_length)
-    #turn terms into sparse
     terms = [sparse(term) for term in terms]
     last_position = position + term_length - 1
-    # @printf("Position: %d\n", position)
-    # @printf("Last position: %d\n", last_position)
+    # Drop boundary overstepping terms for aperiodic boundary condition 
+    if (!periodic && last_position > num_qubits)
+        return zeros(2^num_qubits, 2^num_qubits)
+    end
 
     if last_position <= num_qubits
         id_before = sparse(I, 2^(position - 1), 2^(position - 1))
