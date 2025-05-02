@@ -108,29 +108,6 @@ function thermalize_energy(jumps::Vector{JumpOp}, hamiltonian::HamHam, evolving_
     return HotAlgorithmResults(evolving_dm, distances_to_gibbs, time_steps)
 end
 
-function pick_transition(beta::Float64, a::Float64, b::Float64)
-
-    sqrtA = sqrt((4 * a / beta + 1) / 8)
-    if (b == 0 && a != 0)  # No time singularity but kinky Metro in energy
-        return w -> begin
-            sqrtB = beta * abs(w + 1 / (2 * beta)) / sqrt(2)
-            return exp((- 2 * sqrtA * sqrtB - beta * w / 2 - 1 / 4))
-        end
-    elseif (b != 0 && a != 0)  # No time singularity and no kinky Metro (Glauberish)
-        return w -> begin
-            sqrtB = beta * abs(w + 1 / (2 * beta)) / sqrt(2)
-            transition_eh = exp((- 2 * sqrtA * sqrtB - beta * w / 2 - 1 / 4))
-
-            return (transition_eh * (erfc(sqrtA * sqrt(b) - sqrtB / sqrt(b)) 
-                + exp(4 * sqrtA * sqrtB) * erfc(sqrtA * sqrt(b) + sqrtB / sqrt(b))) / 2)
-        end
-    elseif a == 0  # Time singularity and kinky Metro
-        return w -> begin
-            return exp(-beta * max(w + 1/(2 * beta), 0.0))
-        end
-    end
-end
-
 #* GAUSS --------------------------------------------------------------------------------------------------------------------
 function construct_liouvillian_energy_gauss(jumps::Vector{JumpOp}, hamiltonian::HamHam, energy_labels::Vector{Float64}, 
     with_coherent::Bool, beta::Float64)

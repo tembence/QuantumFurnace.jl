@@ -10,7 +10,7 @@ include("structs.jl")
 include("oven.jl")
 
 #* Config
-num_qubits = 3
+num_qubits = 6
 dim = 2^num_qubits
 beta = 10.
 a = beta / 50. # a = beta / 50.
@@ -114,27 +114,6 @@ println(results.distances_to_gibbs[end])
 # #* Hamiltonian
 # ham_filename(n) = @sprintf("/Users/bence/code/liouvillian_metro/julia/data/hamiltonian_n%d.jld", n)
 # hamiltonian = load(ham_filename(num_qubits))["ideal_ham"]
-
-# #* ////////////////////////// Algorithm //////////////////////////
-# if furnace == GAUSS
-#     therm_results = thermalize_gaussian(all_jumps_generated, hamiltonian, with_coherent, initial_dm, num_energy_bits,
-#     filter_gauss_w, transition, delta, mixing_time, beta)
-# elseif furnace == METRO
-#     therm_results = thermalize_metro(all_jumps_generated, hamiltonian, with_coherent, initial_dm,
-#     num_energy_bits, filter_gauss_w, transition, eta, delta, mixing_time, beta)
-# elseif furnace == TROTT_GAUSS
-#     therm_results = thermalize_gaussian_trotter(all_jumps_generated, hamiltonian, trotter, with_coherent, initial_dm,
-#     num_energy_bits, filter_gauss_t, transition, delta, mixing_time, beta)
-# elseif furnace == TROTT_METRO
-#     therm_results = thermalize_metro_trotter(all_jumps_generated, hamiltonian, trotter, with_coherent, initial_dm,
-#     num_energy_bits, filter_gauss_t, transition, eta, delta, mixing_time, beta)
-# elseif furnace == TIME_GAUSS
-#     therm_results = thermalize_gaussian_ideal_time(all_jumps_generated, hamiltonian, with_coherent, initial_dm, num_energy_bits,
-#     filter_gauss_t, transition, delta, mixing_time, beta)
-# end
-
-# evolved_dm = therm_results.evolved_dm
-# distances_to_gibbs = therm_results.distances_to_gibbs
 
 # if save_it == true
 #     if with_coherent == false

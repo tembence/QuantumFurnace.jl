@@ -70,7 +70,6 @@ mutable struct LiouvLiouv
     mixing_time_bound::Float64
 end
 
-#TODO: add unitary that transforms from energy to trotter basis
 mutable struct TrottTrott
     t0::Float64
     num_trotter_steps_per_t0::Rational{Int64}
@@ -79,14 +78,17 @@ mutable struct TrottTrott
     trafo_from_eigen_to_trotter::Matrix{ComplexF64}
 end
 
-mutable struct HotAlgorithmResults
+@kwdef struct HotAlgorithmResults
     evolved_dm::Matrix{ComplexF64}
     distances_to_gibbs::Vector{Float64}
     time_steps::Vector{Float64}
 end
 
-mutable struct HotSpectralResults
+@kwdef struct HotSpectralResults
     fixed_point::Matrix{ComplexF64}
-    spectral_gap::Float64
-    gibbs_ineigen::Matrix{ComplexF64}
+    lambda_2::ComplexF64    # For spectral gap
+    lambda_end::ComplexF64  # For ideal delta in the algorithmic thermalization
+    hamiltonian::HamHam
+    trotter::Union{TrottTrott,Nothing} = nothing
+    config::LiouvConfig
 end

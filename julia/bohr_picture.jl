@@ -42,6 +42,7 @@ function construct_liouvillian_bohr(jumps::Vector{JumpOp}, hamiltonian::HamHam, 
             next!(p)
         end
     end
+
     return liouv
 end
 

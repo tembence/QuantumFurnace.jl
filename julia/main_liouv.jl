@@ -10,7 +10,7 @@ include("structs.jl")
 include("oven.jl")
 
 #* Config
-num_qubits = 3
+num_qubits = 2
 dim = 2^num_qubits
 beta = 10.
 a = beta / 50 # a = beta / 50.
@@ -18,11 +18,11 @@ b = 0.5  # b = 0.5
 eta = 0.0
 with_coherent = true
 with_linear_combination = false
-pictures = [BOHR]
-num_energy_bits = 13
+pictures = [TROTTER]
+num_energy_bits = 12
 w0 = 0.01
 t0 = 2pi / (2^num_energy_bits * w0)
-num_trotter_steps_per_t0 = 10
+num_trotter_steps_per_t0 = 1
 
 configs::Vector{LiouvConfig} = []
 for picture in pictures
@@ -45,12 +45,17 @@ for picture in pictures
 end
 
 #* Hamiltonian
-hamiltonian = find_ideal_heisenberg(num_qubits, fill(1.0, 3); batch_size=100)
+# hamiltonian = find_ideal_heisenberg(num_qubits, fill(1.0, 3); batch_size=100)
+hamiltonian_terms = [["X", "X"], ["Y", "Y"], ["Z", "Z"]]
+hamiltonian_coeffs = fill(1.0, length(hamiltonian_terms))
+hamiltonian = create_hamham(hamiltonian_terms, hamiltonian_coeffs, num_qubits)
 hamiltonian.bohr_freqs = hamiltonian.eigvals .- transpose(hamiltonian.eigvals)
 gibbs = gibbs_state_in_eigen(hamiltonian, beta)
 initial_dm = Matrix{ComplexF64}(I(dim) / dim)
 @assert norm(real(tr(initial_dm)) - 1.) < 1e-15 "Trace is not 1.0"
 @assert norm(initial_dm - initial_dm') < 1e-15 "Not Hermitian"
+
+plot!(hamiltonian.eigvals, exp.(-beta * hamiltonian.eigvals) / sum(exp.(-beta * hamiltonian.eigvals)))
 
 #* Trotter
 trotter = create_trotter(hamiltonian, t0, num_trotter_steps_per_t0)
@@ -63,7 +68,7 @@ Y::Matrix{ComplexF64} = [0.0 -im; im 0.0]
 Z::Matrix{ComplexF64} = [1 0; 0 -1]
 H::Matrix{ComplexF64} = [1 1; 1 -1] / sqrt(2)
 id::Matrix{ComplexF64} = I(2)
-jump_paulis = [[X], [Y], [Z], [H]]
+jump_paulis = [[X], [Y], [Z]]  # Omitting H for faster runtimes
 
 jumps::Vector{JumpOp} = []
 for pauli in jump_paulis
@@ -90,31 +95,20 @@ end
 # maximum(oft_time_labels)
 
 #* Liouvillian
-# liouv_bohr = construct_liouvillian(jumps, configs[1]; hamiltonian=hamiltonian)
+liouv_result = run_liouvillian(jumps, configs[1], hamiltonian; trotter = trotter)
+norm(liouv_result.fixed_point - gibbs)
 # liouv_energy = construct_liouvillian(jumps, configs[2]; hamiltonian=hamiltonian)
 # liouv_time = construct_liouvillian(jumps, configs[3]; hamiltonian=hamiltonian)
-liouv_trotter = construct_liouvillian(jumps, configs[1]; trotter=trotter)
+# liouv_trotter = construct_liouvillian(jumps, configs[1]; trotter=trotter)
 
 # norm(liouv_bohr - liouv_time)
 # norm(liouv_trotter - liouv_time)
 # norm(liouv_time - liouv_energy)
 
 #* Spectral analysis
-liouv_eigvals, liouv_eigvecs = eigen(liouv_trotter) 
-steady_state_vec = liouv_eigvecs[:, end]
-steady_state_dm = reshape(steady_state_vec, size(hamiltonian.data))
-steady_state_dm /= tr(steady_state_dm)
-
-lambda2 = liouv_eigvals[end] - liouv_eigvals[end-1]
-@printf("Lambda2: %s\n", lambda2)
-
-@printf("Steady state closeness to Gibbs for Liouvillian: %s\n", norm(steady_state_dm - gibbs))
-
-
-
-
-
-
+# norm(real.(liouv_eigvals) - liouv_eigvals)
+# opt_delta =  2 / (abs(liouv_eigvals[1]) + abs(liouv_eigvals[end-1]))
+# stability_barrier = 2 / (abs(liouv_eigvals[end-1]))
 
 
 
@@ -127,27 +121,6 @@ lambda2 = liouv_eigvals[end] - liouv_eigvals[end-1]
 # #* Hamiltonian
 # ham_filename(n) = @sprintf("/Users/bence/code/liouvillian_metro/julia/data/hamiltonian_n%d.jld", n)
 # hamiltonian = load(ham_filename(num_qubits))["ideal_ham"]
-
-# #* ////////////////////////// Algorithm //////////////////////////
-# if furnace == GAUSS
-#     therm_results = thermalize_gaussian(all_jumps_generated, hamiltonian, with_coherent, initial_dm, num_energy_bits,
-#     filter_gauss_w, transition, delta, mixing_time, beta)
-# elseif furnace == METRO
-#     therm_results = thermalize_metro(all_jumps_generated, hamiltonian, with_coherent, initial_dm,
-#     num_energy_bits, filter_gauss_w, transition, eta, delta, mixing_time, beta)
-# elseif furnace == TROTT_GAUSS
-#     therm_results = thermalize_gaussian_trotter(all_jumps_generated, hamiltonian, trotter, with_coherent, initial_dm,
-#     num_energy_bits, filter_gauss_t, transition, delta, mixing_time, beta)
-# elseif furnace == TROTT_METRO
-#     therm_results = thermalize_metro_trotter(all_jumps_generated, hamiltonian, trotter, with_coherent, initial_dm,
-#     num_energy_bits, filter_gauss_t, transition, eta, delta, mixing_time, beta)
-# elseif furnace == TIME_GAUSS
-#     therm_results = thermalize_gaussian_ideal_time(all_jumps_generated, hamiltonian, with_coherent, initial_dm, num_energy_bits,
-#     filter_gauss_t, transition, delta, mixing_time, beta)
-# end
-
-# evolved_dm = therm_results.evolved_dm
-# distances_to_gibbs = therm_results.distances_to_gibbs
 
 # if save_it == true
 #     if with_coherent == false

@@ -84,38 +84,38 @@ end
 # norm(oft_trott_ineigen - oft_t)
 # norm(oft_t - oft_w)
 
-liouv_bohr = nothing
-liouv_time = nothing
-liouv_trotter = nothing
-pictures = [BOHR, TIME]
-for picture in pictures
-    config = LiouvConfig(
-        num_qubits = num_qubits, 
-        with_coherent = with_coherent,
-        with_linear_combination = with_linear_combination, 
-        picture = picture,
-        beta = beta,
-        a = a,
-        b = b,
-        num_energy_bits = num_energy_bits,
-        w0 = w0,
-        t0 = t0,
-        eta = eta,
-        num_trotter_steps_per_t0 = num_trotter_steps_per_t0
-    )
+# liouv_bohr = nothing
+# liouv_time = nothing
+# liouv_trotter = nothing
+# pictures = [BOHR, TIME]
+# for picture in pictures
+#     config = LiouvConfig(
+#         num_qubits = num_qubits, 
+#         with_coherent = with_coherent,
+#         with_linear_combination = with_linear_combination, 
+#         picture = picture,
+#         beta = beta,
+#         a = a,
+#         b = b,
+#         num_energy_bits = num_energy_bits,
+#         w0 = w0,
+#         t0 = t0,
+#         eta = eta,
+#         num_trotter_steps_per_t0 = num_trotter_steps_per_t0
+#     )
 
-    print_press(config)
+#     print_press(config)
 
-    if picture == BOHR
-        liouv_bohr = construct_liouvillian(jumps, config; hamiltonian=hamiltonian)
-    elseif picture == TIME
-        liouv_time = construct_liouvillian(jumps, config; hamiltonian=hamiltonian)
-    elseif picture == TROTTER
-        liouv_trotter = construct_liouvillian(jumps, config; trotter=trotter)
-    end
-end
+#     if picture == BOHR
+#         liouv_bohr = construct_liouvillian(jumps, config; hamiltonian=hamiltonian)
+#     elseif picture == TIME
+#         liouv_time = construct_liouvillian(jumps, config; hamiltonian=hamiltonian)
+#     elseif picture == TROTTER
+#         liouv_trotter = construct_liouvillian(jumps, config; trotter=trotter)
+#     end
+# end
 
-@printf("Distance time-bohr: %s\n", norm(liouv_bohr - liouv_time))
-@printf("Distance time-trotter: %s\n", norm(liouv_trotter - liouv_time))
-@printf("Distance trotter-bohr: %s\n", norm(liouv_trotter - liouv_bohr))
+# @printf("Distance time-bohr: %s\n", norm(liouv_bohr - liouv_time))
+# @printf("Distance time-trotter: %s\n", norm(liouv_trotter - liouv_time))
+# @printf("Distance trotter-bohr: %s\n", norm(liouv_trotter - liouv_bohr))
 

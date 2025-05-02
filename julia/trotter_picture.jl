@@ -138,6 +138,7 @@ function thermalize_trotter(jumps::Vector{JumpOp}, trotter::TrottTrott, evolving
     return HotAlgorithmResults(evolving_dm, distances_to_gibbs, time_steps)
 end
 
+#* GAUSS
 function construct_liouvillian_trotter_gauss(jumps::Vector{JumpOp}, trotter::TrottTrott, time_labels::Vector{Float64},
     energy_labels::Vector{Float64}, with_coherent::Bool, beta::Float64)
 

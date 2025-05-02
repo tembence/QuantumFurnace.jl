@@ -11,8 +11,28 @@ include("time_picture.jl")
 include("trotter_picture.jl")
 include("misc_tools.jl")
 
-function construct_liouvillian(jumps::Vector{JumpOp}, config::LiouvConfig;
-    hamiltonian::Union{HamHam, Nothing} = nothing,
+function run_liouvillian(jumps::Vector{JumpOp}, config::LiouvConfig, hamiltonian::HamHam;
+    trotter::Union{TrottTrott, Nothing} = nothing)
+
+    liouv = construct_liouvillian(jumps, config, hamiltonian; trotter)
+
+    liouv_eigvals, liouv_eigvecs = eigen(liouv) 
+    steady_state_vec = liouv_eigvecs[:, end]
+    steady_state_dm = reshape(steady_state_vec, size(hamiltonian.data))
+    steady_state_dm /= tr(steady_state_dm)
+
+    result = HotSpectralResults(
+        fixed_point = steady_state_dm,
+        lambda_2 = liouv_eigvals[end-1],
+        lambda_end = liouv_eigvals[1],
+        hamiltonian = hamiltonian,
+        trotter = trotter, 
+        config = config
+    )
+    return result
+end
+
+function construct_liouvillian(jumps::Vector{JumpOp}, config::LiouvConfig, hamiltonian::HamHam;
     trotter::Union{TrottTrott, Nothing} = nothing)
 
     if (config.picture == TROTTER && trotter === nothing)
