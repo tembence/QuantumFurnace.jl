@@ -14,7 +14,7 @@ end
 
 function pick_transition(beta::Float64, a::Float64, b::Float64, with_linear_combination::Bool)
 
-    if with_linear_combination  # Gaussian case
+    if !(with_linear_combination)  # Gaussian case
         return w -> begin
             return exp(-beta^2 * (w + 1/beta)^2 /2)
         end
@@ -185,4 +185,38 @@ function print_press(config::ThermalizeConfig)
         println("$name: $value")
     end
     println("-----------------")
+end
+
+function create_jumpop(pauli::Vector{String}, num_qubits::Int64, site::Int64, hamiltonian::HamHam; 
+    trotter::Union{TrottTrott, Nothing} = nothing)
+
+    pauli = pauli_string_to_matrix(pauli)
+    jump_op = Matrix(pad_term(pauli, num_qubits, site))
+    jump_op_in_eigenbasis = hamiltonian.eigvecs' * jump_op * hamiltonian.eigvecs
+    if trotter !== nothing
+        jump_in_trotter_basis = trotter.eigvecs' * jump_op * trotter.eigvecs
+    else
+        jump_in_trotter_basis = zeros(2^num_qubits, 2^num_qubits)
+    end
+    orthogonal = (jump_op == transpose(jump_op))
+    jump = JumpOp(jump_op,
+            jump_op_in_eigenbasis,
+            Dict{Float64, SparseMatrixCSC{ComplexF64, Int64}}(), 
+            zeros(0),
+            jump_in_trotter_basis,
+            orthogonal)
+    return jump
+end
+
+function pauli_string_to_matrix(paulistring::Vector{String})
+    sigmax::Matrix{ComplexF64} = [0 1; 1 0]
+    sigmay::Matrix{ComplexF64} = [0.0 -im; im 0.0]
+    sigmaz::Matrix{ComplexF64} = [1 0; 0 -1]
+
+    pauli_matrices::Vector{Matrix{ComplexF64}} = []
+    pauli_dict = Dict("X" => sigmax, "Y" => sigmay, "Z" => sigmaz, "I" => Matrix{ComplexF64}(I(2)))
+    for pauli_str in paulistring
+        push!(pauli_matrices, pauli_dict[pauli_str])
+    end
+    return pauli_matrices
 end

@@ -22,6 +22,7 @@ function run_liouvillian(jumps::Vector{JumpOp}, config::LiouvConfig, hamiltonian
     steady_state_dm /= tr(steady_state_dm)
 
     result = HotSpectralResults(
+        data = liouv,
         fixed_point = steady_state_dm,
         lambda_2 = liouv_eigvals[end-1],
         lambda_end = liouv_eigvals[1],
@@ -58,7 +59,6 @@ function construct_liouvillian(jumps::Vector{JumpOp}, config::LiouvConfig, hamil
         energy_labels = create_energy_labels(config.num_energy_bits, config.w0)
         truncated_energy_labels = truncate_energy_labels(energy_labels, config.beta,
             config.a, config.b, config.with_linear_combination)
-
         if config.with_linear_combination
             return construct_liouvillian_energy(jumps, hamiltonian, truncated_energy_labels, 
                 config.with_coherent, config.beta, config.a, config.b)
@@ -163,5 +163,70 @@ function thermalize(jumps::Vector{JumpOp}, config::ThermalizeConfig, initial_dm:
             config.with_coherent, config.beta, config.mixing_time, config.delta, config.unravel)
         end
     end
+end
 
+
+#* DISTRIBUTED
+function construct_liouvillian_distributed(jumps::Vector{JumpOp}, config::LiouvConfig, hamiltonian::HamHam;
+    trotter::Union{TrottTrott, Nothing} = nothing)
+
+    if (config.picture == TROTTER && trotter === nothing)
+        error("For TROTTER picture, a trotterization needs to be provided")
+    elseif (config.picture != TROTTER && hamiltonian === nothing)
+        error("For NON - TROTTER picture, a hamiltonian needs to be provided")
+    end
+
+    if !(is_config_valid(config))
+        error("Invalid parameter combination")
+    end
+
+    print_press(config)
+
+    if config.picture==BOHR
+        if config.with_linear_combination
+            return construct_liouvillian_bohr_distributed(jumps, hamiltonian, config.with_coherent, config.beta, config.a, config.b)
+        else
+            return construct_liouvillian_bohr_gauss_distributed(jumps, hamiltonian, config.with_coherent, config.beta)
+        end
+    end
+    if config.picture==ENERGY
+        energy_labels = create_energy_labels(config.num_energy_bits, config.w0)
+        truncated_energy_labels = truncate_energy_labels(energy_labels, config.beta,
+            config.a, config.b, config.with_linear_combination)
+        if config.with_linear_combination
+            return construct_liouvillian_energy_distributed(jumps, hamiltonian, truncated_energy_labels, 
+                config.with_coherent, config.beta, config.a, config.b)
+        else
+            return construct_liouvillian_energy_gauss_distributed(jumps, hamiltonian, truncated_energy_labels,
+                config.with_coherent, config.beta)
+        end
+    end
+    if config.picture==TIME
+        energy_labels = create_energy_labels(config.num_energy_bits, config.w0)
+        truncated_energy_labels = truncate_energy_labels(energy_labels, config.beta,
+        config.a, config.b, config.with_linear_combination)
+        time_labels = energy_labels .* (config.t0 / config.w0)
+
+        if config.with_linear_combination
+            return construct_liouvillian_time_distributed(jumps, hamiltonian, time_labels, truncated_energy_labels, 
+                config.with_coherent, config.beta, config.a, config.b)
+        else
+            return construct_liouvillian_time_gauss_distributed(jumps, hamiltonian, time_labels, truncated_energy_labels, 
+                config.with_coherent, config.beta)
+        end
+    end
+    if config.picture == TROTTER
+        energy_labels = create_energy_labels(config.num_energy_bits, config.w0)
+        truncated_energy_labels = truncate_energy_labels(energy_labels, config.beta,
+        config.a, config.b, config.with_linear_combination)
+        time_labels = energy_labels .* (config.t0 / config.w0)
+
+        if config.with_linear_combination
+            return construct_liouvillian_trotter_distributed(jumps, trotter, time_labels, truncated_energy_labels,
+            config.with_coherent, config.beta, config.a, config.b)
+        else
+            return construct_liouvillian_trotter_gauss_distributed(jumps, trotter, time_labels, truncated_energy_labels,
+                config.with_coherent, config.beta)
+        end
+    end
 end

@@ -317,7 +317,7 @@ function create_energy_labels(num_energy_bits::Int64, w0::Float64)
 end
 
 function truncate_energy_labels(energy_labels::Vector{Float64}, beta::Float64, a::Float64, b::Float64,
-    with_linear_combination::Bool; cutoff::Float64=1e-12)
+    with_linear_combination::Bool; cutoff::Float64=1e-14)
 
     if with_linear_combination
         transition = pick_transition(beta, a, b)  # Linear combination of Gaussians
@@ -343,8 +343,13 @@ function truncate_energy_labels(energy_labels::Vector{Float64}, beta::Float64, a
             max_label_for_ub = max(max_label_for_ub, w)
         end
     end
-
-    return energy_labels[min_label_for_lb .<= energy_labels .<= max_label_for_ub]
+    truncated_energies = energy_labels[min_label_for_lb .<= energy_labels .<= max_label_for_ub]
+    if !isempty(truncated_energies)
+        return truncated_energies
+    else
+        @printf("No energy labels remained after truncation!\n")
+        return energy_labels[abs.(energy_labels) .<= 2.]
+    end
 end
 #* --------------------------------------------------------------------------------------------------------------------------
 #* --------------------------------------------------------------------------------------------------------------------------

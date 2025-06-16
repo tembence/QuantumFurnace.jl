@@ -91,4 +91,3 @@ for pauli in jump_paulis
     push!(jumps, jump)
     end
 end
-

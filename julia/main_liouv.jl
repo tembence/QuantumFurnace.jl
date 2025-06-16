@@ -2,27 +2,35 @@ using LinearAlgebra
 using Random
 using Printf
 using JLD
+using Distributed
+using ClusterManagers
 
 include("hamiltonian.jl")
 include("qi_tools.jl")
 include("misc_tools.jl")
 include("structs.jl")
 include("oven.jl")
+include("errors.jl")
+include("bohr_picture.jl")
+include("ofts.jl")
+include("energy_picture.jl")
 
 #* Config
-num_qubits = 2
+num_qubits = 3
 dim = 2^num_qubits
-beta = 10.
-a = beta / 50 # a = beta / 50.
+beta = 10.  # 5, 10, 30
+a = beta / 50. # a = beta / 50.
 b = 0.5  # b = 0.5
-eta = 0.0
+eta = 0.2
 with_coherent = true
 with_linear_combination = false
-pictures = [TROTTER]
-num_energy_bits = 12
-w0 = 0.01
+pictures = [ENERGY]
+num_energy_bits = 13
+w0 = 0.05
+max_E = w0 * 2^num_energy_bits / 2
 t0 = 2pi / (2^num_energy_bits * w0)
-num_trotter_steps_per_t0 = 1
+num_trotter_steps_per_t0 = 10
+delta = 0.1
 
 configs::Vector{LiouvConfig} = []
 for picture in pictures
@@ -55,12 +63,12 @@ initial_dm = Matrix{ComplexF64}(I(dim) / dim)
 @assert norm(real(tr(initial_dm)) - 1.) < 1e-15 "Trace is not 1.0"
 @assert norm(initial_dm - initial_dm') < 1e-15 "Not Hermitian"
 
-plot!(hamiltonian.eigvals, exp.(-beta * hamiltonian.eigvals) / sum(exp.(-beta * hamiltonian.eigvals)))
-
 #* Trotter
 trotter = create_trotter(hamiltonian, t0, num_trotter_steps_per_t0)
-trotter_error_T = compute_trotter_error(hamiltonian, trotter, 2^num_energy_bits * t0)
+trotter_error_T = compute_trotter_error(hamiltonian, trotter, 2^num_energy_bits * t0 / 2)
 gibbs_in_trotter = trotter.eigvecs' * gibbs_state(hamiltonian, beta) * trotter.eigvecs
+
+# compute_errors(hamiltonian, configs[1]; trotter = trotter)
 
 #* Jumps
 X::Matrix{ComplexF64} = [0 1; 1 0]
@@ -68,7 +76,7 @@ Y::Matrix{ComplexF64} = [0.0 -im; im 0.0]
 Z::Matrix{ComplexF64} = [1 0; 0 -1]
 H::Matrix{ComplexF64} = [1 1; 1 -1] / sqrt(2)
 id::Matrix{ComplexF64} = I(2)
-jump_paulis = [[X], [Y], [Z]]  # Omitting H for faster runtimes
+jump_paulis = [[X], [Y], [Z]]
 
 jumps::Vector{JumpOp} = []
 for pauli in jump_paulis
@@ -82,21 +90,31 @@ for pauli in jump_paulis
             Dict{Float64, SparseMatrixCSC{ComplexF64, Int64}}(), 
             zeros(0),
             jump_in_trotter_basis,
-            orthogonal) 
+            orthogonal)
     push!(jumps, jump)
     end
 end
 
+#! GOOD:  #! Does my Trotter work now for general Hamiltonian? #TODO:
+# jump = jumps[2]
+# w = 0.12
 # energy_labels = create_energy_labels(num_energy_bits, w0)
-# truncated_energy_labels = truncate_energy_labels(energy_labels, beta,
-# a, b, with_linear_combination)
+# truncated_energy_labels = truncate_energy_labels(energy_labels, beta, a, b, with_linear_combination)
 # time_labels = energy_labels .* (t0 / w0)
-# oft_time_labels = truncate_time_labels_for_oft(time_labels, beta; cutoff=1e-5)
-# maximum(oft_time_labels)
+
+# time_labels_for_oft = truncate_time_labels_for_oft(time_labels, beta)
+# oft_trott = trotter_oft(jump, w, trotter, time_labels, beta) * t0 * sqrt((sqrt(2 / pi)/beta) / (2 * pi))
+# oft_trott_ineigen  = hamiltonian.eigvecs' * trotter.eigvecs * oft_trott * trotter.eigvecs' * hamiltonian.eigvecs
+# oft_w = oft(jump, w, hamiltonian, beta) * sqrt(beta / sqrt(2 * pi))
+# oft_t = time_oft(jump, w, hamiltonian, time_labels, beta) * t0 * sqrt((sqrt(2 / pi)/beta) / (2 * pi))
+
+# norm(oft_trott_ineigen - oft_t)
+# norm(oft_t - oft_w)
 
 #* Liouvillian
 liouv_result = run_liouvillian(jumps, configs[1], hamiltonian; trotter = trotter)
-norm(liouv_result.fixed_point - gibbs)
+@printf("Distance to Gibbs: %s\n", norm(liouv_result.fixed_point - gibbs))
+@printf("Spectral gap: %s\n", abs(real(liouv_result.lambda_2)))
 # liouv_energy = construct_liouvillian(jumps, configs[2]; hamiltonian=hamiltonian)
 # liouv_time = construct_liouvillian(jumps, configs[3]; hamiltonian=hamiltonian)
 # liouv_trotter = construct_liouvillian(jumps, configs[1]; trotter=trotter)

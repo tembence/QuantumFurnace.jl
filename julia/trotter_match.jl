@@ -24,7 +24,7 @@ with_linear_combination = true
 num_energy_bits = 13
 w0 = 0.01
 t0 = 2pi / (2^num_energy_bits * w0)
-num_trotter_steps_per_t0 = 1000
+num_trotter_steps_per_t0 = 10
 
 #* Hamiltonian
 hamiltonian = find_ideal_heisenberg(num_qubits, fill(1.0, 3); batch_size=100)
@@ -69,20 +69,20 @@ for pauli in jump_paulis
 end
 
 #* Trotter OFT checks
-# jump = jumps[2]
-# w = 0.12
-# energy_labels = create_energy_labels(num_energy_bits, w0)
-# truncated_energy_labels = truncate_energy_labels(energy_labels, beta, a, b, with_linear_combination)
-# time_labels = energy_labels .* (t0 / w0)
+jump = jumps[2]
+w = 0.12
+energy_labels = create_energy_labels(num_energy_bits, w0)
+truncated_energy_labels = truncate_energy_labels(energy_labels, beta, a, b, with_linear_combination)
+time_labels = energy_labels .* (t0 / w0)
 
-# time_labels_for_oft = truncate_time_labels_for_oft(time_labels, beta)
-# oft_trott = @time trotter_oft(jump, w, trotter, time_labels_for_oft, beta) * t0 * sqrt((sqrt(2 / pi)/beta) / (2 * pi))
-# oft_trott_ineigen  = hamiltonian.eigvecs' * trotter.eigvecs * oft_trott * trotter.eigvecs' * hamiltonian.eigvecs
-# oft_w = oft(jump, w, hamiltonian, beta) * sqrt(beta / sqrt(2 * pi))
-# oft_t = @time time_oft(jump, w, hamiltonian, time_labels, beta) * t0 * sqrt((sqrt(2 / pi)/beta) / (2 * pi))
+time_labels_for_oft = truncate_time_labels_for_oft(time_labels, beta)
+oft_trott = @time trotter_oft(jump, w, trotter, time_labels_for_oft, beta) * t0 * sqrt((sqrt(2 / pi)/beta) / (2 * pi))
+oft_trott_ineigen  = hamiltonian.eigvecs' * trotter.eigvecs * oft_trott * trotter.eigvecs' * hamiltonian.eigvecs
+oft_w = oft(jump, w, hamiltonian, beta) * sqrt(beta / sqrt(2 * pi))
+oft_t = @time time_oft(jump, w, hamiltonian, time_labels, beta) * t0 * sqrt((sqrt(2 / pi)/beta) / (2 * pi))
 
-# norm(oft_trott_ineigen - oft_t)
-# norm(oft_t - oft_w)
+norm(oft_trott_ineigen - oft_t)
+norm(oft_t - oft_w)
 
 # liouv_bohr = nothing
 # liouv_time = nothing

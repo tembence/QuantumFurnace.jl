@@ -52,6 +52,7 @@ mutable struct HamHam
     nu_min::Float64  # Smallest bohr frequency
     shift::Float64
     rescaling_factor::Float64
+    periodic::Bool
 end
 
 mutable struct JumpOp
@@ -85,6 +86,7 @@ end
 end
 
 @kwdef struct HotSpectralResults
+    data::Matrix{ComplexF64}  #! Remove when space will matter
     fixed_point::Matrix{ComplexF64}
     lambda_2::ComplexF64    # For spectral gap
     lambda_end::ComplexF64  # For ideal delta in the algorithmic thermalization

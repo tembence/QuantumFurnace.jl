@@ -7,6 +7,7 @@ using Distributed
 
 include("hamiltonian.jl")
 include("qi_tools.jl")
+include("misc_tools.jl")
 
 function create_trotter(hamiltonian::HamHam, t0::Float64, num_trotter_steps_per_t0::Int64)
 
@@ -40,36 +41,134 @@ function expm_pauli_padded(paulistring::Vector{String}, coeff::Float64, num_qubi
     return expm
 end
 
-function expm_pauli(paulistring::Vector{String}, coeff::Float64)
-    """Arg e.g. ["X", "X", "Z", "I"]"""
+function expm_pauli_padded(paulistring::Vector{Vector{String}}, coeff::Vector{Float64}, num_qubits::Int64, position::Int64)
+    """Arg e.g. NN terms: ["X", "X"], and it pads it with identities in the rest of the sites. Then creates the expm."""
 
-    num_qubits = length(paulistring)
-    sigmax::Matrix{ComplexF64} = [0 1; 1 0]
-    sigmay::Matrix{ComplexF64} = [0.0 -im; im 0.0]
-    sigmaz::Matrix{ComplexF64} = [1 0; 0 -1]
-    id::Matrix{ComplexF64} = [1 0; 0 1]
-
-    pauli_matrices::Vector{SparseMatrixCSC{ComplexF64}} = []
-    pauli_dict = Dict("X" => sparse(sigmax), "Y" => sparse(sigmay), "Z" => sparse(sigmaz), "I" => sparse(id))
-    for pauli_str in paulistring
-        push!(pauli_matrices, pauli_dict[pauli_str])
-    end
-
-    expm = cos(coeff) * sparse(I(2^num_qubits)) + im * sin(coeff) * kron(pauli_matrices...)
+    pauli_term = pauli_string_to_matrix(paulistring)
+    padded_term = pad_term(pauli_term, num_qubits, position)
+    expm = cos(coeff) * I(2^num_qubits) + 1im * sin(coeff) * padded_term
     return expm
 end
 
-function pauli_string_to_matrix(paulistring::Vector{String})
-    sigmax::Matrix{ComplexF64} = [0 1; 1 0]
-    sigmay::Matrix{ComplexF64} = [0.0 -im; im 0.0]
-    sigmaz::Matrix{ComplexF64} = [1 0; 0 -1]
+function trotterize2(hamiltonian::HamHam, T::Float64, num_trotter_steps::Int64)
+    """For 1 and 2 site Hamiltonians"""
+    timestep::Float64 = T / num_trotter_steps
+    num_qubits::Int64 = Int(log2(size(hamiltonian.data)[1]))
+    dim = 2^num_qubits
+    odd_system::Bool = (num_qubits % 2 == 1)
+    is_bdr_strange::Bool = (odd_system && hamiltonian.periodic)
 
-    pauli_matrices::Vector{Matrix{ComplexF64}} = []
-    pauli_dict = Dict("X" => sigmax, "Y" => sigmay, "Z" => sigmaz, "I" => Matrix{ComplexF64}(I(2)))
-    for pauli_str in paulistring
-        push!(pauli_matrices, pauli_dict[pauli_str])
+    U::Matrix{ComplexF64} = exp(im * T * hamiltonian.shift) * I(2^num_qubits)  # Shift
+    left_unitary_sequence::Vector{Matrix{ComplexF64}} = []
+
+    groups = group_hamiltonian_terms(hamiltonian)
+
+    # Base terms
+    odd_sites = collect(1:2:(num_qubits - 1))
+    U_odd = compute_U_group(groups.commuting[1], groups.commuting[2], odd_sites, num_qubits, timestep)
+
+    even_sites = collect(2:2:num_qubits)
+    U_even = compute_U_group(groups.commuting[1], groups.commuting[2], even_sites, num_qubits, timestep)
+
+    U_odd_bdr = I(dim)
+    if is_bdr_strange  # Strange odd boundary
+        odd_bdr_site = [num_qubits]
+        U_odd_bdr *= compute_U_group(groups.commuting[1], groups.commuting[2], odd_bdr_site, num_qubits, timestep)
     end
-    return pauli_matrices
+
+    # 1-site terms in the Hamiltonian (with same coeffs on all sites)
+    U_1site_terms = I(2^num_qubits)
+    if length(groups.one_sites[1]) != 0
+        all_sites = collect(1:num_qubits)
+        U_1site_terms = compute_U_group(groups.one_sites[1], groups.one_sites[2], all_sites, num_qubits, timestep)
+    end
+
+    # Symbreaking part (1-site with different coeffs one each site, i.e. disordered)
+    U_symbreak = I(dim)
+    if hamiltonian.symbreak_terms !== nothing
+        for q in 1:num_qubits
+            expm_symbreak_pauli_term = expm_pauli_padded(hamiltonian.symbreak_terms, 
+                    timestep * hamiltonian.symbreak_coeffs[q] / 2, num_qubits, q)
+            U_symbreak *= expm_symbreak_pauli_term
+        end
+    end
+
+    # 2-site terms in the Hamiltonian that do not commute with e.g. XX on site (1, 2)
+    sequence_2site_not_commuting = []
+    if length(groups.noncommuting[1]) != 0
+        for (term, coupling) in (groups.noncommuting[1], groups.noncommuting[2])
+            for q in 1:num_qubits
+                expm_pauli_term = expm_pauli_padded(term, timestep * coupling / 2, num_qubits, q)
+                push!(sequence_2site_not_commuting, expm_pauli_term)
+            end
+        end
+    end
+
+    # Assemble a δ step
+    append!(left_unitary_sequence, [U_odd, U_even, U_odd_bdr, U_1site_terms, U_symbreak], sequence_2site_not_commuting)
+    U_step = foldl(*, left_unitary_sequence) * foldl(*, reverse(left_unitary_sequence))
+
+    for step in 1:num_trotter_steps
+        U *= U_step
+    end
+    return U
+end
+
+function does_term_differ_at_both_sites(term::Vector{String}, list_to_compare_with::Vector{Vector{String}})::Bool
+    if length(list_to_compare_with) == 0  # No terms in the list yet
+        return true
+    else
+        first_site_good::Bool = (term[1] != list_to_compare_with[1][1])
+        second_site_good::Bool = (term[2] != list_to_compare_with[1][2])
+        return !(xor(first_site_good, second_site_good))
+    end
+end
+
+function group_hamiltonian_terms(hamiltonian::HamHam)
+    list_of_kinda_commuting_2site_terms::Vector{Vector{String}} = []
+    coeffs_kinda_commuting_2site::Vector{Float64} = []
+    list_of_not_commuting_2site_terms::Vector{Vector{String}} = []
+    coeffs_not_commuting_2site::Vector{Float64} = []
+    list_of_1site_terms::Vector{Vector{String}} = []
+    coeffs_1site::Vector{Float64} = []
+    for (i, term) in enumerate(hamiltonian.base_terms)
+        if length(term) == 1
+            push!(list_of_1site_terms, term)
+            push!(coeffs_1site, hamiltonian.base_coeffs[i])
+        elseif length(term) == 2
+            if does_term_differ_at_both_sites(term, list_of_kinda_commuting_2site_terms)
+                push!(list_of_kinda_commuting_2site_terms, term)
+                push!(coeffs_kinda_commuting_2site, hamiltonian.base_coeffs[i])
+            else
+                push!(list_of_not_commuting_2site_terms, term)
+                push!(coeffs_not_commuting_2site, hamiltonian.base_coeffs[i])
+            end
+        else
+            throw(ErrorException("Can only handle 1- or 2-site terms atm."))
+        end
+    end
+    return (
+        commuting = (list_of_kinda_commuting_2site_terms, coeffs_kinda_commuting_2site),
+        noncommuting = (list_of_not_commuting_2site_terms, coeffs_not_commuting_2site),
+        one_sites = (list_of_1site_terms, coeffs_1site)
+    )
+end
+
+function compute_U_group(terms::Vector{Vector{String}}, couplings::Vector{Float64}, sites::Vector{Int64},
+    num_qubits::Int64, timestep::Float64)
+
+    U_group = I(2^num_qubits)
+    for q in sites
+        @printf("Site %s\n", (q, (q+1)%(num_qubits+1)))
+        for (term, coupling) in zip(terms, couplings)
+            @printf("coupling: %s\n", coupling)
+            @printf("Term: %s\n", term)
+            expm_pauli_term = expm_pauli_padded(term, timestep * coupling / 2, num_qubits, q)
+            @assert norm(expm_pauli_term * expm_pauli_term' - I(2^num_qubits)) < 1e-14
+            U_group *= expm_pauli_term
+        end
+    end
+    return U_group
 end
 
 function trotterize(hamiltonian::HamHam, T::Float64, num_trotter_steps::Int64)
@@ -94,51 +193,6 @@ function trotterize(hamiltonian::HamHam, T::Float64, num_trotter_steps::Int64)
                                                             timestep * hamiltonian.symbreak_coeffs[q], 
                                                             num_qubits, q)
                 U *= expm_symbreak_pauli_term
-            end
-        end
-    end
-    return U
-end
-
-function trotterize2(hamiltonian::HamHam, T::Float64, num_trotter_steps::Int64)
-    """2nd order Trotter in computational basis"""
-    timestep::Float64 = T / num_trotter_steps
-    num_qubits::Int64 = Int(log2(size(hamiltonian.data)[1]))
-
-    U::Matrix{ComplexF64} = exp(im * T * hamiltonian.shift) * I(2^num_qubits)  # Shift
-    p = Progress(num_trotter_steps)
-    @showprogress dt=1 desc="Trotterizing (2nd order)..." for step in 1:num_trotter_steps
-        ## 1st part
-        for q in 1:num_qubits
-            for (i, term) in enumerate(hamiltonian.base_terms)
-                    expm_pauli_term = expm_pauli_padded(term, timestep * hamiltonian.base_coeffs[i] / 2, num_qubits, q)
-                    U *= expm_pauli_term
-            end
-
-            # Symbreak
-            if typeof(hamiltonian.symbreak_terms) != Nothing
-                expm_symbreak_pauli_term = expm_pauli_padded(hamiltonian.symbreak_terms, 
-                    timestep * hamiltonian.symbreak_coeffs[q] / 2, num_qubits, q)
-                U *= expm_symbreak_pauli_term
-            end
-        end
-
-        ## 2nd part
-        reversed_base_terms = reverse(hamiltonian.base_terms)
-        reversed_base_coeffs = reverse(hamiltonian.base_coeffs)
-
-        for q in num_qubits:-1:1
-            # Symbreak, terms are not reversed as we just assume there is only 1 term
-            if typeof(hamiltonian.symbreak_terms) != Nothing
-                expm_symbreak_pauli_term = expm_pauli_padded(hamiltonian.symbreak_terms, 
-                    timestep * hamiltonian.symbreak_coeffs[q] / 2, num_qubits, q)
-                U *= expm_symbreak_pauli_term
-            end
-
-            # Base Hamiltonian
-            for (i, term) in enumerate(reversed_base_terms)
-                    expm_pauli_term = expm_pauli_padded(term, timestep * reversed_base_coeffs[i] / 2, num_qubits, q)
-                    U *= expm_pauli_term
             end
         end
     end

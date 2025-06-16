@@ -48,7 +48,8 @@ function create_hamham(terms::Vector{Vector{String}}, coeffs::Vector{Float64}, n
     rescaled_eigvecs,
     smallest_bohr_freq,
     shift,
-    rescaling_factor
+    rescaling_factor,
+    periodic
    )
 
     return hamiltonian
@@ -56,7 +57,7 @@ end
 
 #TODO: Combine symbreak terms into just terms to make it cleaner
 function create_hamham(terms::Vector{Vector{String}}, coeffs::Vector{Float64}, 
-    symbreak_terms::Vector{String}, symbreak_coeffs::Vector{Float64}, num_qubits::Int64)
+    symbreak_terms::Vector{String}, symbreak_coeffs::Vector{Float64}, num_qubits::Int64; periodic::Bool = true)
     """Creates a HamHam object from terms and coefficients. Only for NN terms for now."""
 
     sigmax::Matrix{ComplexF64} = [0 1; 1 0]
@@ -102,7 +103,8 @@ function create_hamham(terms::Vector{Vector{String}}, coeffs::Vector{Float64},
     rescaled_eigvecs,
     smallest_bohr_freq,
     shift,
-    rescaling_factor
+    rescaling_factor,
+    periodic
    )
 
     return hamiltonian
@@ -121,13 +123,14 @@ function zeros_hamham(num_qubits::Int64)
         zeros(0, 0),
         0.0,
         0.0,
-        0.0
+        0.0,
+        true
     )
     return hamiltonian
 end
 
 function find_ideal_heisenberg(num_qubits::Int64,
-    coeffs::Vector{Float64}; batch_size::Int64 = 1)
+    coeffs::Vector{Float64}; batch_size::Int64 = 1, periodic::Bool = true)
     """Periodic Heisenberg 1D chain"""
 
     sigmax::Matrix{ComplexF64} = [0 1; 1 0]
@@ -139,7 +142,7 @@ function find_ideal_heisenberg(num_qubits::Int64,
     symbreak_term = [sigmaz]
     symbreak_term_str = ["Z"]
 
-    base_hamiltonian = construct_base_ham(terms, coeffs, num_qubits)
+    base_hamiltonian = construct_base_ham(terms, coeffs, num_qubits; periodic=periodic)
 
     # Create a bacth of random seeds
     seeds = rand(1:batch_size, batch_size)
@@ -147,7 +150,8 @@ function find_ideal_heisenberg(num_qubits::Int64,
     # Find best config for smallest bohr frequency
     best_smallest_bohr_freq = -1.0
     # initialize undef HamHam object
-    hamiltonian = HamHam(zeros(0, 0), zeros(0, 0), [[""]], zeros(0), [""], zeros(0), zeros(0), zeros(0, 0), 0.0, 0.0, 0.0)
+    hamiltonian = HamHam(zeros(0, 0), zeros(0, 0), [[""]], zeros(0), [""], zeros(0), zeros(0), zeros(0, 0), 
+    0.0, 0.0, 0.0, periodic)
 
     p = Progress(length(seeds))
     @showprogress dt=1 desc="Finding ideal hamiltonian..." for seed in seeds
@@ -244,7 +248,7 @@ function pad_term(terms::Vector{Matrix{ComplexF64}}, num_qubits::Int64, position
     terms = [sparse(term) for term in terms]
     last_position = position + term_length - 1
     # Drop boundary overstepping terms for aperiodic boundary condition 
-    if (!periodic && last_position > num_qubits)
+    if (!(periodic) && last_position > num_qubits)
         return zeros(2^num_qubits, 2^num_qubits)
     end
 
