@@ -188,6 +188,11 @@ function coherent_term_timedomain_integrated_metro(jump::JumpOp, hamiltonian::Ha
 end
 
 #* B1 AND B2 ----------------------------------------------------------------------------------------------------------------
+
+#TODO: 
+function pick_and_compute_truncated_f_plus()
+end
+
 # Corollary III.1, every parameter = 1 / beta
 function compute_f_minus(t::Float64, beta::Float64)
     """For all cases the same"""

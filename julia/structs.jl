@@ -11,8 +11,8 @@ using Base
     with_linear_combination::Bool
     picture::Picture
     beta::Float64
-    a::Float64
-    b::Float64
+    a::Float64 = nothing
+    b::Float64 = nothing
     num_energy_bits::Int64 = -1
     t0::Float64 = -1.
     w0::Float64 = -1.
@@ -43,6 +43,7 @@ end
 mutable struct HamHam
     data::Matrix{ComplexF64}
     bohr_freqs::Union{Matrix{Float64}, Nothing}
+    bohr_dict::Union{Dict{Float64, Vector{CartesianIndex{2}}}, Nothing}
     base_terms::Vector{Vector{String}}
     base_coeffs::Vector{Float64}
     symbreak_terms::Union{Vector{String}, Nothing}

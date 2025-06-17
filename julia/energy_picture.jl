@@ -15,29 +15,28 @@ include("ofts.jl")
 
 #* Linear Combinations -----------------------------------------------------------------------------------------------------------------------
 function construct_liouvillian_energy(jumps::Vector{JumpOp}, hamiltonian::HamHam, energy_labels::Vector{Float64}, 
-    with_coherent::Bool, beta::Float64, a::Float64, b::Float64)
+    config::LiouvConfig)
 
     dim = size(hamiltonian.data, 1)
     w0 = energy_labels[2] - energy_labels[1]
-    bohr_dict::Dict{Float64, Vector{CartesianIndex{2}}} = create_bohr_dict(hamiltonian)
 
-    transition = pick_transition(beta, a, b)
+    transition = pick_transition(config.beta, config.a, config.b, config.with_linear_combination)
 
     total_liouv_coherent_part = zeros(ComplexF64, dim^2, dim^2)
     total_liouv_diss_part = zeros(ComplexF64, dim^2, dim^2)
 
     @showprogress desc="Liouvillian (Energy)..." for jump in jumps
         if with_coherent  # There is no energy formulation of the coherent term, only Bohr and time.
-            coherent_term = coherent_bohr(hamiltonian, bohr_dict, jump, beta, a, b)
+            coherent_term = coherent_bohr(hamiltonian, jump, config.beta, config.a, config.b)
             total_liouv_coherent_part .+= vectorize_liouvillian_coherent(coherent_term)
         end
 
         for w in energy_labels
-            jump_oft = oft(jump, w, hamiltonian, beta)
+            jump_oft = oft(jump, w, hamiltonian, config.beta)
             total_liouv_diss_part .+= transition(w) * vectorize_liouvillian_diss(jump_oft)
         end
     end
-    oft_norm_squared = beta / sqrt(2 * pi)
+    oft_norm_squared = config.beta / sqrt(2 * pi)
     return total_liouv_coherent_part .+ w0 * oft_norm_squared * total_liouv_diss_part
 end
 
@@ -51,8 +50,6 @@ function thermalize_energy(jumps::Vector{JumpOp}, hamiltonian::HamHam, evolving_
     oft_prefactor = beta / sqrt(2 * pi)  # discrete sum w0 + OFT normalization^2 + Fourier factor
 
     transition = pick_transition(beta, a, b)
-
-    bohr_dict::Dict{Float64, Vector{CartesianIndex{2}}} = create_bohr_dict(hamiltonian)
 
     num_liouv_steps = Int(ceil(mixing_time / delta))
     if unravel
@@ -76,7 +73,7 @@ function thermalize_energy(jumps::Vector{JumpOp}, hamiltonian::HamHam, evolving_
 
             # Coherent part
             if with_coherent
-                coherent_term = coherent_bohr(hamiltonian, bohr_dict, jump, beta, a, b)
+                coherent_term = coherent_bohr(hamiltonian, jump, beta, a, b)
                 jump_coherent .+= - 1im * (coherent_term * evolving_dm - evolving_dm * coherent_term)
             end
 
@@ -114,7 +111,6 @@ function construct_liouvillian_energy_gauss(jumps::Vector{JumpOp}, hamiltonian::
 
     dim = size(hamiltonian.data, 1)
     w0 = energy_labels[2] - energy_labels[1]
-    bohr_dict::Dict{Float64, Vector{CartesianIndex{2}}} = create_bohr_dict(hamiltonian)
     transition_gauss(w) = exp(-beta^2 * (w + 1/beta)^2 /2)
 
     total_liouv_coherent_part = zeros(ComplexF64, dim^2, dim^2)
@@ -122,7 +118,7 @@ function construct_liouvillian_energy_gauss(jumps::Vector{JumpOp}, hamiltonian::
     p = Progress(Int(length(jumps) * length(energy_labels)), desc="Liouvillian (ENERGY GAUSS)...")
     for jump in jumps
         if with_coherent  # There is no energy formulation of the coherent term, only Bohr and time.
-            coherent_term = coherent_bohr_gauss(hamiltonian, bohr_dict, jump, beta)
+            coherent_term = coherent_bohr_gauss(hamiltonian, jump, beta)
             total_liouv_coherent_part .+= vectorize_liouvillian_coherent(coherent_term)
         end
 
@@ -144,8 +140,6 @@ function thermalize_energy_gauss(jumps::Vector{JumpOp}, hamiltonian::HamHam, evo
     gibbs = Hermitian(gibbs_state_in_eigen(hamiltonian, beta))
     oft_prefactor = beta / sqrt(2 * pi)  # discrete sum w0 + OFT normalization^2 + Fourier factor
     transition_gauss(w) = exp(-beta^2 * (w + 1/beta)^2 /2)
-
-    bohr_dict::Dict{Float64, Vector{CartesianIndex{2}}} = create_bohr_dict(hamiltonian)
 
     num_liouv_steps = Int(ceil(mixing_time / delta))
     if unravel
@@ -169,7 +163,7 @@ function thermalize_energy_gauss(jumps::Vector{JumpOp}, hamiltonian::HamHam, evo
 
             # Coherent part
             if with_coherent
-                coherent_term = coherent_bohr_gauss(hamiltonian, bohr_dict, jump, beta)
+                coherent_term = coherent_bohr_gauss(hamiltonian, jump, beta)
                 jump_coherent .+= - 1im * (coherent_term * evolving_dm - evolving_dm * coherent_term)
             end
 
@@ -222,18 +216,17 @@ function transition_bohr_gauss_from_energy_vectorized(jumps::Vector{JumpOp}, ham
     energy_labels::Vector{Float64}, beta::Float64)
 
     dim = size(hamiltonian.data, 1)
-    bohr_dict::Dict{Float64, Vector{CartesianIndex{2}}} = create_bohr_dict(hamiltonian)
     
     T = zeros(ComplexF64, dim^2, dim^2)
     for jump in jumps
-        for nu_1 in keys(bohr_dict)
-            for nu_2 in keys(bohr_dict)
+        for nu_1 in keys(hamiltonian.bohr_dict)
+            for nu_2 in keys(hamiltonian.bohr_dict)
                 gaussians(w) = exp(-beta^2 * (w + 1/beta)^2 /2) * exp(-beta^2 * (w - nu_1)^2 / 4) * exp(-beta^2 * (w - nu_2)^2 / 4)
                 for w in energy_labels
                     A_nu_1::SparseMatrixCSC{ComplexF64} = spzeros(dim, dim)
                     A_nu_2::SparseMatrixCSC{ComplexF64} = spzeros(dim, dim)
-                    A_nu_1[bohr_dict[nu_1]] .= jump.in_eigenbasis[bohr_dict[nu_1]]
-                    A_nu_2[bohr_dict[nu_2]] .= jump.in_eigenbasis[bohr_dict[nu_2]]
+                    A_nu_1[hamiltonian.bohr_dict[nu_1]] .= jump.in_eigenbasis[hamiltonian.bohr_dict[nu_1]]
+                    A_nu_2[hamiltonian.bohr_dict[nu_2]] .= jump.in_eigenbasis[bohhamiltonian.bohr_dictr_dict[nu_2]]
 
                     T .+= gaussians(w) * kron(A_nu_1, conj(A_nu_2))
                 end

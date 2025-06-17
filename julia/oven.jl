@@ -49,22 +49,16 @@ function construct_liouvillian(jumps::Vector{JumpOp}, config::LiouvConfig, hamil
     print_press(config)
 
     if config.picture==BOHR
-        if config.with_linear_combination
-            return construct_liouvillian_bohr(jumps, hamiltonian, config.with_coherent, config.beta, config.a, config.b)
-        else
-            return construct_liouvillian_bohr_gauss(jumps, hamiltonian, config.with_coherent, config.beta)
-        end
+        return construct_liouvillian_bohr(jumps, hamiltonian, config)
     end
     if config.picture==ENERGY
         energy_labels = create_energy_labels(config.num_energy_bits, config.w0)
         truncated_energy_labels = truncate_energy_labels(energy_labels, config.beta,
             config.a, config.b, config.with_linear_combination)
         if config.with_linear_combination
-            return construct_liouvillian_energy(jumps, hamiltonian, truncated_energy_labels, 
-                config.with_coherent, config.beta, config.a, config.b)
+            return construct_liouvillian_energy(jumps, hamiltonian, truncated_energy_labels, config)
         else
-            return construct_liouvillian_energy_gauss(jumps, hamiltonian, truncated_energy_labels,
-                config.with_coherent, config.beta)
+            return construct_liouvillian_energy_gauss(jumps, hamiltonian, truncated_energy_labels, config)
         end
     end
     if config.picture==TIME
@@ -74,11 +68,9 @@ function construct_liouvillian(jumps::Vector{JumpOp}, config::LiouvConfig, hamil
         time_labels = energy_labels .* (config.t0 / config.w0)
 
         if config.with_linear_combination
-            return construct_liouvillian_time(jumps, hamiltonian, time_labels, truncated_energy_labels, 
-                config.with_coherent, config.beta, config.a, config.b)
+            return construct_liouvillian_time(jumps, hamiltonian, time_labels, truncated_energy_labels, config)
         else
-            return construct_liouvillian_time_gauss(jumps, hamiltonian, time_labels, truncated_energy_labels, 
-                config.with_coherent, config.beta)
+            return construct_liouvillian_time_gauss(jumps, hamiltonian, time_labels, truncated_energy_labels, config)
         end
     end
     if config.picture == TROTTER
@@ -88,11 +80,9 @@ function construct_liouvillian(jumps::Vector{JumpOp}, config::LiouvConfig, hamil
         time_labels = energy_labels .* (config.t0 / config.w0)
 
         if config.with_linear_combination
-            return construct_liouvillian_trotter(jumps, trotter, time_labels, truncated_energy_labels,
-            config.with_coherent, config.beta, config.a, config.b)
+            return construct_liouvillian_trotter(jumps, trotter, time_labels, truncated_energy_labels, config)
         else
-            return construct_liouvillian_trotter_gauss(jumps, trotter, time_labels, truncated_energy_labels,
-                config.with_coherent, config.beta)
+            return construct_liouvillian_trotter_gauss(jumps, trotter, time_labels, truncated_energy_labels, config)
         end
     end
 end

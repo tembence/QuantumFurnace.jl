@@ -24,7 +24,7 @@ b = 0.5  # b = 0.5
 eta = 0.2
 with_coherent = true
 with_linear_combination = false
-pictures = [ENERGY]
+pictures = [BOHR]
 num_energy_bits = 13
 w0 = 0.05
 max_E = w0 * 2^num_energy_bits / 2
@@ -58,6 +58,7 @@ hamiltonian_terms = [["X", "X"], ["Y", "Y"], ["Z", "Z"]]
 hamiltonian_coeffs = fill(1.0, length(hamiltonian_terms))
 hamiltonian = create_hamham(hamiltonian_terms, hamiltonian_coeffs, num_qubits)
 hamiltonian.bohr_freqs = hamiltonian.eigvals .- transpose(hamiltonian.eigvals)
+hamiltonian.bohr_dict = create_bohr_dict(hamiltonian)
 gibbs = gibbs_state_in_eigen(hamiltonian, beta)
 initial_dm = Matrix{ComplexF64}(I(dim) / dim)
 @assert norm(real(tr(initial_dm)) - 1.) < 1e-15 "Trace is not 1.0"

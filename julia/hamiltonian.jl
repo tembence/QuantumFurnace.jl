@@ -40,6 +40,7 @@ function create_hamham(terms::Vector{Vector{String}}, coeffs::Vector{Float64}, n
    hamiltonian = HamHam(
     rescaled_hamiltonian,
     nothing,  # bohr_freqs is added later
+    nothing,
     terms,
     rescaled_base_coeffs,
     nothing,  # symbreak_terms absent
@@ -95,6 +96,7 @@ function create_hamham(terms::Vector{Vector{String}}, coeffs::Vector{Float64},
    hamiltonian = HamHam(
     rescaled_hamiltonian,
     nothing,  # bohr_freqs is added later
+    nothing,
     terms,
     rescaled_base_coeffs,
     symbreak_terms,
@@ -150,7 +152,7 @@ function find_ideal_heisenberg(num_qubits::Int64,
     # Find best config for smallest bohr frequency
     best_smallest_bohr_freq = -1.0
     # initialize undef HamHam object
-    hamiltonian = HamHam(zeros(0, 0), zeros(0, 0), [[""]], zeros(0), [""], zeros(0), zeros(0), zeros(0, 0), 
+    hamiltonian = HamHam(zeros(0, 0), nothing, nothing, [[""]], zeros(0), [""], zeros(0), zeros(0), zeros(0, 0), 
     0.0, 0.0, 0.0, periodic)
 
     p = Progress(length(seeds))

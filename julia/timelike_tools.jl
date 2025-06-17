@@ -159,12 +159,8 @@ function compute_U_group(terms::Vector{Vector{String}}, couplings::Vector{Float6
 
     U_group = I(2^num_qubits)
     for q in sites
-        @printf("Site %s\n", (q, (q+1)%(num_qubits+1)))
         for (term, coupling) in zip(terms, couplings)
-            @printf("coupling: %s\n", coupling)
-            @printf("Term: %s\n", term)
             expm_pauli_term = expm_pauli_padded(term, timestep * coupling / 2, num_qubits, q)
-            @assert norm(expm_pauli_term * expm_pauli_term' - I(2^num_qubits)) < 1e-14
             U_group *= expm_pauli_term
         end
     end
