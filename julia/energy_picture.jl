@@ -27,7 +27,7 @@ function construct_liouvillian_energy(jumps::Vector{JumpOp}, hamiltonian::HamHam
 
     @showprogress desc="Liouvillian (Energy)..." for jump in jumps
         if with_coherent  # There is no energy formulation of the coherent term, only Bohr and time.
-            coherent_term = coherent_bohr(hamiltonian, jump, config.beta, config.a, config.b)
+            coherent_term = coherent_bohr(hamiltonian, jump, config)
             total_liouv_coherent_part .+= vectorize_liouvillian_coherent(coherent_term)
         end
 
@@ -107,28 +107,28 @@ end
 
 #* GAUSS --------------------------------------------------------------------------------------------------------------------
 function construct_liouvillian_energy_gauss(jumps::Vector{JumpOp}, hamiltonian::HamHam, energy_labels::Vector{Float64}, 
-    with_coherent::Bool, beta::Float64)
+    config::LiouvConfig)
 
     dim = size(hamiltonian.data, 1)
     w0 = energy_labels[2] - energy_labels[1]
-    transition_gauss(w) = exp(-beta^2 * (w + 1/beta)^2 /2)
+    transition_gauss(w) = exp(-config.beta^2 * (w + 1/config.beta)^2 /2)
 
     total_liouv_coherent_part = zeros(ComplexF64, dim^2, dim^2)
     total_liouv_diss_part = zeros(ComplexF64, dim^2, dim^2)
     p = Progress(Int(length(jumps) * length(energy_labels)), desc="Liouvillian (ENERGY GAUSS)...")
     for jump in jumps
         if with_coherent  # There is no energy formulation of the coherent term, only Bohr and time.
-            coherent_term = coherent_bohr_gauss(hamiltonian, jump, beta)
+            coherent_term = coherent_bohr_gauss(hamiltonian, jump, config.beta)
             total_liouv_coherent_part .+= vectorize_liouvillian_coherent(coherent_term)
         end
 
         for w in energy_labels
-            jump_oft = oft(jump, w, hamiltonian, beta)
+            jump_oft = oft(jump, w, hamiltonian, config.beta)
             total_liouv_diss_part .+= transition_gauss(w) * vectorize_liouvillian_diss(jump_oft)
             next!(p)
         end
     end
-    oft_norm_squared = beta / sqrt(2 * pi)
+    oft_norm_squared = config.beta / sqrt(2 * pi)
     return total_liouv_coherent_part .+ w0 * oft_norm_squared * total_liouv_diss_part
 end
 

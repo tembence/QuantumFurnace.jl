@@ -13,7 +13,10 @@ include("timelike_tools.jl")
 num_qubits = 5
 dim = 2^num_qubits
 T = 2.0
-num_trotter_steps = 1
+num_t0_steps = 100
+num_trotter_steps_per_t0 = 1
+num_trotter_steps = num_t0_steps * num_trotter_steps_per_t0
+t0 = T / num_trotter_steps
 
 #* Hamiltonian
 hamiltonian = find_ideal_heisenberg(num_qubits, fill(1.0, 3); batch_size=100)
@@ -21,13 +24,30 @@ hamiltonian = find_ideal_heisenberg(num_qubits, fill(1.0, 3); batch_size=100)
 # hamiltonian_coeffs = fill(1.0, length(hamiltonian_terms))
 # hamiltonian = create_hamham(hamiltonian_terms, hamiltonian_coeffs, num_qubits)
 
+exact_U = exp(1im * hamiltonian.data * T)
+eigva, eigve = eigen(exact_U)
+exact_U_from_eigvals = eigve * Diagonal(eigva) * eigve'
+norm(exact_U - exact_U_from_eigvals)
+
 #* Trotter
-trotter = create_trotter(hamiltonian, T, num_trotter_steps)
-trotter_error_T = compute_trotter_error(hamiltonian, trotter, T)
+trotter_full_time = create_trotter(hamiltonian, T, num_trotter_steps)
+trotter_t0 = create_trotter(hamiltonian, t0, num_trotter_steps_per_t0)
+trotter_error_T = compute_trotter_error(hamiltonian, trotter_full_time, T)
 
 exact_U = exp(1im * hamiltonian.data * T)
-trotter_U = trotterize22(hamiltonian, T, num_trotter_steps)
+trotter_U = trotterize2(hamiltonian, T, num_trotter_steps)
+trotter_U_t0 = trotterize2(hamiltonian, t0, num_trotter_steps_per_t0)
+norm(trotter_U - trotter_U_t0^num_t0_steps)  #* Correct if we don't exponentiate the eigvals.
+eigva, eigve = eigen(trotter_U_t0)
+eigva
+trotter_U_from_t0 = eigve * Diagonal(eigva .^ num_t0_steps) * eigve'  # Basis trafo to computational basis
+norm(trotter_U - trotter_U_from_t0)
 @printf("Deviation between exact vs trotter: %s\n", norm(exact_U - trotter_U))
+
+reconstructed_t0 = eigve * Diagonal(eigva) * eigve'
+@printf("Eigen decomposition reconstruction error: %e\n", norm(trotter_U_t0 - reconstructed_t0))
+
+
 
 #* Expm Pauli check
 # X::Matrix{ComplexF64} = [0 1; 1 0]

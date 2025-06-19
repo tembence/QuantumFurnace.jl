@@ -16,22 +16,25 @@ include("timelike_tools.jl")
 
 #* Linear combinations -----------------------------------------------------------------------------------------------------------------------
 function construct_liouvillian_time(jumps::Vector{JumpOp}, hamiltonian::HamHam, time_labels::Vector{Float64},
-    energy_labels::Vector{Float64}, with_coherent::Bool, beta::Float64, a::Float64, b::Float64)
+    energy_labels::Vector{Float64}, config::LiouvConfig)
 
     dim = size(hamiltonian.data, 1)
     w0 = energy_labels[2] - energy_labels[1]
     t0 = time_labels[2] - time_labels[1]
-    oft_time_labels = truncate_time_labels_for_oft(time_labels, beta)
+    oft_time_labels = truncate_time_labels_for_oft(time_labels, config.beta)
 
-    transition = pick_transition(beta, a, b)
+    transition = pick_transition(config.beta, config.a, config.b, config.with_linear_combination)
 
     if with_coherent
-        f_minus = compute_truncated_f_minus(time_labels, beta)
-
-        if a != 0.0
-            f_plus = compute_truncated_f_plus_eh(time_labels, beta, a, b)
-        else
-            f_plus = compute_truncated_f_plus_metro(time_labels, beta, eta)
+        f_minus = compute_truncated_f(compute_f_minus, time_labels, config.beta)
+        if config.with_linear_combination  
+            if config.a != 0.0  # Improved Metro / Glauber
+                f_plus = compute_truncated_f(compute_f_plus_eh, time_labels, config.beta, config.a, config.b)
+            else  # Metro
+                f_plus = compute_truncated_f(compute_f_plus_metro, time_labels, config.beta, config.eta)
+            end
+        else  # Gaussian
+            f_plus = compute_truncated_f(compute_f_plus, time_labels, config.beta)
         end
     end
 
@@ -39,18 +42,18 @@ function construct_liouvillian_time(jumps::Vector{JumpOp}, hamiltonian::HamHam, 
     total_liouv_diss_part = zeros(ComplexF64, dim^2, dim^2)
     p = Progress(Int(length(jumps) * length(energy_labels)), desc="Liouvillian (TIME)...")
     for jump in jumps
-        if with_coherent 
+        if config.with_coherent 
             coherent_term = coherent_term_time(jump, hamiltonian, f_minus, f_plus, t0)  
             total_liouv_coherent_part .+= vectorize_liouvillian_coherent(coherent_term)
         end
 
         for w in energy_labels
-            jump_oft = time_oft(jump, w, hamiltonian, oft_time_labels, beta) # subnorm = t0 * sqrt((sqrt(2 / pi)/beta) / (2 * pi))
+            jump_oft = time_oft(jump, w, hamiltonian, oft_time_labels, config.beta) # subnorm = t0 * sqrt((sqrt(2 / pi)/beta) / (2 * pi))
             total_liouv_diss_part .+= transition(w) * vectorize_liouvillian_diss(jump_oft)
             next!(p)
         end
     end
-    prefactor = w0 * t0^2 * (sqrt(2 / pi) / beta) / (2 * pi)  # time ints t0^2, energy int w0, OFT time norm^2, Fourier
+    prefactor = w0 * t0^2 * (sqrt(2 / pi) / config.beta) / (2 * pi)  # time ints t0^2, energy int w0, OFT time norm^2, Fourier
     return total_liouv_coherent_part .+ prefactor * total_liouv_diss_part
 end
 
@@ -134,7 +137,7 @@ end
 
 #* GAUSS --------------------------------------------------------------------------------------------------------------------
 function construct_liouvillian_time_gauss(jumps::Vector{JumpOp}, hamiltonian::HamHam, time_labels::Vector{Float64},
-    energy_labels::Vector{Float64}, with_coherent::Bool, beta::Float64)
+    energy_labels::Vector{Float64}, config::LiouvConfig)
 
     dim = size(hamiltonian.data, 1)
     w0 = energy_labels[2] - energy_labels[1]

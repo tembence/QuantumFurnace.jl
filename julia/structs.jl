@@ -3,6 +3,13 @@ using Base
 
 @enum Picture BOHR ENERGY TIME TROTTER
 
+# Pictures
+abstract type AbstractPicture end
+struct BohrPicture <: AbstractPicture end
+struct EnergyPicture <: AbstractPicture end
+struct TimePicture <: AbstractPicture end
+struct TrotterPicture <: AbstractPicture end
+
 # Let's keep this structure, and have the "give w0 for desired energy integral error" type of config optimization
 # before the construct_liouvillian function
 @kwdef struct LiouvConfig
@@ -74,7 +81,7 @@ end
 
 mutable struct TrottTrott
     t0::Float64
-    num_trotter_steps_per_t0::Rational{Int64}
+    num_trotter_steps_per_t0::Float64
     eigvals_t0::Vector{ComplexF64}
     eigvecs::Matrix{ComplexF64}
     trafo_from_eigen_to_trotter::Matrix{ComplexF64}

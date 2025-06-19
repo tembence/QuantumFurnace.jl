@@ -9,7 +9,6 @@ using Roots
 using DataStructures
 using SpecialFunctions: erfc
 
-include("hamiltonian.jl")
 include("qi_tools.jl")
 
 #* LINEAR COMBINATIONS ------------------------------------------------------------------------------------------------
@@ -131,7 +130,7 @@ function coherent_bohr(hamiltonian::HamHam, jump::JumpOp, config::Union{LiouvCon
 end
 
 function pick_f(config::Union{LiouvConfig, ThermalizeConfig})
-     if config.with_linear_combination
+    if config.with_linear_combination
         return (nu_1, nu_2, beta, a, b) -> create_f(nu_1, nu_2, config.beta, config.a, config.b)
     else
         return (nu_1, nu_2, beta, a=nothing, b=nothing) -> create_f_gauss(nu_1, nu_2, config.beta)

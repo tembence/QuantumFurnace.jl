@@ -9,22 +9,17 @@ include("hamiltonian.jl")
 include("qi_tools.jl")
 include("misc_tools.jl")
 
-function create_trotter(hamiltonian::HamHam, t0::Float64, num_trotter_steps_per_t0::Int64)
+function create_trotter(hamiltonian::HamHam, T::Float64, num_trotter_steps::Int64)
 
-    trottU_t0 = trotterize2(hamiltonian, t0, num_trotter_steps_per_t0)
-    trottU_t0_eigvals, trottU_eigvecs = eigen(trottU_t0)
+    trottU = trotterize2(hamiltonian, T, num_trotter_steps)
+    trottU_eigvals, trottU_eigvecs = eigen(trottU)
     unitary_from_eigen_to_trotter = trottU_eigvecs' * hamiltonian.eigvecs
-    return TrottTrott(t0, num_trotter_steps_per_t0, trottU_t0_eigvals, trottU_eigvecs, unitary_from_eigen_to_trotter)
-end
-
-function trotttrotterize2(trotter::TrottTrott, T::Float64)
-    num_t0_steps = Int(ceil(T / trotter.t0))
-    return trotter.eigvecs * Diagonal(trotter.eigvals_t0.^num_t0_steps) * trotter.eigvecs'
+    return TrottTrott(T, num_trotter_steps, trottU_eigvals, trottU_eigvecs, unitary_from_eigen_to_trotter)
 end
 
 function compute_trotter_error(hamiltonian::HamHam, trotter::TrottTrott, T::Float64)
     
-    num_t0_steps = Int(ceil(T / trotter.t0))
+    num_t0_steps = Int(T / trotter.t0)
     exact_time_evolution = Diagonal(exp.(1im * hamiltonian.eigvals * T))  # In energy eigenbasis
     trotter_time_evolution = Diagonal(trotter.eigvals_t0.^num_t0_steps)
     trotter_time_evolution = (hamiltonian.eigvecs' * trotter.eigvecs 

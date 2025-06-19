@@ -15,21 +15,24 @@ include("coherent.jl")
 
 #* Linear Combinations
 function construct_liouvillian_trotter(jumps::Vector{JumpOp}, trotter::TrottTrott, time_labels::Vector{Float64},
-    energy_labels::Vector{Float64}, with_coherent::Bool, beta::Float64, a::Float64, b::Float64)
+    energy_labels::Vector{Float64}, config::LiouvConfig)
 
     dim = size(trotter.eigvecs, 1)
     w0 = energy_labels[2] - energy_labels[1]
-    oft_time_labels = truncate_time_labels_for_oft(time_labels, beta)
+    oft_time_labels = truncate_time_labels_for_oft(time_labels, config.beta)
 
-    transition = pick_transition(beta, a, b)
+    transition = pick_transition(config.beta, config.a, config.b, config.with_linear_combination)
 
-    if with_coherent
-        f_minus = compute_truncated_f_minus(time_labels, beta)
-
-        if a != 0.0
-            f_plus = compute_truncated_f_plus_eh(time_labels, beta, a, b)
-        else
-            f_plus = compute_truncated_f_plus_metro(time_labels, beta, eta)
+    if config.with_coherent
+        f_minus = compute_truncated_f(compute_f_minus, time_labels, config.beta)
+        if config.with_linear_combination  
+            if config.a != 0.0  # Improved Metro / Glauber
+                f_plus = compute_truncated_f(compute_f_plus_eh, time_labels, config.beta, config.a, config.b)
+            else  # Metro
+                f_plus = compute_truncated_f(compute_f_plus_metro, time_labels, config.beta, config.eta)
+            end
+        else  # Gaussian
+            f_plus = compute_truncated_f(compute_f_plus, time_labels, config.beta)
         end
     end
 
@@ -37,14 +40,14 @@ function construct_liouvillian_trotter(jumps::Vector{JumpOp}, trotter::TrottTrot
     total_liouv_diss_part = zeros(ComplexF64, dim^2, dim^2)
     p = Progress(Int(length(jumps) * length(energy_labels)), desc="Liouvillian (TROTTER)...")
     for jump in jumps
-        if with_coherent  # There is no energy formulation of the coherent term, only Bohr and time.
+        if config.with_coherent  # There is no energy formulation of the coherent term, only Bohr and time.
             coherent_term = coherent_term_trotter(jump, trotter, f_minus, f_plus)
             coherent_term = trotter.trafo_from_eigen_to_trotter' * coherent_term * trotter.trafo_from_eigen_to_trotter
             total_liouv_coherent_part .+= vectorize_liouvillian_coherent(coherent_term)
         end
 
         for w in energy_labels
-            jump_oft = trotter_oft(jump, w, trotter, oft_time_labels, beta) # t0 * sqrt((sqrt(2 / pi)/beta) / (2 * pi))
+            jump_oft = trotter_oft(jump, w, trotter, oft_time_labels, config.beta) # t0 * sqrt((sqrt(2 / pi)/beta) / (2 * pi))
             jump_oft = trotter.trafo_from_eigen_to_trotter' * jump_oft * trotter.trafo_from_eigen_to_trotter
 
             total_liouv_diss_part .+= transition(w) * vectorize_liouvillian_diss(jump_oft)
@@ -52,7 +55,7 @@ function construct_liouvillian_trotter(jumps::Vector{JumpOp}, trotter::TrottTrot
         end
     end
     
-    prefactor = w0 * trotter.t0^2 * (sqrt(2 / pi)/beta) / (2 * pi)
+    prefactor = w0 * trotter.t0^2 * (sqrt(2 / pi) / config.beta) / (2 * pi)
     return total_liouv_coherent_part .+ prefactor * total_liouv_diss_part  # L in energy basis
 end
 
@@ -140,31 +143,31 @@ end
 
 #* GAUSS
 function construct_liouvillian_trotter_gauss(jumps::Vector{JumpOp}, trotter::TrottTrott, time_labels::Vector{Float64},
-    energy_labels::Vector{Float64}, with_coherent::Bool, beta::Float64)
+    energy_labels::Vector{Float64}, config::LiouvConfig)
 
     dim = size(trotter.eigvecs, 1)
     w0 = energy_labels[2] - energy_labels[1]
-    oft_time_labels = truncate_time_labels_for_oft(time_labels, beta)
+    oft_time_labels = truncate_time_labels_for_oft(time_labels, config.beta)
 
-    transition_gauss(w) = exp(-beta^2 * (w + 1/beta)^2 /2)
+    transition_gauss(w) = exp(-config.beta^2 * (w + 1 / config.beta)^2 /2)
 
-    if with_coherent  # Steup for coherent term in time domain
-        f_minus = compute_truncated_f_minus(time_labels, beta)
-        f_plus = compute_truncated_f_plus(time_labels, beta)
+    if config.with_coherent  # Steup for coherent term in time domain
+        f_minus = compute_truncated_f_minus(time_labels, config.beta)
+        f_plus = compute_truncated_f_plus(time_labels, config.beta)
     end
 
     total_liouv_coherent_part = zeros(ComplexF64, dim^2, dim^2)
     total_liouv_diss_part = zeros(ComplexF64, dim^2, dim^2)
     p = Progress(Int(length(jumps) * length(energy_labels)), desc="Liouvillian (TROTTER GAUSS)...")
     for jump in jumps
-        if with_coherent  # There is no energy formulation of the coherent term, only Bohr and time.
+        if config.with_coherent  # There is no energy formulation of the coherent term, only Bohr and time.
             coherent_term = coherent_term_trotter(jump, trotter, f_minus, f_plus)
             coherent_term = trotter.trafo_from_eigen_to_trotter' * coherent_term * trotter.trafo_from_eigen_to_trotter
             total_liouv_coherent_part .+= vectorize_liouvillian_coherent(coherent_term)
         end
 
         for w in energy_labels
-            jump_oft = trotter_oft(jump, w, trotter, oft_time_labels, beta) # t0 * sqrt((sqrt(2 / pi)/beta) / (2 * pi))
+            jump_oft = trotter_oft(jump, w, trotter, oft_time_labels, config.beta) # t0 * sqrt((sqrt(2 / pi)/beta) / (2 * pi))
             jump_oft = trotter.trafo_from_eigen_to_trotter' * jump_oft * trotter.trafo_from_eigen_to_trotter
             # jump_oft_w = oft(jump, w, hamiltonian, beta) * sqrt(beta / sqrt(2 * pi))
             # @assert (norm(jump_oft_w - jump_oft * t0 * sqrt((sqrt(2 / pi)/beta) / (2 * pi))) < 1e-7)
@@ -174,7 +177,7 @@ function construct_liouvillian_trotter_gauss(jumps::Vector{JumpOp}, trotter::Tro
         end
     end
     
-    prefactor = w0 * t0^2 * (sqrt(2 / pi)/beta) / (2 * pi)
+    prefactor = w0 * t0^2 * (sqrt(2 / pi)/config.beta) / (2 * pi)
     return total_liouv_coherent_part .+ prefactor * total_liouv_diss_part  # L in energy basis
 end
 

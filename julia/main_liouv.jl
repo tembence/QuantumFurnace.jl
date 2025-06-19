@@ -19,18 +19,17 @@ include("energy_picture.jl")
 num_qubits = 3
 dim = 2^num_qubits
 beta = 10.  # 5, 10, 30
-a = beta / 50. # a = beta / 50.
-b = 0.5  # b = 0.5
-eta = 0.2
+a = 0.0 # a = beta / 50.
+b = 0.0  # b = 0.5
+eta = 0.2  # eta = 0.2
 with_coherent = true
 with_linear_combination = false
-pictures = [BOHR]
-num_energy_bits = 13
+pictures = [TROTTER]
+num_energy_bits = 10
 w0 = 0.05
 max_E = w0 * 2^num_energy_bits / 2
 t0 = 2pi / (2^num_energy_bits * w0)
 num_trotter_steps_per_t0 = 10
-delta = 0.1
 
 configs::Vector{LiouvConfig} = []
 for picture in pictures
@@ -53,10 +52,10 @@ for picture in pictures
 end
 
 #* Hamiltonian
-# hamiltonian = find_ideal_heisenberg(num_qubits, fill(1.0, 3); batch_size=100)
-hamiltonian_terms = [["X", "X"], ["Y", "Y"], ["Z", "Z"]]
-hamiltonian_coeffs = fill(1.0, length(hamiltonian_terms))
-hamiltonian = create_hamham(hamiltonian_terms, hamiltonian_coeffs, num_qubits)
+hamiltonian = find_ideal_heisenberg(num_qubits, fill(1.0, 3); batch_size=100)
+# hamiltonian_terms = [["X", "X"], ["Y", "Y"], ["Z", "Z"]]
+# hamiltonian_coeffs = fill(1.0, length(hamiltonian_terms))
+# hamiltonian = create_hamham(hamiltonian_terms, hamiltonian_coeffs, num_qubits)
 hamiltonian.bohr_freqs = hamiltonian.eigvals .- transpose(hamiltonian.eigvals)
 hamiltonian.bohr_dict = create_bohr_dict(hamiltonian)
 gibbs = gibbs_state_in_eigen(hamiltonian, beta)

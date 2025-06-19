@@ -190,7 +190,8 @@ end
 #* B1 AND B2 ----------------------------------------------------------------------------------------------------------------
 
 #TODO: 
-function pick_and_compute_truncated_f_plus()
+function pick_funcs_for_coherent_term(config::Union{LiouvConfig, ThermalizeConfig})
+    
 end
 
 # Corollary III.1, every parameter = 1 / beta
@@ -226,9 +227,15 @@ function compute_f_plus_metro(t::Float64, beta::Float64, eta::Float64)
     return (sqrt(1 / 2pi) / beta) * numerator / denominator
 end
 
+function compute_truncated_f(target_func::Function, time_labels::Vector{Float64}, fixed_args...; atol::Float64 = 1e-12)
+    f_vals = Vector{ComplexF64}(target_func.(time_labels, fixed_args...))
+    indices_to_keep = get_truncated_indices(f_vals; atol=atol)
+    return Dict(zip(time_labels[indices_to_keep], f_vals[indices_to_keep]))
+end
+
 function compute_truncated_f_minus(time_labels::Vector{Float64}, beta::Float64; atol::Float64 = 1e-12)
     f_minus = Vector{ComplexF64}(compute_f_minus.(time_labels, beta))
-    # Skip all elements where b1 b2 are smaller than 1e-12
+    # Skip all elements where fminus fplus are smaller than 1e-12
     indices_f_minus = get_truncated_indices(f_minus; atol=atol)
     return Dict(zip(time_labels[indices_f_minus], f_minus[indices_f_minus]))
 end
