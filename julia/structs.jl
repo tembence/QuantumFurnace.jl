@@ -16,7 +16,7 @@ struct TrotterPicture <: AbstractPicture end
     num_qubits::Int64 
     with_coherent::Bool
     with_linear_combination::Bool
-    picture::Picture
+    picture::AbstractPicture  #!
     beta::Float64
     a::Float64 = nothing
     b::Float64 = nothing

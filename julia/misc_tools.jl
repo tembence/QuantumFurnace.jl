@@ -64,71 +64,143 @@ function pick_transition(beta::Float64, a::Float64, b::Float64)
     end
 end
 
-function is_config_valid(config::Union{LiouvConfig, ThermalizeConfig})::Bool
+# function is_config_valid(config::Union{LiouvConfig, ThermalizeConfig})::Bool
+#     errors = String[]
+
+#     # Check based on the picture type.
+#     if config.picture == BOHR
+#         nothing
+#     elseif config.picture == ENERGY
+#         if config.num_energy_bits <= 0
+#             push!(errors, "For picture ENERGY, num_energy_bits must be > 0.")
+#         end
+#         if config.w0 <= 0.
+#             push!(errors, "For picture ENERGY, w0 must be > 0.")
+#         end
+#     elseif config.picture == TIME
+#         if config.num_energy_bits <= 0
+#             push!(errors, "For picture TIME, num_energy_bits must be > 0.")
+#         end
+#         if config.t0 <= 0.
+#             push!(errors, "For picture TIME, t0 must be > 0.")
+#         end
+#         if config.w0 <= 0.
+#             push!(errors, "For picture TIME, w0 must be > 0.")
+#         end
+#         if (config.t0 * config.w0 != 2pi/2^config.num_energy_bits)
+#             push!(errors, "t0 * w0 != 2pi / N")
+#         end
+#         if (config.a == 0. && config.eta <= 0. && config.with_linear_combination)
+#             push!(errors, "For linear combinations and picture TIME, a = 0 needs an eta > 0")
+#         end 
+#     elseif config.picture == TROTTER
+#         if config.num_energy_bits <= 0
+#             push!(errors, "For picture TROTTER, num_energy_bits must be > 0.")
+#         end
+#         if config.t0 <= 0.
+#             push!(errors, "For picture TROTTER, t0 must be > 0.")
+#         end
+#         if config.w0 <= 0.
+#             push!(errors, "For picture TROTTER, w0 must be > 0.")
+#         end
+#         if config.num_trotter_steps_per_t0 <= 0
+#             push!(errors, "For picture TROTTER, num_trotter_steps_per_t0 must be > 0.")
+#         end
+#         if (norm(config.t0 * config.w0 - 2pi/2^config.num_energy_bits) > 1e-15)
+#             push!(errors, "t0 * w0 != 2pi / N")
+#         end
+#         if (config.a == 0. && config.eta <= 0. && config.with_linear_combination)
+#             push!(errors, "For linear combinations and picture TROTTER, a = 0 needs an eta > 0")
+#         end 
+#     else
+#         push!(errors, "Unknown picture type.")
+#     end
+
+#     if (config.b != 0. && config.a == 0. && config.with_linear_combination)
+#         push!(errors, "For linear combinations when b > 0, then we need, a > 0.")
+#     end
+
+#     if !isempty(errors)
+#         for err in errors
+#             println(err)
+#         end
+#         return false
+#     end
+
+#     return true
+# end
+
+function validate_config!(config::Union{LiouvConfig, ThermalizeConfig})
     errors = String[]
 
-    # Check based on the picture type.
-    if config.picture == BOHR
-        nothing
-    elseif config.picture == ENERGY
-        if config.num_energy_bits <= 0
-            push!(errors, "For picture ENERGY, num_energy_bits must be > 0.")
+    # --- Picture-Specific Validation ---
+    _collect_config_errors!(errors, config.picture, config)
+
+    # --- Common Validation Logic ---
+    if config.with_linear_combination && config.a == 0.0
+        if config.b != 0.0
+            push!(errors, "For linear combinations with b != 0, a must also be non-zero.")
         end
-        if config.w0 <= 0.
-            push!(errors, "For picture ENERGY, w0 must be > 0.")
+        if config.picture isa Union{TimePicture, TrotterPicture} && config.eta <= 0.0
+            push!(errors, "For linear combinations with a=0 in TIME or TROTTER picture, eta must be > 0.")
         end
-    elseif config.picture == TIME
-        if config.num_energy_bits <= 0
-            push!(errors, "For picture TIME, num_energy_bits must be > 0.")
-        end
-        if config.t0 <= 0.
-            push!(errors, "For picture TIME, t0 must be > 0.")
-        end
-        if config.w0 <= 0.
-            push!(errors, "For picture TIME, w0 must be > 0.")
-        end
-        if (config.t0 * config.w0 != 2pi/2^config.num_energy_bits)
-            push!(errors, "t0 * w0 != 2pi / N")
-        end
-        if (config.a == 0. && config.eta <= 0. && config.with_linear_combination)
-            push!(errors, "For linear combinations and picture TIME, a = 0 needs an eta > 0")
-        end 
-    elseif config.picture == TROTTER
-        if config.num_energy_bits <= 0
-            push!(errors, "For picture TROTTER, num_energy_bits must be > 0.")
-        end
-        if config.t0 <= 0.
-            push!(errors, "For picture TROTTER, t0 must be > 0.")
-        end
-        if config.w0 <= 0.
-            push!(errors, "For picture TROTTER, w0 must be > 0.")
-        end
-        if config.num_trotter_steps_per_t0 <= 0
-            push!(errors, "For picture TROTTER, num_trotter_steps_per_t0 must be > 0.")
-        end
-        if (norm(config.t0 * config.w0 - 2pi/2^config.num_energy_bits) > 1e-15)
-            push!(errors, "t0 * w0 != 2pi / N")
-        end
-        if (config.a == 0. && config.eta <= 0. && config.with_linear_combination)
-            push!(errors, "For linear combinations and picture TROTTER, a = 0 needs an eta > 0")
-        end 
-    else
-        push!(errors, "Unknown picture type.")
     end
 
-    if (config.b != 0. && config.a == 0. && config.with_linear_combination)
-        push!(errors, "For linear combinations when b > 0, then we need, a > 0.")
-    end
-
+    # --- Error Throwing ---
     if !isempty(errors)
-        for err in errors
-            println(err)
-        end
-        return false
+        error_message = "Invalid configuration found:\n" * join(["  - " * err for err in errors], "\n")
+        throw(ArgumentError(error_message))
     end
 
-    return true
+    return nothing
 end
+
+function _collect_config_errors!(errors::Vector{String}, ::BohrPicture, config)
+    return # No specific checks
+end
+
+function _collect_config_errors!(errors::Vector{String}, ::EnergyPicture, config)
+    if config.num_energy_bits <= 0
+        push!(errors, "For EnergyPicture, num_energy_bits must be > 0.")
+    end
+    if config.w0 <= 0.0
+        push!(errors, "For EnergyPicture, w0 must be > 0.")
+    end
+end
+
+function _collect_config_errors!(errors::Vector{String}, ::TimePicture, config)
+    if config.num_energy_bits <= 0
+        push!(errors, "For TimePicture, num_energy_bits must be > 0.")
+    end
+    if config.t0 <= 0.0
+        push!(errors, "For TimePicture, t0 must be > 0.")
+    end
+    if config.w0 <= 0.0
+        push!(errors, "For TimePicture, w0 must be > 0.")
+    end
+    if !isapprox(config.t0 * config.w0, 2pi / 2^config.num_energy_bits)
+        push!(errors, "For TimePicture, the relation t0 * w0 ≈ 2π / 2^N must hold.")
+    end
+end
+
+function _collect_config_errors!(errors::Vector{String}, ::TrotterPicture, config)
+    if config.num_energy_bits <= 0
+        push!(errors, "For TrotterPicture, num_energy_bits must be > 0.")
+    end
+    if config.t0 <= 0.0
+        push!(errors, "For TrotterPicture, t0 must be > 0.")
+    end
+    if config.w0 <= 0.0
+        push!(errors, "For TrotterPicture, w0 must be > 0.")
+    end
+    if config.num_trotter_steps_per_t0 <= 0
+        push!(errors, "For TrotterPicture, num_trotter_steps_per_t0 must be > 0.")
+    end
+    if !isapprox(config.t0 * config.w0, 2pi / 2^config.num_energy_bits)
+        push!(errors, "For TrotterPicture, the relation t0 * w0 ≈ 2π / 2^N must hold.")
+    end
+end
+
 
 function print_press(config::LiouvConfig)
     params = [

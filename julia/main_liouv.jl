@@ -16,16 +16,16 @@ include("ofts.jl")
 include("energy_picture.jl")
 
 #* Config
-num_qubits = 3
+num_qubits = 4
 dim = 2^num_qubits
 beta = 10.  # 5, 10, 30
-a = 0.0 # a = beta / 50.
-b = 0.0  # b = 0.5
+a = beta / 50. # a = beta / 50.
+b = 0.5  # b = 0.5
 eta = 0.2  # eta = 0.2
 with_coherent = true
-with_linear_combination = false
-pictures = [TROTTER]
-num_energy_bits = 10
+with_linear_combination = true
+pictures = [TrotterPicture()]
+num_energy_bits = 13
 w0 = 0.05
 max_E = w0 * 2^num_energy_bits / 2
 t0 = 2pi / (2^num_energy_bits * w0)
@@ -47,7 +47,7 @@ for picture in pictures
         eta = eta,
         num_trotter_steps_per_t0 = num_trotter_steps_per_t0
     )
-    is_config_valid(config)
+    validate_config!(config)
     push!(configs, config)
 end
 
@@ -67,8 +67,6 @@ initial_dm = Matrix{ComplexF64}(I(dim) / dim)
 trotter = create_trotter(hamiltonian, t0, num_trotter_steps_per_t0)
 trotter_error_T = compute_trotter_error(hamiltonian, trotter, 2^num_energy_bits * t0 / 2)
 gibbs_in_trotter = trotter.eigvecs' * gibbs_state(hamiltonian, beta) * trotter.eigvecs
-
-# compute_errors(hamiltonian, configs[1]; trotter = trotter)
 
 #* Jumps
 X::Matrix{ComplexF64} = [0 1; 1 0]
@@ -95,26 +93,15 @@ for pauli in jump_paulis
     end
 end
 
-#! GOOD:  #! Does my Trotter work now for general Hamiltonian? #TODO:
-# jump = jumps[2]
-# w = 0.12
-# energy_labels = create_energy_labels(num_energy_bits, w0)
-# truncated_energy_labels = truncate_energy_labels(energy_labels, beta, a, b, with_linear_combination)
-# time_labels = energy_labels .* (t0 / w0)
-
-# time_labels_for_oft = truncate_time_labels_for_oft(time_labels, beta)
-# oft_trott = trotter_oft(jump, w, trotter, time_labels, beta) * t0 * sqrt((sqrt(2 / pi)/beta) / (2 * pi))
-# oft_trott_ineigen  = hamiltonian.eigvecs' * trotter.eigvecs * oft_trott * trotter.eigvecs' * hamiltonian.eigvecs
-# oft_w = oft(jump, w, hamiltonian, beta) * sqrt(beta / sqrt(2 * pi))
-# oft_t = time_oft(jump, w, hamiltonian, time_labels, beta) * t0 * sqrt((sqrt(2 / pi)/beta) / (2 * pi))
-
-# norm(oft_trott_ineigen - oft_t)
-# norm(oft_t - oft_w)
-
 #* Liouvillian
-liouv_result = run_liouvillian(jumps, configs[1], hamiltonian; trotter = trotter)
+liouv_result = run_liouvillian(jumps, configs[1]; hamiltonian = hamiltonian, trotter = trotter)
 @printf("Distance to Gibbs: %s\n", norm(liouv_result.fixed_point - gibbs))
 @printf("Spectral gap: %s\n", abs(real(liouv_result.lambda_2)))
+
+@printf("Distance to Gibbs (TROTTER): %s\n", norm(liouv_result.fixed_point - gibbs_in_trotter))
+
+
+
 # liouv_energy = construct_liouvillian(jumps, configs[2]; hamiltonian=hamiltonian)
 # liouv_time = construct_liouvillian(jumps, configs[3]; hamiltonian=hamiltonian)
 # liouv_trotter = construct_liouvillian(jumps, configs[1]; trotter=trotter)
