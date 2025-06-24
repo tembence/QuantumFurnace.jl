@@ -10,6 +10,19 @@ struct EnergyPicture <: AbstractPicture end
 struct TimePicture <: AbstractPicture end
 struct TrotterPicture <: AbstractPicture end
 
+struct OFTCaches
+    prefactors::Vector{ComplexF64}
+    U::Diagonal{ComplexF64, Vector{ComplexF64}}
+    temp_op::Matrix{ComplexF64}
+    
+    function OFTCaches(dim::Int)
+        prefactors = zeros(ComplexF64, 0) # Will be resized later
+        U = Diagonal(zeros(ComplexF64, dim))
+        temp_op = zeros(ComplexF64, dim, dim)
+        new(prefactors, U, temp_op)
+    end
+end
+
 # Let's keep this structure, and have the "give w0 for desired energy integral error" type of config optimization
 # before the construct_liouvillian function
 @kwdef struct LiouvConfig
@@ -31,7 +44,7 @@ end
     num_qubits::Int64 
     with_coherent::Bool
     with_linear_combination::Bool
-    picture::Picture
+    picture::AbstractPicture
     beta::Float64
     a::Float64
     b::Float64
@@ -61,6 +74,7 @@ mutable struct HamHam
     shift::Float64
     rescaling_factor::Float64
     periodic::Bool
+    gibbs::Hermitian{ComplexF64, Matrix{ComplexF64}}
 end
 
 mutable struct JumpOp
@@ -91,6 +105,9 @@ end
     evolved_dm::Matrix{ComplexF64}
     distances_to_gibbs::Vector{Float64}
     time_steps::Vector{Float64}
+    hamiltonian::HamHam
+    trotter::Union{TrottTrott,Nothing} = nothing
+    config::ThermalizeConfig
 end
 
 @kwdef struct HotSpectralResults

@@ -2,6 +2,7 @@ include("ofts.jl")
 include("qi_tools.jl")
 include("coherent.jl")
 include("timelike_tools.jl")
+include("structs.jl")
 
 #* Liouvillian jump contributions
 
@@ -135,4 +136,231 @@ function jump_contribution(::TrotterPicture, jump::JumpOp, trotter::TrottTrott, 
     return liouv_coherent_part_for_jump .+ prefactor * liouv_diss_part_for_jump  #! L in trotter basis
 end
 
-#* Algorithmic jump contributions
+#* Algorithmic jump contributions -----
+function jump_contribution(::BohrPicture, evolving_dm::Matrix{ComplexF64}, jump::JumpOp, hamiltonian::HamHam, 
+    config::ThermalizeConfig)
+
+    dim = size(evolving_dm, 1)
+
+    jump_coherent = zeros(ComplexF64, dim, dim)
+    jump_dissipative = zeros(ComplexF64, dim, dim)
+    # Coherent part
+    if config.with_coherent
+        coherent_term = coherent_bohr(hamiltonian, jump, config)
+        jump_coherent .+= - 1im * (coherent_term * evolving_dm - evolving_dm * coherent_term)
+    end
+
+    # Dissipative part
+    for nu_2 in keys(hamiltonian.bohr_dict)
+        A_nu_2::SparseMatrixCSC{ComplexF64} = spzeros(dim, dim)
+        indices_nu_2 = hamiltonian.bohr_dict[nu_2]
+        A_nu_2[indices_nu_2] .= jump.in_eigenbasis[indices_nu_2]
+
+        alpha_A_nu1 = create_alpha.(hamiltonian.bohr_freqs, nu_2, config.beta, config.a, config.b) .* jump.in_eigenbasis
+
+        jump_dissipative .+= (alpha_A_nu1 * evolving_dm * A_nu_2' - 0.5 * (A_nu_2' * alpha_A_nu1 * evolving_dm 
+                                        + evolving_dm * A_nu_2' * alpha_A_nu1)
+                                        )
+    end
+    return config.delta * (jump_coherent + jump_dissipative)
+end
+
+function jump_contribution(::EnergyPicture, evolving_dm::Matrix{ComplexF64}, jump::JumpOp, hamiltonian::HamHam, 
+    config::ThermalizeConfig)
+
+    dim = size(evolving_dm, 1)
+    w0 = energy_labels[2] - energy_labels[1]
+
+    jump_coherent = zeros(ComplexF64, dim, dim)
+    jump_dissipative = zeros(ComplexF64, dim, dim)
+    # Coherent part
+    if config.with_coherent
+        coherent_term = coherent_bohr(hamiltonian, jump, config)
+        jump_coherent .+= - 1im * (coherent_term * evolving_dm - evolving_dm * coherent_term)
+    end
+
+    # Dissipative part
+    for w in energy_labels
+        jump_oft = oft(jump, w, hamiltonian, config.beta)
+        jump_dag_jump = jump_oft' * jump_oft
+        jump_dissipative .+= transition(w) * (
+            jump_oft * evolving_dm * jump_oft' - 0.5 * (jump_dag_jump * evolving_dm + evolving_dm * jump_dag_jump)
+            )
+    end
+
+    oft_prefactor = config.beta / sqrt(2 * pi)
+    return config.delta * (jump_coherent + w0 * oft_prefactor * jump_dissipative)
+end
+
+function jump_contribution(::TimePicture, evolving_dm::Matrix{ComplexF64}, jump::JumpOp, hamiltonian::HamHam, 
+    config::ThermalizeConfig)
+
+    dim = size(evolving_dm, 1)
+    w0 = energy_labels[2] - energy_labels[1]
+    t0 = time_labels[2] - time_labels[1]
+    oft_time_labels = truncate_time_labels_for_oft(time_labels, config.beta)
+
+    jump_coherent = zeros(ComplexF64, dim, dim)
+    jump_dissipative = zeros(ComplexF64, dim, dim)
+
+    # Coherent part
+    if config.with_coherent
+        coherent_term = coherent_term_time(jump, hamiltonian, f_minus, f_plus, t0)
+        jump_coherent .+= - 1im * (coherent_term * evolving_dm - evolving_dm * coherent_term)
+    end
+
+    # Dissipative part
+    for w in energy_labels
+        jump_oft = time_oft(jump, w, hamiltonian, oft_time_labels, config.beta)
+        jump_dag_jump = jump_oft' * jump_oft
+        jump_dissipative .+= transition(w) * (
+            jump_oft * evolving_dm * jump_oft' - 0.5 * (jump_dag_jump * evolving_dm + evolving_dm * jump_dag_jump)
+            )
+    end
+
+    oft_prefactor = (sqrt(2 / pi) / config.beta) / (2 * pi)
+    return config.delta * (jump_coherent + w0 * t0^2 * oft_prefactor * jump_dissipative)
+end
+
+function jump_contribution(::TrotterPicture, evolving_dm::Matrix{ComplexF64}, jump::JumpOp, trotter::TrottTrott, 
+    config::ThermalizeConfig)
+
+    dim = size(evolving_dm, 1)
+    w0 = energy_labels[2] - energy_labels[1]
+    oft_time_labels = truncate_time_labels_for_oft(time_labels, config.beta)
+
+    jump_coherent = zeros(ComplexF64, dim, dim)
+    jump_dissipative = zeros(ComplexF64, dim, dim)
+
+    # Coherent part
+    if config.with_coherent
+        coherent_term = coherent_term_trotter(jump, trotter, f_minus, f_plus)
+        jump_coherent .+= - 1im * (coherent_term * evolving_dm - evolving_dm * coherent_term)
+    end
+
+    # Dissipative part
+    for w in energy_labels
+        jump_oft = trotter_oft(jump, w, trotter, oft_time_labels, config.beta) # t0 * sqrt((sqrt(2 / pi)/beta) / (2 * pi))
+        jump_dag_jump = jump_oft' * jump_oft
+        jump_dissipative .+= transition(w) * (
+            jump_oft * evolving_dm * jump_oft' - 0.5 * (jump_dag_jump * evolving_dm + evolving_dm * jump_dag_jump)
+            )
+    end
+
+    oft_prefactor = (sqrt(2 / pi) / config.beta) / (2 * pi)
+    return config.delta * (jump_coherent + w0 * trotter.t0^2 * oft_prefactor * jump_dissipative)
+end
+
+
+function jump_contribution_fast(::TimePicture, evolving_dm::Matrix{ComplexF64}, jump::JumpOp, hamiltonian::HamHam, 
+    config::ThermalizeConfig)
+
+    dim = size(evolving_dm, 1)
+    w0 = energy_labels[2] - energy_labels[1]
+    t0 = time_labels[2] - time_labels[1]
+    oft_time_labels = truncate_time_labels_for_oft(time_labels, config.beta)
+
+    jump_coherent = zeros(ComplexF64, dim, dim)
+    jump_dissipative = zeros(ComplexF64, dim, dim)
+
+    # Coherent part
+    if config.with_coherent
+        coherent_term = coherent_term_time(jump, hamiltonian, f_minus, f_plus, t0)
+        jump_coherent .+= - 1im * (coherent_term * evolving_dm - evolving_dm * coherent_term)
+    end
+
+    jump_oft = zeros(ComplexF64, dim, dim)
+    jump_dag_jump = similar(jump_oft)
+    term1 = similar(jump_oft) # For jump_oft * evolving_dm * jump_oft'
+    term2 = similar(jump_oft) # For jump_dag_jump * evolving_dm
+    term3 = similar(jump_oft) # For evolving_dm * jump_dag_jump
+    term_cache = similar(jump_oft)
+
+    # Pre-allocate caches for the time_oft function as well
+    time_oft_caches = OFTCaches(dim)
+
+    for w in energy_labels
+        time_oft_fast!(jump_oft, time_oft_caches, jump, w, hamiltonian, oft_time_labels, config.beta)
+        
+        # jump_dag_jump = jump_oft' * jump_oft
+        mul!(jump_dag_jump, jump_oft', jump_oft)
+
+        # term1 = jump_oft * evolving_dm * jump_oft'
+        mul!(term_cache, evolving_dm, jump_oft') # term_cache = evolving_dm * jump_oft'
+        mul!(term1, jump_oft, term_cache)        # term1 = jump_oft * (evolving_dm * jump_oft')
+
+        # term2 = jump_dag_jump * evolving_dm
+        mul!(term2, jump_dag_jump, evolving_dm)
+
+        # term3 = evolving_dm * jump_dag_jump
+        mul!(term3, evolving_dm, jump_dag_jump)
+
+        # jump_dissipative .+= transition(w) * (term1 - 0.5 * (term2 + term3))
+        term2 .+= term3             # term2 is now (term2 + term3)
+        term1 .-= 0.5 .* term2      # term1 is now (term1 - 0.5 * (...))
+        
+        # axpby!(Y, α, X, β, Y) which computes Y = α*X + β*Y
+        # Here, Y = jump_dissipative, α = transition(w), X = term1, β = 1.0
+        LinearAlgebra.axpby!(transition(w), term1, 1.0, jump_dissipative)
+    end
+
+    oft_prefactor = (sqrt(2 / pi) / config.beta) / (2 * pi)
+    return config.delta * (jump_coherent + w0 * t0^2 * oft_prefactor * jump_dissipative)
+end
+
+function jump_contribution_fast(::TrotterPicture, evolving_dm::Matrix{ComplexF64}, jump::JumpOp, trotter::TrottTrott, 
+    config::ThermalizeConfig)
+
+    dim = size(evolving_dm, 1)
+    w0 = energy_labels[2] - energy_labels[1]
+    t0 = time_labels[2] - time_labels[1]
+    oft_time_labels = truncate_time_labels_for_oft(time_labels, config.beta)
+
+    jump_coherent = zeros(ComplexF64, dim, dim)
+    jump_dissipative = zeros(ComplexF64, dim, dim)
+
+    # Coherent part
+    if config.with_coherent
+        coherent_term = coherent_term_trotter(jump, trotter, f_minus, f_plus)
+        jump_coherent .+= - 1im * (coherent_term * evolving_dm - evolving_dm * coherent_term)
+    end
+
+    # Preallocate for speed
+    jump_oft = zeros(ComplexF64, dim, dim)
+    jump_dag_jump = similar(jump_oft)
+    term1 = similar(jump_oft) # For jump_oft * evolving_dm * jump_oft'
+    term2 = similar(jump_oft) # For jump_dag_jump * evolving_dm
+    term3 = similar(jump_oft) # For evolving_dm * jump_dag_jump
+    term_cache = similar(jump_oft)
+
+    oft_caches = OFTCaches(dim)  # For anything within OFT
+
+    for w in energy_labels
+        trotter_oft_fast!(jump_oft, oft_caches, jump, w, trotter, oft_time_labels, config.beta)
+        
+        # jump_dag_jump = jump_oft' * jump_oft
+        mul!(jump_dag_jump, jump_oft', jump_oft)
+
+        # term1 = jump_oft * evolving_dm * jump_oft'
+        mul!(term_cache, evolving_dm, jump_oft') # term_cache = evolving_dm * jump_oft'
+        mul!(term1, jump_oft, term_cache)        # term1 = jump_oft * (evolving_dm * jump_oft')
+
+        # term2 = jump_dag_jump * evolving_dm
+        mul!(term2, jump_dag_jump, evolving_dm)
+
+        # term3 = evolving_dm * jump_dag_jump
+        mul!(term3, evolving_dm, jump_dag_jump)
+
+        # jump_dissipative .+= transition(w) * (term1 - 0.5 * (term2 + term3))
+        term2 .+= term3             # term2 is now (term2 + term3)
+        term1 .-= 0.5 .* term2      # term1 is now (term1 - 0.5 * (...))
+        
+        # axpby!(Y, α, X, β, Y) which computes Y = α*X + β*Y
+        # Here, Y = jump_dissipative, α = transition(w), X = term1, β = 1.0
+        LinearAlgebra.axpby!(transition(w), term1, 1.0, jump_dissipative)
+    end
+
+    oft_prefactor = (sqrt(2 / pi) / config.beta) / (2 * pi)
+    return config.delta * (jump_coherent + w0 * t0^2 * oft_prefactor * jump_dissipative)
+end
+

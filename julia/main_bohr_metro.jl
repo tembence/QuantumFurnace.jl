@@ -2,7 +2,7 @@ using LinearAlgebra
 using Random
 using Printf
 using ProgressMeter
-using JLD
+using JLD2
 
 include("hamiltonian.jl")
 include("ofts.jl")

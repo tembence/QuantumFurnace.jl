@@ -1,7 +1,7 @@
 using LinearAlgebra
 using Random
 using Printf
-using JLD
+using JLD2
 
 include("hamiltonian.jl")
 include("qi_tools.jl")

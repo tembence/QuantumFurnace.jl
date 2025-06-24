@@ -14,8 +14,11 @@ include("misc_tools.jl")
 include("jump_workers.jl")
 include("oven_utensils.jl")
 
-function run_liouvillian(jumps::Vector{JumpOp}, config::LiouvConfig;
-    hamiltonian::Union{HamHam, Nothing}=nothing, trotter::Union{TrottTrott, Nothing}=nothing)
+function run_liouvillian(jumps::Vector{JumpOp}, config::LiouvConfig, hamiltonian::HamHam; 
+    trotter::Union{TrottTrott, Nothing}=nothing)
+
+    validate_config!(config)
+    print_press(config)
 
     liouv = construct_liouvillian(jumps, config; 
     hamiltonian=hamiltonian, trotter=trotter)
@@ -37,10 +40,8 @@ function run_liouvillian(jumps::Vector{JumpOp}, config::LiouvConfig;
     return result
 end
 
-function construct_liouvillian(jumps::Vector{JumpOp}, config::LiouvConfig;
-    hamiltonian::Union{HamHam, Nothing}=nothing, trotter::Union{TrottTrott, Nothing}=nothing)
-
-    print_press(config)
+function construct_liouvillian(jumps::Vector{JumpOp}, config::LiouvConfig, hamiltonian::HamHam;
+    trotter::Union{TrottTrott, Nothing}=nothing)
     
     picture_name = replace(string(typeof(config.picture)), "Picture" => "")
     progress_desc = "Constructing Liouvillian ($(picture_name))"
@@ -49,13 +50,11 @@ function construct_liouvillian(jumps::Vector{JumpOp}, config::LiouvConfig;
         trotter === nothing && error("A Trotter object must be provided for the TrotterPicture")
         trotter
     else # For Bohr, Energy, Time pictures
-        hamiltonian === nothing && error("A Hamiltonian must be provided for the $(typeof(config.picture))")
         hamiltonian
     end
 
     labels = precompute_labels(config.picture, config)
 
-    p = Progress(Int(length(jumps)), desc=progress_desc)
     total_liouv = @showprogress dt=0.01 progress_desc @distributed (+) for jump in jumps
         jump_contribution(config.picture, jump, ham_or_trott, config, labels...)
     end
@@ -63,73 +62,195 @@ function construct_liouvillian(jumps::Vector{JumpOp}, config::LiouvConfig;
     return total_liouv
 end
 
-function thermalize(jumps::Vector{JumpOp}, config::ThermalizeConfig, initial_dm::Matrix{ComplexF64};
-    hamiltonian::Union{HamHam, Nothing} = nothing,
-    trotter::Union{TrottTrott, Nothing} = nothing)
+function run_thermalization(jumps::Vector{JumpOp}, config::ThermalizeConfig, evolving_dm::Matrix{ComplexF64},
+    hamiltonian::HamHam;
+    trotter::Union{TrottTrott, Nothing}=nothing)
 
-    if (config.picture == TROTTER && trotter === nothing)
-        error("For TROTTER picture, a trotterization needs to be provided")
-    elseif (config.picture != TROTTER && hamiltonian === nothing)
-        error("For NON - TROTTER picture, a hamiltonian needs to be provided")
-    end
-
-    if !(is_config_valid(config))
-        error("Invalid parameter combination")
-    end
-
+    validate_config!(config)
     print_press(config)
+    picture_name = replace(string(typeof(config.picture)), "Picture" => "")
+    progress_desc = "Thermalizing ($(picture_name))"
 
-    if config.picture==BOHR
-        if config.with_linear_combination
-            return thermalize_bohr(jumps, hamiltonian, initial_dm, config.with_coherent, config.beta, config.a, config.b,
-            config.mixing_time, config.delta, config.unravel)
-        else
-            return thermalize_bohr_gauss(jumps, hamiltonian, initial_dm, config.with_coherent, config.beta, 
-                config.mixing_time, config.delta, config.unravel)
-        end
+    if config.picture isa TrotterPicture
+        @assert trotter !== nothing "A Trotter object must be provided for the TrotterPicture"
+        ham_or_trott = trotter
+        gibbs = Hermitian(trotter.eigvecs' * hamiltonian.gibbs * trotter.eigvecs)
+    else
+        ham_or_trott = hamiltonian
+        gibbs = hamiltonian.gibbs
     end
-    if config.picture==ENERGY
-        energy_labels = create_energy_labels(config.num_energy_bits, config.w0)
-        truncated_energy_labels = truncate_energy_labels(energy_labels, config.beta,
-            config.a, config.b, config.with_linear_combination)
 
-        if config.with_linear_combination
-            return thermalize_energy(jumps, hamiltonian, initial_dm, truncated_energy_labels, 
-            config.with_coherent, config.beta, config.a, config.b, config.mixing_time, config.delta, config.unravel)
-        else
-            return thermalize_energy_gauss(jumps, hamiltonian, initial_dm, truncated_energy_labels, 
-            config.with_coherent, config.beta, config.mixing_time, config.delta, config.unravel)
-        end
-    end
-    if config.picture==TIME
-        energy_labels = create_energy_labels(config.num_energy_bits, config.w0)
-        truncated_energy_labels = truncate_energy_labels(energy_labels, config.beta,
-        config.a, config.b, config.with_linear_combination)
-        time_labels = energy_labels .* (config.t0 / config.w0)
+    num_liouv_steps = Int(ceil(mixing_time / delta))
+    energy_labels, time_labels = precompute_labels(config.picture, config)
 
-        if config.with_linear_combination
-            return thermalize_time(jumps, hamiltonian, initial_dm, time_labels, truncated_energy_labels, 
-                config.with_coherent, config.beta, config.a, config.b, config.mixing_time, config.delta, config.unravel)
-        else
-            return thermalize_time_gauss(jumps, hamiltonian, initial_dm, time_labels, truncated_energy_labels, 
-            config.with_coherent, config.beta, config.mixing_time, config.delta, config.unravel)
-        end
-    end
-    if config.picture == TROTTER
-        energy_labels = create_energy_labels(config.num_energy_bits, config.w0)
-        truncated_energy_labels = truncate_energy_labels(energy_labels, config.beta,
-        config.a, config.b, config.with_linear_combination)
-        time_labels = energy_labels .* (config.t0 / config.w0)
+    # Transition rate gamma
+    @everywhere transition = pick_transition(config.beta, config.a, config.b, config.with_linear_combination)
+    # Functions for B
+    f_minus, f_plus = if config.with_coherent && config.picture isa Union{TimePicture, TrotterPicture}
+        _f_minus = compute_truncated_f(compute_f_minus, time_labels, config.beta)
 
-        if config.with_linear_combination
-            return thermalize_trotter(jumps, trotter, initial_dm, time_labels, truncated_energy_labels,
-            config.with_coherent, config.beta, config.a, config.b, config.mixing_time, config.delta, config.unravel)
-        else
-            return thermalize_trotter_gauss(jumps, trotter, initial_dm, time_labels, truncated_energy_labels,
-            config.with_coherent, config.beta, config.mixing_time, config.delta, config.unravel)
-        end
+        f_plus_calculator, f_plus_args = select_f_plus_calculator(config)
+        _f_plus = compute_truncated_f(f_plus_calculator, time_labels, config.beta, f_plus_args...)
+        
+        (_f_minus, _f_plus)
+    else
+        (nothing, nothing)
     end
+
+    # Broadcast to all workers
+    @everywhere begin
+        global const energy_labels = $energy_labels
+        global const time_labels = $time_labels
+        global const f_minus = $f_minus
+        global const f_plus = $f_plus
+    end
+
+    distances_to_gibbs = [trace_distance_h(Hermitian(evolving_dm), gibbs)]
+    for step in 1:num_liouv_steps
+        update_dm = zeros(size(evolving_dm))
+        update_dm = @distributed (+) for jump in jumps
+            jump_contribution(config.picture, evolving_dm, jump, ham_or_trott, config)
+        end
+
+        evolving_dm .+= update_dm
+
+        dist = trace_distance_h(Hermitian(evolving_dm), gibbs)
+        push!(distances_to_gibbs, dist)
+    end
+    
+    time_steps = [0.0:delta:(num_liouv_steps * delta);]
+    return HotAlgorithmResults(evolving_dm, distances_to_gibbs, time_steps, hamiltonian, trotter, config)
 end
+
+function run_thermalization_fast(jumps::Vector{JumpOp}, config::ThermalizeConfig, evolving_dm::Matrix{ComplexF64},
+    hamiltonian::HamHam;
+    trotter::Union{TrottTrott, Nothing}=nothing)
+
+    validate_config!(config)
+    print_press(config)
+    picture_name = replace(string(typeof(config.picture)), "Picture" => "")
+    progress_desc = "Thermalizing ($(picture_name))"
+
+    if config.picture isa TrotterPicture
+        @assert trotter !== nothing "A Trotter object must be provided for the TrotterPicture"
+        ham_or_trott = trotter
+        gibbs = Hermitian(trotter.eigvecs' * hamiltonian.gibbs * trotter.eigvecs)
+    else
+        ham_or_trott = hamiltonian
+        gibbs = hamiltonian.gibbs
+    end
+
+    num_liouv_steps = Int(ceil(mixing_time / delta))
+    energy_labels, time_labels = precompute_labels(config.picture, config)
+
+    # Transition rate gamma
+    @everywhere transition = pick_transition(config.beta, config.a, config.b, config.with_linear_combination)
+    # Functions for B
+    f_minus, f_plus = if config.with_coherent && config.picture isa Union{TimePicture, TrotterPicture}
+        _f_minus = compute_truncated_f(compute_f_minus, time_labels, config.beta)
+
+        f_plus_calculator, f_plus_args = select_f_plus_calculator(config)
+        _f_plus = compute_truncated_f(f_plus_calculator, time_labels, config.beta, f_plus_args...)
+        
+        (_f_minus, _f_plus)
+    else
+        (nothing, nothing)
+    end
+
+    # Broadcast to all workers
+    @everywhere begin
+        global const energy_labels = $energy_labels
+        global const time_labels = $time_labels
+        global const f_minus = $f_minus
+        global const f_plus = $f_plus
+    end
+
+    distances_to_gibbs = [trace_distance_h(Hermitian(evolving_dm), gibbs)]
+    for step in 1:num_liouv_steps
+        update_dm = zeros(size(evolving_dm))
+        update_dm = @distributed (+) for jump in jumps
+            jump_contribution_fast(config.picture, evolving_dm, jump, ham_or_trott, config)
+        end
+
+        evolving_dm .+= update_dm
+
+        dist = trace_distance_h(Hermitian(evolving_dm), gibbs)
+        push!(distances_to_gibbs, dist)
+    end
+    
+    time_steps = [0.0:delta:(num_liouv_steps * delta);]
+    return HotAlgorithmResults(evolving_dm, distances_to_gibbs, time_steps, hamiltonian, trotter, config)
+end
+
+
+
+# function thermalize(jumps::Vector{JumpOp}, config::ThermalizeConfig, initial_dm::Matrix{ComplexF64};
+#     hamiltonian::Union{HamHam, Nothing} = nothing,
+#     trotter::Union{TrottTrott, Nothing} = nothing)
+
+#     if (config.picture == TROTTER && trotter === nothing)
+#         error("For TROTTER picture, a trotterization needs to be provided")
+#     elseif (config.picture != TROTTER && hamiltonian === nothing)
+#         error("For NON - TROTTER picture, a hamiltonian needs to be provided")
+#     end
+
+#     if !(is_config_valid(config))
+#         error("Invalid parameter combination")
+#     end
+
+#     print_press(config)
+
+#     if config.picture==BOHR
+#         if config.with_linear_combination
+#             return thermalize_bohr(jumps, hamiltonian, initial_dm, config.with_coherent, config.beta, config.a, config.b,
+#             config.mixing_time, config.delta, config.unravel)
+#         else
+#             return thermalize_bohr_gauss(jumps, hamiltonian, initial_dm, config.with_coherent, config.beta, 
+#                 config.mixing_time, config.delta, config.unravel)
+#         end
+#     end
+#     if config.picture==ENERGY
+#         energy_labels = create_energy_labels(config.num_energy_bits, config.w0)
+#         truncated_energy_labels = truncate_energy_labels(energy_labels, config.beta,
+#             config.a, config.b, config.with_linear_combination)
+
+#         if config.with_linear_combination
+#             return thermalize_energy(jumps, hamiltonian, initial_dm, truncated_energy_labels, 
+#             config.with_coherent, config.beta, config.a, config.b, config.mixing_time, config.delta, config.unravel)
+#         else
+#             return thermalize_energy_gauss(jumps, hamiltonian, initial_dm, truncated_energy_labels, 
+#             config.with_coherent, config.beta, config.mixing_time, config.delta, config.unravel)
+#         end
+#     end
+#     if config.picture==TIME
+#         energy_labels = create_energy_labels(config.num_energy_bits, config.w0)
+#         truncated_energy_labels = truncate_energy_labels(energy_labels, config.beta,
+#         config.a, config.b, config.with_linear_combination)
+#         time_labels = energy_labels .* (config.t0 / config.w0)
+
+#         if config.with_linear_combination
+#             return thermalize_time(jumps, hamiltonian, initial_dm, time_labels, truncated_energy_labels, 
+#                 config.with_coherent, config.beta, config.a, config.b, config.mixing_time, config.delta, config.unravel)
+#         else
+#             return thermalize_time_gauss(jumps, hamiltonian, initial_dm, time_labels, truncated_energy_labels, 
+#             config.with_coherent, config.beta, config.mixing_time, config.delta, config.unravel)
+#         end
+#     end
+#     if config.picture == TROTTER
+#         energy_labels = create_energy_labels(config.num_energy_bits, config.w0)
+#         truncated_energy_labels = truncate_energy_labels(energy_labels, config.beta,
+#         config.a, config.b, config.with_linear_combination)
+#         time_labels = energy_labels .* (config.t0 / config.w0)
+
+#         if config.with_linear_combination
+#             return thermalize_trotter(jumps, trotter, initial_dm, time_labels, truncated_energy_labels,
+#             config.with_coherent, config.beta, config.a, config.b, config.mixing_time, config.delta, config.unravel)
+#         else
+#             return thermalize_trotter_gauss(jumps, trotter, initial_dm, time_labels, truncated_energy_labels,
+#             config.with_coherent, config.beta, config.mixing_time, config.delta, config.unravel)
+#         end
+#     end
+# end
 
 
 

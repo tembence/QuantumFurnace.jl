@@ -1,3 +1,36 @@
+
+function generate_filename(config::LiouvConfig)
+    pic_str = string(typeof(config.picture))
+    
+    beta_str = "beta=$(config.beta)"
+    a_str = "a=$(config.a)"
+    b_str = "b=$(config.b)"
+    nqb_str = "n=$(config.num_qubits)"
+    if config.with_coherent
+        B = "B"
+    else
+        B = "noB"
+    end
+
+    return join([pic_str, nqb_str, beta_str, B, a_str, b_str], "_") * ".jld2"
+end
+
+function generate_filename(config::ThermalizeConfig)
+    pic_str = string(typeof(config.picture))
+    
+    beta_str = "beta=$(config.beta)"
+    a_str = "a=$(config.a)"
+    b_str = "b=$(config.b)"
+    nqb_str = "n=$(config.num_qubits)"
+    if config.with_coherent
+        B = "B"
+    else
+        B = "noB"
+    end
+    mix = "mix=$(config.mixing_time)"
+    return join([pic_str, nqb_str, beta_str, B, a_str, b_str, mix], "_") * ".jld2"
+end
+
 function riemann_sum(f::Function, grid::Vector{Float64})
     """Uniform grid, rectangle method"""
     d0 = grid[2] - grid[1]
@@ -41,28 +74,28 @@ function pick_transition(beta::Float64, a::Float64, b::Float64, with_linear_comb
     end
 end
 
-function pick_transition(beta::Float64, a::Float64, b::Float64)
+# function pick_transition(beta::Float64, a::Float64, b::Float64)
 
-    sqrtA = sqrt((4 * a / beta + 1) / 8)
-    if (b == 0 && a != 0)  # No time singularity but kinky Metro in energy
-        return w -> begin
-            sqrtB = beta * abs(w + 1 / (2 * beta)) / sqrt(2)
-            return exp((- 2 * sqrtA * sqrtB - beta * w / 2 - 1 / 4))
-        end
-    elseif (b != 0 && a != 0)  # No time singularity and no kinky Metro (Glauberish)
-        return w -> begin
-            sqrtB = beta * abs(w + 1 / (2 * beta)) / sqrt(2)
-            transition_eh = exp((- 2 * sqrtA * sqrtB - beta * w / 2 - 1 / 4))
+#     sqrtA = sqrt((4 * a / beta + 1) / 8)
+#     if (b == 0 && a != 0)  # No time singularity but kinky Metro in energy
+#         return w -> begin
+#             sqrtB = beta * abs(w + 1 / (2 * beta)) / sqrt(2)
+#             return exp((- 2 * sqrtA * sqrtB - beta * w / 2 - 1 / 4))
+#         end
+#     elseif (b != 0 && a != 0)  # No time singularity and no kinky Metro (Glauberish)
+#         return w -> begin
+#             sqrtB = beta * abs(w + 1 / (2 * beta)) / sqrt(2)
+#             transition_eh = exp((- 2 * sqrtA * sqrtB - beta * w / 2 - 1 / 4))
 
-            return (transition_eh * (erfc(sqrtA * sqrt(b) - sqrtB / sqrt(b)) 
-                + exp(4 * sqrtA * sqrtB) * erfc(sqrtA * sqrt(b) + sqrtB / sqrt(b))) / 2)
-        end
-    elseif a == 0  # Time singularity and kinky Metro
-        return w -> begin
-            return exp(-beta * max(w + 1/(2 * beta), 0.0))
-        end
-    end
-end
+#             return (transition_eh * (erfc(sqrtA * sqrt(b) - sqrtB / sqrt(b)) 
+#                 + exp(4 * sqrtA * sqrtB) * erfc(sqrtA * sqrt(b) + sqrtB / sqrt(b))) / 2)
+#         end
+#     elseif a == 0  # Time singularity and kinky Metro
+#         return w -> begin
+#             return exp(-beta * max(w + 1/(2 * beta), 0.0))
+#         end
+#     end
+# end
 
 # function is_config_valid(config::Union{LiouvConfig, ThermalizeConfig})::Bool
 #     errors = String[]

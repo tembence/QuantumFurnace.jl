@@ -3,7 +3,7 @@ using SparseArrays
 using Random
 using Printf
 # using QuantumOptics # Add it back if needed
-using JLD
+using JLD2
 
 include("hamiltonian.jl")
 

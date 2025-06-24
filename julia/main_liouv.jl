@@ -1,7 +1,7 @@
 using LinearAlgebra
 using Random
 using Printf
-using JLD
+using JLD2
 using Distributed
 using ClusterManagers
 
@@ -101,6 +101,18 @@ liouv_result = run_liouvillian(jumps, configs[1]; hamiltonian = hamiltonian, tro
 @printf("Distance to Gibbs (TROTTER): %s\n", norm(liouv_result.fixed_point - gibbs_in_trotter))
 
 
+# Save
+results_dir = joinpath(@__DIR__, "results")
+output_filename = generate_filename(config)
+full_path = joinpath(results_dir, output_filename)
+
+println("Saving results to: ", full_path)
+JLD2.jldsave(full_path; results=liouv_result)
+
+# Load
+# jld_data = JLD2.load(full_path)
+# loaded_results = jld_data["results"]
+
 
 # liouv_energy = construct_liouvillian(jumps, configs[2]; hamiltonian=hamiltonian)
 # liouv_time = construct_liouvillian(jumps, configs[3]; hamiltonian=hamiltonian)
@@ -120,9 +132,6 @@ liouv_result = run_liouvillian(jumps, configs[1]; hamiltonian = hamiltonian, tro
 
 
 
-
-
-#TODO: memory map parallelization
 # #* Hamiltonian
 # ham_filename(n) = @sprintf("/Users/bence/code/liouvillian_metro/julia/data/hamiltonian_n%d.jld", n)
 # hamiltonian = load(ham_filename(num_qubits))["ideal_ham"]

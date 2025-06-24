@@ -310,13 +310,9 @@ function create_energy_labels(num_energy_bits::Int64, w0::Float64)
 end
 
 function truncate_energy_labels(energy_labels::Vector{Float64}, beta::Float64, a::Float64, b::Float64,
-    with_linear_combination::Bool; cutoff::Float64=1e-14)
+    with_linear_combination::Bool; cutoff::Float64=1e-12)
 
-    if with_linear_combination
-        transition = pick_transition(beta, a, b)  # Linear combination of Gaussians
-    else
-        transition = w -> exp(-beta^2 * (w + 1/beta)^2 /2)  # Single Gaussian
-    end
+    transition = pick_transition(beta, a, b, with_linear_combination)
 
     gaussfilter(w, nu, beta) = exp(-beta^2 * (w - nu)^2 / 4) * sqrt(beta / sqrt(2 * pi))
     integrand_lb(w) = transition(w) * gaussfilter(w, -0.45, beta)^2

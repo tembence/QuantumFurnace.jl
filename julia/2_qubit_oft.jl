@@ -5,7 +5,7 @@ using Printf
 using ProgressMeter
 using Distributed
 using TensorOperations
-using JLD
+using JLD2
 using Plots
 
 include("hamiltonian.jl")

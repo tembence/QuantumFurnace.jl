@@ -76,13 +76,106 @@ function time_oft(jump::JumpOp, energy::Float64, hamiltonian::HamHam, time_label
     return jump_oft
 end
 
-function time_oft_integrated(energy::Float64, jump::JumpOp, hamiltonian::HamHam, beta::Float64)
+# function time_oft_integrated(energy::Float64, jump::JumpOp, hamiltonian::HamHam, beta::Float64)
 
-    diag_exponentiate(t) = Diagonal(exp.(1im * hamiltonian.eigvals * t))
-    integrand(t) = exp(-t^2 / beta^2 - 1im * energy * t) * diag_exponentiate(t) * jump.in_eigenbasis * diag_exponentiate(-t)
-    jump_oft = quadgk(integrand, -Inf, Inf)[1] / sqrt(2 * pi) * sqrt(sqrt(2 / pi) / beta)
-    return jump_oft
+#     diag_exponentiate(t) = Diagonal(exp.(1im * hamiltonian.eigvals * t))
+#     integrand(t) = exp(-t^2 / beta^2 - 1im * energy * t) * diag_exponentiate(t) * jump.in_eigenbasis * diag_exponentiate(-t)
+#     jump_oft = quadgk(integrand, -Inf, Inf)[1] / sqrt(2 * pi) * sqrt(sqrt(2 / pi) / beta)
+#     return jump_oft
+# end
+
+function time_oft_fast!(out_matrix::Matrix{ComplexF64}, caches::OFTCaches,
+                   jump::JumpOp, energy::Float64, hamiltonian::HamHam, 
+                   time_labels::Vector{Float64}, beta::Float64)
+    
+    # Ensure the prefactor cache is the right size
+    if length(caches.prefactors) != length(time_labels)
+        resize!(caches.prefactors, length(time_labels))
+    end
+    
+    # In-place calculation of prefactors
+    @fastmath caches.prefactors .= exp.(-time_labels.^2 / beta^2 .- 1im * energy .* time_labels)
+    
+    mid_point = findlast(t -> t >= 0, time_labels)
+    
+    # Zero out the output matrix before we start accumulating
+    fill!(out_matrix, 0.0)
+    
+    # --- Re-use the cache matrices U and temp_op inside the loops ---
+    if jump.orthogonal
+        # t = 0.0 case: U = I
+        @fastmath out_matrix .+= caches.prefactors[1] .* jump.in_eigenbasis
+
+        for i in 2:mid_point
+            t = time_labels[i]
+            @fastmath caches.U.diag .= exp.(1im .* hamiltonian.eigvals .* t)
+            
+            mul!(caches.temp_op, caches.U, jump.in_eigenbasis)
+            mul!(caches.temp_op, caches.temp_op, caches.U') # temp_op = U*jump*U'
+            
+            out_matrix .+= caches.prefactors[i] .* caches.temp_op
+            out_matrix .+= conj(caches.prefactors[i]) .* transpose(caches.temp_op)
+        end
+    else
+        for i in eachindex(time_labels)
+            t = time_labels[i]
+            @fastmath caches.U.diag .= exp.(1im .* hamiltonian.eigvals .* t)
+            
+            mul!(caches.temp_op, caches.U, jump.in_eigenbasis)
+            mul!(out_matrix, caches.temp_op, caches.U', caches.prefactors[i], 1.0) # out += prefactor * U*jump*U'
+        end
+    end
+    
+    return out_matrix
 end
+
+function trotter_oft_fast!(out_matrix::Matrix{ComplexF64}, caches::OFTCaches,
+                      jump::JumpOp, energy::Float64, trotter::TrottTrott, 
+                      time_labels::Vector{Float64}, beta::Float64)
+
+    if length(caches.prefactors) != length(time_labels)
+        resize!(caches.prefactors, length(time_labels))
+    end
+    
+    @fastmath caches.prefactors .= exp.(-time_labels.^2 / beta^2 .- 1im * energy .* time_labels)
+    
+    mid_point = findlast(t -> t >= 0, time_labels)
+    
+    fill!(out_matrix, 0.0)
+
+    if jump.orthogonal
+        # t = 0.0 case: U = I
+        @fastmath out_matrix .+= caches.prefactors[1] .* jump.in_trotter_basis
+
+        for i in 2:mid_point
+            n_steps = i - 1
+            @fastmath caches.U.diag .= trotter.eigvals_t0 .^ n_steps
+            
+            # temp_op = U * jump.in_trotter_basis * U'
+            mul!(caches.temp_op, caches.U, jump.in_trotter_basis)
+            mul!(caches.temp_op, caches.temp_op, caches.U')
+            
+            # Accumulate both terms in-place
+            LinearAlgebra.axpby!(caches.prefactors[i], caches.temp_op, 1.0, out_matrix)
+            LinearAlgebra.axpby!(conj(caches.prefactors[i]), transpose(caches.temp_op), 1.0, out_matrix)
+        end
+    else # Non-orthogonal jumps
+        for i in eachindex(time_labels)
+            num_t0_steps = (i <= mid_point) ? (i - 1) : (i - 2 * mid_point)
+            
+            @fastmath caches.U.diag .= trotter.eigvals_t0 .^ num_t0_steps
+            
+            # temp_op = U * jump.in_trotter_basis
+            mul!(caches.temp_op, caches.U, jump.in_trotter_basis)
+            
+            # out_matrix += prefactor * (temp_op * U')
+            mul!(out_matrix, caches.temp_op, caches.U', caches.prefactors[i], 1.0)
+        end
+    end
+    
+    return out_matrix
+end
+
 
 #* Trotter OFT check
 # energy_labels = create_energy_labels(num_energy_bits, w0)

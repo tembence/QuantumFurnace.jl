@@ -4,7 +4,7 @@ using Random
 using Printf
 using ProgressMeter
 using Debugger
-using JLD
+using JLD2
 
 include("structs.jl")
 
@@ -153,7 +153,7 @@ function find_ideal_heisenberg(num_qubits::Int64,
     best_smallest_bohr_freq = -1.0
     # initialize undef HamHam object
     hamiltonian = HamHam(zeros(0, 0), nothing, nothing, [[""]], zeros(0), [""], zeros(0), zeros(0), zeros(0, 0), 
-    0.0, 0.0, 0.0, periodic)
+    0.0, 0.0, 0.0, periodic, Hermitian(zeros(0, 0)))
 
     p = Progress(length(seeds))
     @showprogress dt=1 desc="Finding ideal hamiltonian..." for seed in seeds
