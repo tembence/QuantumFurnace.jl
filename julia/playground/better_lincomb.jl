@@ -8,15 +8,15 @@ using BenchmarkTools
 using Roots
 using QuadGK
 using Plots
-
-include("hamiltonian.jl")
-include("qi_tools.jl")
-include("structs.jl")
-include("bohr_picture.jl")
-include("energy_picture.jl")
-include("time_picture.jl")
-include("ofts.jl")
-include("coherent.jl")
+include("../src/hamiltonian.jl")
+include("../src/qi_tools.jl")
+include("../src/structs.jl")
+include("../src/bohr_picture.jl")
+include("../src/energy_picture.jl")
+include("../src/time_picture.jl")
+include("../src/ofts.jl")
+include("../src/coherent.jl")
+include("../src/misc_tools.jl")
 
 atol = 1e-10
 rtol = 1e-10

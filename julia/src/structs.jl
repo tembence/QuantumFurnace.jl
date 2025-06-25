@@ -1,8 +1,6 @@
 
 using Base
 
-@enum Picture BOHR ENERGY TIME TROTTER
-
 # Pictures
 abstract type AbstractPicture end
 struct BohrPicture <: AbstractPicture end
@@ -111,7 +109,7 @@ end
 end
 
 @kwdef struct HotSpectralResults
-    data::Matrix{ComplexF64}  #! Remove when space will matter
+    # data::Matrix{ComplexF64}  #! Remove when space will matter
     fixed_point::Matrix{ComplexF64}
     lambda_2::ComplexF64    # For spectral gap
     lambda_end::ComplexF64  # For ideal delta in the algorithmic thermalization

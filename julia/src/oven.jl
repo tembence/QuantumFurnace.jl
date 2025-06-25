@@ -20,8 +20,7 @@ function run_liouvillian(jumps::Vector{JumpOp}, config::LiouvConfig, hamiltonian
     validate_config!(config)
     print_press(config)
 
-    liouv = construct_liouvillian(jumps, config; 
-    hamiltonian=hamiltonian, trotter=trotter)
+    liouv = construct_liouvillian(jumps, config, hamiltonian, trotter=trotter)
 
     liouv_eigvals, liouv_eigvecs = eigen(liouv) 
     steady_state_vec = liouv_eigvecs[:, end]
@@ -29,7 +28,7 @@ function run_liouvillian(jumps::Vector{JumpOp}, config::LiouvConfig, hamiltonian
     steady_state_dm /= tr(steady_state_dm)
 
     result = HotSpectralResults(
-        data = liouv,
+        # data = liouv,
         fixed_point = steady_state_dm,
         lambda_2 = liouv_eigvals[end-1],
         lambda_end = liouv_eigvals[1],
@@ -134,7 +133,7 @@ function run_thermalization_fast(jumps::Vector{JumpOp}, config::ThermalizeConfig
     if config.picture isa TrotterPicture
         @assert trotter !== nothing "A Trotter object must be provided for the TrotterPicture"
         ham_or_trott = trotter
-        gibbs = Hermitian(trotter.eigvecs' * hamiltonian.gibbs * trotter.eigvecs)
+        gibbs = Hermitian(trotter.eigvecs' * hamiltonian.eigvecs * hamiltonian.gibbs * hamiltonian.eigvecs' * trotter.eigvecs)
     else
         ham_or_trott = hamiltonian
         gibbs = hamiltonian.gibbs

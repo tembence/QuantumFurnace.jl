@@ -16,15 +16,16 @@ include("oven.jl")
 #* Config
 num_qubits = 3
 dim = 2^num_qubits
-beta = 10.
+beta = 10.  # 5, 10, 30
 a = beta / 50. # a = beta / 50.
 b = 0.5  # b = 0.5
-eta = 0.2
+eta = 0.2  # eta = 0.2
 with_coherent = true
 with_linear_combination = true
-picture = TrotterPicture()
-num_energy_bits = 12
-w0 = 0.02
+picture = TimePicture()
+num_energy_bits = 10
+w0 = 0.1
+max_E = w0 * 2^num_energy_bits / 2
 t0 = 2pi / (2^num_energy_bits * w0)
 num_trotter_steps_per_t0 = 10
 
@@ -53,10 +54,22 @@ config = ThermalizeConfig(
     delta = delta,
     unravel = unravel
 )
-validate_config!(config)
 
 #* Hamiltonian
-hamiltonian = find_ideal_heisenberg(num_qubits, fill(1.0, 3); batch_size=100)
+# hamiltonian = find_ideal_heisenberg(num_qubits, fill(1.0, 3); batch_size=100)
+# hamiltonian_terms = [["X", "X"], ["Y", "Y"], ["Z", "Z"]]
+# hamiltonian_coeffs = fill(1.0, length(hamiltonian_terms))
+# hamiltonian = create_hamham(hamiltonian_terms, hamiltonian_coeffs, num_qubits)
+
+# Hamiltonian path
+project_root = Pkg.project().path |> dirname
+project_root = joinpath(project_root, "julia")  #! Omit for cluster
+data_dir = joinpath(project_root, "data")
+output_filename = join(["heis", "disordered", "periodic", "n=$num_qubits"], "_") * ".jld2"
+ham_path = joinpath(data_dir, output_filename)
+jld_ham_data = JLD2.load(ham_path)  # Load Hamiltonian
+
+hamiltonian = jld_ham_data["hamiltonian"]
 hamiltonian.bohr_freqs = hamiltonian.eigvals .- transpose(hamiltonian.eigvals)
 hamiltonian.bohr_dict = create_bohr_dict(hamiltonian)
 hamiltonian.gibbs = Hermitian(gibbs_state_in_eigen(hamiltonian, beta))
@@ -93,54 +106,20 @@ for pauli in jump_paulis
 end
 
 #* Thermalization
-results = @time run_thermalization_fast(jumps, config, initial_dm, hamiltonian; trotter=trotter)
-@printf("\n Last distance to Gibbs: %s\n", results.distances_to_gibbs[end])
-
-# results = @time run_thermalization(jumps, config, initial_dm, hamiltonian; trotter=trotter)
-# @printf("\n Last distance to Gibbs: %s\n", results.distances_to_gibbs[end])
-
-# Profile.print()
-
-# open("profile_output.txt", "w") do f
-#     # Redirect the output of Profile.print() to the file
-#     Profile.print(f)
-# end
+alg_results = @time run_thermalization_fast(jumps, config, initial_dm, hamiltonian; trotter=trotter)
+@printf("\n Last distance to Gibbs: %s\n", alg_results.distances_to_gibbs[end])
+# plot(alg_results.time_steps, alg_results.distances_to_gibbs, label="Distance to Gibbs", xlabel="Time", ylabel="Distance", title="Distance to Gibbs over time")
 
 # Save
-results_dir = joinpath(@__DIR__, "results")
-output_filename = generate_filename(config)
-full_path = joinpath(results_dir, output_filename)
+# project_root = Pkg.project().path |> dirname
+# project_root = joinpath(project_root, "julia")  #! Omit this on cluster
+# results_dir = joinpath(project_root, "results")
+# output_filename = generate_filename(config)
+# full_path = joinpath(results_dir, output_filename)
 
-println("Saving results to: ", full_path)
-JLD2.jldsave(full_path; results=results)
+# println("Saving results to: ", full_path)
+# JLD2.jldsave(full_path; results=alg_results)
 
 # Load
 # jld_data = JLD2.load(full_path)
 # loaded_results = jld_data["results"]
-
-
-
-
-
-
-
-
-
-
-# #* Hamiltonian
-# ham_filename(n) = @sprintf("/Users/bence/code/liouvillian_metro/julia/data/hamiltonian_n%d.jld", n)
-# hamiltonian = load(ham_filename(num_qubits))["ideal_ham"]
-
-# if save_it == true
-#     if with_coherent == false
-#         filename(furnace, n, r) = @sprintf("/Users/bence/code/liouvillian_metro/julia/data/%s_n%d_r%d.jld", furnace, n, r)
-#     else
-#         filename(furnace, n, r) = @sprintf("/Users/bence/code/liouvillian_metro/julia/data/%s_n%d_r%d_B_100.jld", furnace, n, r)
-#     end
-#     # Save objects with jld
-#     save(filename(furnace, num_qubits, num_energy_bits), "alg_results", therm_results, "liouv", liouv)
-# end
-# lll = load(filename(furnace, num_qubits, num_energy_bits))["liouv"]
-# rrr = load(filename(furnace, num_qubits, num_energy_bits))["alg_results"]
-
-# plot(therm_results.time_steps, therm_results.distances_to_gibbs, label="Distance to Gibbs", xlabel="Time", ylabel="Distance", title="Distance to Gibbs over time")

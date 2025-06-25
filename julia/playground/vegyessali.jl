@@ -9,14 +9,15 @@ using SpecialFunctions: erfc
 using QuadGK
 using BenchmarkTools
 
-include("hamiltonian.jl")
-include("qi_tools.jl")
-include("misc_tools.jl")
-include("structs.jl")
-include("oven.jl")
-include("ofts.jl")
-include("trotter_picture.jl")
-include("timelike_tools.jl")
+include("../src/hamiltonian.jl")
+include("../src/qi_tools.jl")
+include("../src/structs.jl")
+include("../src/bohr_picture.jl")
+include("../src/energy_picture.jl")
+include("../src/time_picture.jl")
+include("../src/ofts.jl")
+include("../src/coherent.jl")
+include("../src/misc_tools.jl")
 
 function showall(io, x, limit = false) 
     println(io, summary(x), ":")

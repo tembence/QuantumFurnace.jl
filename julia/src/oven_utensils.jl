@@ -7,7 +7,7 @@ function precompute_labels(::EnergyPicture, config::Union{LiouvConfig, Thermaliz
     energy_labels = create_energy_labels(config.num_energy_bits, config.w0)
     truncated_energy_labels = truncate_energy_labels(energy_labels, config.beta, config.a, config.b, 
     config.with_linear_combination)
-    return (truncated_energy_labels, nothing)  # Energy labels
+    return (truncated_energy_labels,)  # Energy labels
 end
 
 function precompute_labels(::Union{TimePicture, TrotterPicture}, config::Union{LiouvConfig, ThermalizeConfig})

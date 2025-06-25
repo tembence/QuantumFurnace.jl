@@ -5,8 +5,15 @@ using QuadGK
 using Plots
 using Distributions
 
-include("hamiltonian.jl")
-include("qi_tools.jl")
+include("../src/hamiltonian.jl")
+include("../src/qi_tools.jl")
+include("../src/structs.jl")
+include("../src/bohr_picture.jl")
+include("../src/energy_picture.jl")
+include("../src/time_picture.jl")
+include("../src/ofts.jl")
+include("../src/coherent.jl")
+include("../src/misc_tools.jl")
 
 #* Functions
 gauss_filter(w, nu, sigmaE) = exp(- (w - nu)^2 / (4 * sigmaE^2)) * sqrt(beta / sqrt(2 * pi))

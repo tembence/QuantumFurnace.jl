@@ -12,7 +12,7 @@ function generate_filename(config::LiouvConfig)
         B = "noB"
     end
 
-    return join([pic_str, nqb_str, beta_str, B, a_str, b_str], "_") * ".jld2"
+    return join(["liouv", pic_str, nqb_str, beta_str, B, a_str, b_str], "_") * ".jld2"
 end
 
 function generate_filename(config::ThermalizeConfig)
@@ -28,7 +28,7 @@ function generate_filename(config::ThermalizeConfig)
         B = "noB"
     end
     mix = "mix=$(config.mixing_time)"
-    return join([pic_str, nqb_str, beta_str, B, a_str, b_str, mix], "_") * ".jld2"
+    return join(["alg", pic_str, nqb_str, beta_str, B, a_str, b_str, mix], "_") * ".jld2"
 end
 
 function riemann_sum(f::Function, grid::Vector{Float64})

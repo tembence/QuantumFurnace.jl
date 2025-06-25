@@ -3,14 +3,14 @@ using Random
 using Printf
 using JLD2
 
-include("hamiltonian.jl")
-include("ofts.jl")
-include("qi_tools.jl")
+include("../src/hamiltonian.jl")
+include("../src/ofts.jl")
+include("../src/qi_tools.jl")
 include("thermalize_with_alg.jl")
-include("coherent.jl")
+include("../src/coherent.jl")
 include("spectral_analysis.jl")
-include("structs.jl")
-include("coherent.jl")
+include("../src/structs.jl")
+include("../src/coherent.jl")
 
 #* Parameters
 num_qubits = 4

@@ -20,27 +20,29 @@ function trotter_oft(jump::JumpOp, energy::Float64, trotter::TrottTrott, time_la
     prefactors = @fastmath exp.(- time_labels.^2 / beta^2 .- 1im * energy * time_labels) # Gauss and Fourier factors
     mid_point = findlast(t -> t >= 0, time_labels) # Up to positive times
     trotter_time_evolution(n::Int64) = Diagonal(trotter.eigvals_t0 .^ n)  # n - number of t0 time chunks
-
-    jump_oft = zeros(ComplexF64, size(jump.data))
+    dim = size(jump.data)
+    trott_U = zeros(ComplexF64, dim)
+    temp_op = zeros(ComplexF64, dim)
+    jump_oft = zeros(ComplexF64, dim)
     if jump.orthogonal # Orthogonal symmetry that halves time labels
-        trott_U_plus = trotter_time_evolution(0)  # t = 0.0
-        jump_oft .+= @fastmath (prefactors[1] * trott_U_plus * jump.in_trotter_basis * trott_U_plus')
+        # t = 0.0
+        jump_oft .+= @fastmath (prefactors[1] * jump.in_trotter_basis)
 
         for i in range(2, mid_point)  # t > 0.0 ∼ t < 0.0
-            trott_U_plus = trotter_time_evolution(i - 1)
-            temp_op = trott_U_plus * jump.in_trotter_basis * trott_U_plus'
+            trott_U .= trotter_time_evolution(i - 1)
+            temp_op .= trott_U * jump.in_trotter_basis * trott_U'
             jump_oft .+=  @fastmath (prefactors[i] * temp_op)
             jump_oft .+=  @fastmath (conj(prefactors[i]) * transpose(temp_op))
         end
-    else
+    else  # Non-orthogonal (e.g. Y)
         for i in range(1, length(time_labels))  # 0 and positive times
             if i <= mid_point
                 num_t0_steps = i - 1
             else
-                num_t0_steps = i - 2 * mid_point # Pain
+                num_t0_steps = i - 2 * mid_point - 1 # Pain
             end
-            trott_U_plus = trotter_time_evolution(num_t0_steps)
-            jump_oft .+=  @fastmath (prefactors[i] * trott_U_plus * jump.in_trotter_basis * trott_U_plus')
+            trott_U .= trotter_time_evolution(num_t0_steps)
+            jump_oft .+=  @fastmath (prefactors[i] * trott_U * jump.in_trotter_basis * trott_U')
         end
     end
     # Return in Trotter basis
@@ -57,8 +59,8 @@ function time_oft(jump::JumpOp, energy::Float64, hamiltonian::HamHam, time_label
 
     jump_oft = zeros(ComplexF64, size(jump.data))
     if jump.orthogonal # Orthogonal symmetry that halves time labels
-        U_plus = time_evolve(time_labels[1])  # t = 0.0
-        jump_oft .+= @fastmath (prefactors[1] * U_plus * jump.in_eigenbasis * adjoint(U_plus))
+        # t = 0.0
+        jump_oft .+= @fastmath (prefactors[1] * jump.in_eigenbasis)
 
         for i in range(2, mid_point)  # t > 0.0
             U_plus = time_evolve(time_labels[i])
@@ -161,7 +163,7 @@ function trotter_oft_fast!(out_matrix::Matrix{ComplexF64}, caches::OFTCaches,
         end
     else # Non-orthogonal jumps
         for i in eachindex(time_labels)
-            num_t0_steps = (i <= mid_point) ? (i - 1) : (i - 2 * mid_point)
+            num_t0_steps = (i <= mid_point) ? (i - 1) : (i - 2 * mid_point - 1)
             
             @fastmath caches.U.diag .= trotter.eigvals_t0 .^ num_t0_steps
             

@@ -3,7 +3,7 @@ using SparseArrays
 using Random
 using Printf
 
-include("hamiltonian.jl")
+include("../src/hamiltonian.jl")
 
 function commutator(A::AbstractMatrix, B::AbstractMatrix)
     return A * B - B * A

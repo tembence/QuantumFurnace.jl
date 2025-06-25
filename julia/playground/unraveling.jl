@@ -2,17 +2,15 @@ using LinearAlgebra
 using Random
 using Printf
 using JLD2
-
-include("hamiltonian.jl")
-include("qi_tools.jl")
-include("misc_tools.jl")
-include("structs.jl")
-include("oven.jl")
-include("errors.jl")
-include("bohr_picture.jl")
-include("ofts.jl")
-include("energy_picture.jl")
-
+include("../src/hamiltonian.jl")
+include("../src/qi_tools.jl")
+include("../src/structs.jl")
+include("../src/bohr_picture.jl")
+include("../src/energy_picture.jl")
+include("../src/time_picture.jl")
+include("../src/ofts.jl")
+include("../src/coherent.jl")
+include("../src/misc_tools.jl")
 #* Unraveling in the canonical sense would not make sense for the first paper.
 #* Unpacking in the way I wanted, maybe.
 

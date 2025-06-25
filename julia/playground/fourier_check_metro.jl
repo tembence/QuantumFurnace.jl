@@ -3,7 +3,16 @@ using SpecialFunctions: erfc
 using FFTW
 using Plots
 using LinearAlgebra
-include("coherent.jl")
+
+include("../src/hamiltonian.jl")
+include("../src/qi_tools.jl")
+include("../src/structs.jl")
+include("../src/bohr_picture.jl")
+include("../src/energy_picture.jl")
+include("../src/time_picture.jl")
+include("../src/ofts.jl")
+include("../src/coherent.jl")
+include("../src/misc_tools.jl")
 
 function f_plus_t_metro(t, eta, beta)
     if abs(t) < 1e-12  # Handle t=0

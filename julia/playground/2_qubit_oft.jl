@@ -8,9 +8,14 @@ using TensorOperations
 using JLD2
 using Plots
 
-include("hamiltonian.jl")
-include("qi_tools.jl")
-include("ofts.jl")
+include("../src/hamiltonian.jl")
+include("../src/ofts.jl")
+include("../src/qi_tools.jl")
+include("thermalize_with_alg.jl")
+include("../src/coherent.jl")
+include("spectral_analysis.jl")
+include("../src/structs.jl")
+include("../src/coherent.jl")
 
 num_qubits = 2
 sigma = 5.

@@ -45,34 +45,35 @@ function coherent_term_time(jump::JumpOp, hamiltonian::HamHam, f_minus::Dict{Flo
     return B * t0^2
 end
 
+#FIXME:
 function coherent_term_trotter(jump::JumpOp, trotter::TrottTrott, 
     f_minus::Dict{Float64, ComplexF64}, f_plus::Dict{Float64, ComplexF64})
 
     dim = size(trotter.eigvecs)
     trotter_time_evolution(n::Int64) = Diagonal(trotter.eigvals_t0 .^ n)  # n - number of t0 time chunks
 
+    trott_U = zeros(ComplexF64, dim)
+    trott_U_2 = zeros(ComplexF64, dim)
     # Inner summand f_plus
     f_plus_summand = zeros(ComplexF64, dim)
-    for s in keys(f_plus)
+    for (s, f_s) in f_plus
         num_t0_steps = Int(round(s / trotter.t0))
 
-        trott_U_s = trotter_time_evolution(num_t0_steps)
-        trott_U_2s = trotter_time_evolution(2 * num_t0_steps)
+        trott_U .= trotter_time_evolution(num_t0_steps)
+        trott_U_2 .= trotter_time_evolution(-2 * num_t0_steps)
 
-        f_plus_summand .+= (f_plus[s] *
-            trott_U_s * jump.in_trotter_basis' * trott_U_2s' * jump.in_trotter_basis * trott_U_s)
+        f_plus_summand .+= (f_s *
+            trott_U * jump.in_trotter_basis' * trott_U_2 * jump.in_trotter_basis * trott_U)
     end
     B = zeros(ComplexF64, dim)
-    for t in keys(f_minus)
+    for (t, f_t) in f_minus
         num_t0_steps = Int(round(t / trotter.t0))
-        trott_U_t = trotter_time_evolution(num_t0_steps)
+        trott_U .= trotter_time_evolution(num_t0_steps)
 
-        B .+= f_minus[t] * trott_U_t' * f_plus_summand * trott_U_t
+        B .+= f_t * trott_U' * f_plus_summand * trott_U
     end
 
-    # Outer summand f_minus
-    # A is Hermitian (if A is non-Hermitian, see coherent_term_times
-    return B * t0^2  # B in Trotter basis
+    return B * trotter.t0^2  # B in Trotter basis
 end
 
 # function coherent_term_time_b(jump::JumpOp, hamiltonian::HamHam, 
@@ -187,13 +188,7 @@ end
 #     return B
 # end
 
-#* B1 AND B2 ----------------------------------------------------------------------------------------------------------------
-
-#TODO: 
-function pick_funcs_for_coherent_term(config::Union{LiouvConfig, ThermalizeConfig})
-    
-end
-
+#* B1 AND B2 ---------------------------------------------------------------------------------------------------------------
 # Corollary III.1, every parameter = 1 / beta
 function compute_f_minus(t::Float64, beta::Float64)
     """For all cases the same"""

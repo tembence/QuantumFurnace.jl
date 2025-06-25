@@ -8,9 +8,15 @@ using BenchmarkTools
 using Roots
 using QuadGK
 
-include("hamiltonian.jl")
-include("qi_tools.jl")
-include("ofts.jl")
+include("../src/hamiltonian.jl")
+include("../src/qi_tools.jl")
+include("../src/structs.jl")
+include("../src/bohr_picture.jl")
+include("../src/energy_picture.jl")
+include("../src/time_picture.jl")
+include("../src/ofts.jl")
+include("../src/coherent.jl")
+include("../src/misc_tools.jl")
 
 #* Configs
 num_qubits = 3
