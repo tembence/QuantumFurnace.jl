@@ -7,19 +7,40 @@ using JLD2
 
 include("hamiltonian.jl")
 
-# function vectorize_liouvillian_diss(jump_1::Union{SparseMatrixCSC{ComplexF64}, Matrix{ComplexF64}},
-#     jump_2::Union{SparseMatrixCSC{ComplexF64}, Matrix{ComplexF64}})
-function vectorize_liouvillian_diss(jump_1::AbstractMatrix{ComplexF64}, jump_2::AbstractMatrix{ComplexF64})
+function kron!(C, A, B)
+    m, n = size(A)
+    p, q = size(B)
+    @inbounds for j in 1:n, i in 1:m
+        c = A[i, j]
+        if !iszero(c)
+            # Get the block of C to write into
+            block = @view C[(i-1)*p+1:i*p, (j-1)*q+1:j*q]
+            # C_block = A[i,j] * B
+            block .= c .* B
+        end
+    end
+    return C
+end
 
+function vectorize_liouvillian_diss(jump_1::AbstractMatrix{ComplexF64}, jump_2::AbstractMatrix{ComplexF64})
     """L = J1 * X * J2 - 0.5 * (J2 * J1 * X + X * J2 * J1)"""
-    dim = size(jump_1)[1]
+
+    dim = size(jump_1, 1)
     spI = sparse(I, dim, dim)
 
     jump_2_jump_1 = jump_2 * jump_1
-    # vectorized_diss_part = kron(transpose(jump_2), jump_1) - 0.5 * (kron(spI, jump_2_jump_1) + kron(transpose(jump_2_jump_1), spI))
-    
-    # Watrous
-    vectorized_diss_part = kron(jump_1, transpose(jump_2)) - 0.5 * (kron(jump_2_jump_1, spI) + kron(spI, transpose(jump_2_jump_1))) 
+    vectorized_diss_part = zeros(ComplexF64, dim^2, dim^2)
+    temp_kron_matrix = similar(vectorized_diss_part)
+
+    kron!(vectorized_diss_part, jump_1, transpose(jump_2))
+
+    kron!(temp_kron_matrix, jump_2_jump_1, spI)
+    vectorized_diss_part .-= 0.5 .* temp_kron_matrix
+
+    fill!(temp_kron_matrix, 0.0)
+    kron!(temp_kron_matrix, spI, transpose(jump_2_jump_1))
+    vectorized_diss_part .-= 0.5 .* temp_kron_matrix
+
     return vectorized_diss_part
 end
 
@@ -27,28 +48,53 @@ function vectorize_liouvillian_coherent(coherent_term::Matrix{ComplexF64})
     dim = size(coherent_term)[1]
     spI = sparse(I, dim, dim)
 
-    # -i ((I ⊗ B) - (B^T ⊗ I))
-    # vecotrized_coherent_part = -1im * (kron(spI, coherent_term) - kron(transpose(coherent_term), spI))
+    vectorized_coherent_part = zeros(ComplexF64, dim^2, dim^2)
+    temp_kron_matrix = similar(vectorized_coherent_part)
 
-    # Watrous
-    vecotrized_coherent_part = -1im *(kron(coherent_term, spI) - kron(spI, transpose(coherent_term)))
-    return vecotrized_coherent_part
+    kron!(vectorized_coherent_part, coherent_term, spI)
+    kron!(temp_kron_matrix, spI, transpose(coherent_term))
+    vectorized_coherent_part .-= temp_kron_matrix
+    vectorized_coherent_part .*= -1im
+
+    return vectorized_coherent_part
 end
 
-#! Rewrote it from jumps to jump, no for loop inside here
-function vectorize_liouvillian_diss(jump::Matrix{ComplexF64})
-
+function vectorize_liouvillian_diss(jump::AbstractMatrix{ComplexF64})
+    """Allocates way less, with inplace kron! and pre allocated temp"""
     dim = size(jump, 1)
     spI = sparse(I, dim, dim)
 
-    vectorized_liouv = zeros(ComplexF64, dim^2, dim^2)
     jump_dag_jump = jump' * jump
+    vectorized_diss_part = zeros(ComplexF64, dim^2, dim^2)
+    temp_kron_matrix = similar(vectorized_diss_part)
 
-    # Jump^\dag^T = Jump^*
-    # Watrous
-    vectorized_liouv .+= kron(jump, conj(jump)) - 0.5 * (kron(jump_dag_jump, spI) + kron(spI, transpose(jump_dag_jump))) 
-    return vectorized_liouv
+    kron!(vectorized_diss_part, jump, conj(jump))
+
+    kron!(temp_kron_matrix, jump_dag_jump, spI)
+    vectorized_diss_part .-= 0.5 .* temp_kron_matrix
+
+    fill!(temp_kron_matrix, 0.0)
+    kron!(temp_kron_matrix, spI, transpose(jump_dag_jump))
+    vectorized_diss_part .-= 0.5 .* temp_kron_matrix
+
+    return vectorized_diss_part
 end
+
+# function vectorize_liouvillian_diss(jump::Matrix{ComplexF64})
+#     dim = size(jump, 1)
+#     spI = sparse(I, dim, dim)
+
+#     vectorized_liouv = zeros(ComplexF64, dim^2, dim^2)
+#     jump_dag_jump = jump' * jump
+
+#     # Jump^\dag^T = Jump^*
+#     # Watrous
+#     vectorized_liouv .+= kron(jump, conj(jump)) - 0.5 * (kron(jump_dag_jump, spI) + kron(spI, transpose(jump_dag_jump))) 
+#     return vectorized_liouv
+# end
+
+
+
 
 function trace_distance_h(rho::Union{Hermitian{<:Real}, Hermitian{<:Complex}}, 
     sigma::Union{Hermitian{<:Real}, Hermitian{<:Complex}})

@@ -17,9 +17,16 @@ include("oven.jl")
 num_qubits = 3
 dim = 2^num_qubits
 beta = 10.  # 5, 10, 30
+
+# Kinky Metro
+a = 0.0
+b = 0.0
+eta = 0.2
+# Smooth Metro
 a = beta / 50. # a = beta / 50.
 b = 0.5  # b = 0.5
-eta = 0.2  # eta = 0.2
+eta = 0.0  # eta = 0.2
+
 with_coherent = true
 with_linear_combination = true
 picture = TimePicture()

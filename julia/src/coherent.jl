@@ -2,9 +2,6 @@ using Random
 using LinearAlgebra
 using Printf
 using ProgressMeter
-using Distributed
-using JLD2
-using Plots
 using QuadGK
 using SparseArrays
 
@@ -45,7 +42,6 @@ function coherent_term_time(jump::JumpOp, hamiltonian::HamHam, f_minus::Dict{Flo
     return B * t0^2
 end
 
-#FIXME:
 function coherent_term_trotter(jump::JumpOp, trotter::TrottTrott, 
     f_minus::Dict{Float64, ComplexF64}, f_plus::Dict{Float64, ComplexF64})
 
@@ -162,31 +158,47 @@ end
 #     return B
 # end
 
-# function coherent_term_timedomain_integrated_metro(jump::JumpOp, hamiltonian::HamHam, eta::Float64, beta::Float64, 
-#     time_domain::Tuple{Float64, Float64} = (-Inf, Inf))
+function coherent_term_time_integrated_metro(jump::JumpOp, hamiltonian::HamHam, eta::Float64, beta::Float64, 
+    time_domain::Tuple{Float64, Float64} = (-Inf, Inf))
 
-#     f1(t) = 1 / cosh(2 * pi * t)
-#     f2(t) = sin(-t) * exp(-2 * t^2)
-#     b1_fn(t) = 2 * sqrt(pi) * exp(1/8) * convolute(Ref(f1), Ref(f2), t)
-#     b2_metro_fn(t) = (exp(-2 * t^2 - im * t) + (abs(t) <= eta ? 1 : 0) * im * (2 * t + im)) / (sqrt(32) * pi * t * (2 * t + im))
-#     diag_time_evolve(t) = Diagonal(exp.(1im * hamiltonian.eigvals * t))
-#     jump_op_in_eigenbasis_dag = jump.in_eigenbasis'
+    diag_time_evolve(t) = Diagonal(exp.(1im * hamiltonian.eigvals * t))
 
-#     # Inner b2 integral
-#     b2_integrand(s) = (b2_metro_fn(s) * diag_time_evolve(beta * s) * 
-#                            (jump_op_in_eigenbasis_dag * diag_time_evolve(- 2 * beta * s) * jump.in_eigenbasis) *
-#                            diag_time_evolve(beta * s))
-#     # b2 function has singularity in t = 0
-#     eps = 1e-12
-#     b2_integral_1, _ = quadgk(b2_integrand, time_domain[1], -eps; atol=1e-12, rtol=1e-12)
-#     b2_integral_2, _ = quadgk(b2_integrand, eps, time_domain[2]; atol=1e-12, rtol=1e-12)
-#     b2_integral = b2_integral_1 + b2_integral_2
+    # Inner b2 integral
+    f_plus_integrand(s) = (compute_f_plus_metro(s, beta, eta) * diag_time_evolve(s) * 
+                           (jump.in_eigenbasis' * diag_time_evolve(- 2 * s) * jump.in_eigenbasis) *
+                           diag_time_evolve(s))
+    # b2 function has singularity in t = 0
+    eps = 1e-12
+    f_plus_integral_1, _ = quadgk(f_plus_integrand, time_domain[1], -eps; atol=1e-12, rtol=1e-12)
+    f_plus_integral_2, _ = quadgk(f_plus_integrand, eps, time_domain[2]; atol=1e-12, rtol=1e-12)
+    f_plus_integral = f_plus_integral_1 + f_plus_integral_2
 
-#     # Outer b1 integral
-#     b1_integrand(t) = b1_fn(t) * diag_time_evolve(- beta * t) * b2_integral * diag_time_evolve(beta * t)
-#     B, _ = quadgk(b1_integrand, time_domain[1], time_domain[2]; atol=1e-12, rtol=1e-12)
-#     return B
-# end
+    # Outer b1 integral
+    f_minus_integrand(t) = compute_f_minus(t, beta) * diag_time_evolve(-t) * f_plus_integral * diag_time_evolve(t)
+    B, _ = quadgk(f_minus_integrand, time_domain[1], time_domain[2]; atol=1e-12, rtol=1e-12)
+    return B
+end
+
+function coherent_term_time_integrated_eh(jump::JumpOp, hamiltonian::HamHam, beta::Float64, a::Float64, b::Float64,
+    time_domain::Tuple{Float64, Float64} = (-Inf, Inf))
+
+    diag_time_evolve(t) = Diagonal(exp.(1im * hamiltonian.eigvals * t))
+
+    # Inner b2 integral
+    f_plus_integrand(s) = (compute_f_plus_eh(s, beta, a, b) * diag_time_evolve(s) * 
+                           (jump.in_eigenbasis' * diag_time_evolve(- 2 * s) * jump.in_eigenbasis) *
+                           diag_time_evolve(s))
+    # b2 function has singularity in t = 0
+    eps = 1e-12
+    f_plus_integral_1, _ = quadgk(f_plus_integrand, time_domain[1], -eps; atol=1e-12, rtol=1e-12)
+    f_plus_integral_2, _ = quadgk(f_plus_integrand, eps, time_domain[2]; atol=1e-12, rtol=1e-12)
+    f_plus_integral = f_plus_integral_1 + f_plus_integral_2
+
+    # Outer b1 integral
+    f_minus_integrand(t) = compute_f_minus(t, beta) * diag_time_evolve(-t) * f_plus_integral * diag_time_evolve(t)
+    B, _ = quadgk(f_minus_integrand, time_domain[1], time_domain[2]; atol=1e-12, rtol=1e-12)
+    return B
+end
 
 #* B1 AND B2 ---------------------------------------------------------------------------------------------------------------
 # Corollary III.1, every parameter = 1 / beta
@@ -213,7 +225,7 @@ function compute_f_plus_metro(t::Float64, beta::Float64, eta::Float64)
 
     if abs(t) < 1e-12  # Handle t=0
         return complex(sqrt(1 / 2pi) / beta) 
-    elseif abs(t) ≤ eta
+    elseif abs(t) ≤ eta  #! Is this correct, doesn't the rescaling to an f function from b would change this eta threshold? #TODO:
         numerator = exp(-2 * t^2 / beta^2 - 1im * t / beta) + 1im * (2 * t / beta + 1im)
     else
         numerator = exp(-2 * t^2 / beta^2 - 1im * t / beta)

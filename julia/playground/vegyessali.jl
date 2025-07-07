@@ -2,7 +2,6 @@ using LinearAlgebra
 using Random
 using Printf
 using JLD2
-using TensorOperations
 using Base
 using Random
 using SpecialFunctions: erfc
@@ -23,6 +22,30 @@ function showall(io, x, limit = false)
     println(io, summary(x), ":")
     Base.print_matrix(IOContext(io, :limit => limit), x)
 end
+
+#kron!
+dim = 2^7
+# A = rand(ComplexF64, dim, dim)
+# B = rand(ComplexF64, dim, dim)
+# C1 = zeros(ComplexF64, dim^2, dim^2)
+# @btime C2 = kron(A, B)
+# @btime kron!(C1, A, B)
+# norm(C1 - C2)
+
+# better vectorization
+# n = 6
+# dim = 2^n
+# J1 = rand(ComplexF64, dim, dim)
+# J2 = rand(ComplexF64, dim, dim)
+# liouv = vectorize_liouvillian_diss(J1, J2)
+# liouv_better = vectorize_liouvillian_diss_better(J1, J2)
+# println("done")
+# norm(liouv - liouv_better)
+
+# H = find_ideal_heisenberg(n, fill(1.0, 3); batch_size=10)
+# B_better = vectorize_liouvillian_coherent_better(H.data)
+# B = vectorize_liouvillian_coherent(H.data)
+# norm(B - B_better)
 
 #* Config
 num_qubits = 5

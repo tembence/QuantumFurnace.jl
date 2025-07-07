@@ -301,11 +301,43 @@ function create_alpha_from_gaussians_integrated(nu_1::Float64, nu_2::Float64, nu
 end
 
 #* TOOLS --------------------------------------------------------------------------------------------------------------------
+function pick_transition(beta::Float64, a::Float64, b::Float64, with_linear_combination::Bool)
+
+    if !(with_linear_combination)  # Gaussian case
+        @printf("Gaussian\n")
+        return w -> begin
+            return exp(-beta^2 * (w + 1/beta)^2 /2)
+        end
+    end
+
+    sqrtA = sqrt((4 * a / beta + 1) / 8)
+    if (b == 0 && a != 0)  # No time singularity but kinky Metro in energy
+        return w -> begin
+            sqrtB = beta * abs(w + 1 / (2 * beta)) / sqrt(2)
+            return exp((- 2 * sqrtA * sqrtB - beta * w / 2 - 1 / 4))
+        end
+    elseif (b != 0 && a != 0)  # No time singularity and no kinky Metro (Glauberish)
+        @printf("Smooth Metro\n")
+        return w -> begin
+            sqrtB = beta * abs(w + 1 / (2 * beta)) / sqrt(2)
+            transition_eh = exp((- 2 * sqrtA * sqrtB - beta * w / 2 - 1 / 4))
+
+            return (transition_eh * (erfc(sqrtA * sqrt(b) - sqrtB / sqrt(b)) 
+                + exp(4 * sqrtA * sqrtB) * erfc(sqrtA * sqrt(b) + sqrtB / sqrt(b))) / 2)
+        end
+    elseif a == 0  # Time singularity and kinky Metro
+        @printf("Kinky Metro\n")
+        return w -> begin
+            return exp(-beta * max(w + 1/(2 * beta), 0.0))
+        end
+    end
+end
+
 function create_energy_labels(num_energy_bits::Int64, w0::Float64)
     N = 2^(num_energy_bits)
     N_labels = [0:1:Int(N/2)-1; -Int(N/2):1:-1]
     energy_labels = w0 * N_labels
-    @assert maximum(energy_labels) >= 2.0  # For good results
+    # @assert maximum(energy_labels) >= 2.0  # For good results
     return energy_labels
 end
 
@@ -315,30 +347,44 @@ function truncate_energy_labels(energy_labels::Vector{Float64}, beta::Float64, a
     transition = pick_transition(beta, a, b, with_linear_combination)
 
     gaussfilter(w, nu, beta) = exp(-beta^2 * (w - nu)^2 / 4) * sqrt(beta / sqrt(2 * pi))
-    integrand_lb(w) = transition(w) * gaussfilter(w, -0.45, beta)^2
-    integrand_ub(w) = transition(w) * gaussfilter(w, 0.45, beta)^2
+    integrand_lb(w, nu1, nu2) = transition(w) * gaussfilter(w, nu1, beta) * gaussfilter(w, nu2, beta)
+    integrand_ub(w, nu1, nu2) = transition(w) * gaussfilter(w, nu1, beta) * gaussfilter(w, nu2, beta)
 
-    min_label_for_lb = Inf
-    max_label_for_ub = -Inf
-    for w in energy_labels
-        # Finding LB
-        integrand_lb_val = integrand_lb(w)
-        if abs(integrand_lb_val) >= cutoff
-            min_label_for_lb = min(min_label_for_lb, w)
-        end
-        # Finding UB
-        integrand_ub_val = integrand_ub(w)
-        if abs(integrand_ub_val) >= cutoff
-            max_label_for_ub = max(max_label_for_ub, w)
+    sorted_energies = sort(energy_labels)
+    candidate_nus = filter(w -> -0.45 <= w <= (-1/(2*beta)), [-0.45:0.05:0.0;])
+
+    start_index = length(sorted_energies) + 1
+    for (nu1_candidate, nu2_candidate) in Iterators.product(candidate_nus, candidate_nus)
+        found_index = findfirst(w -> abs(integrand_lb(w, nu1_candidate, nu2_candidate)) >= cutoff, sorted_energies)
+        if found_index !== nothing
+            start_index = min(start_index, found_index)
         end
     end
-    truncated_energies = energy_labels[min_label_for_lb .<= energy_labels .<= max_label_for_ub]
-    if !isempty(truncated_energies)
-        return truncated_energies
-    else
-        @printf("No energy labels remained after truncation!\n")
-        return energy_labels[abs.(energy_labels) .<= 2.]
+    
+    if start_index  > length(sorted_energies)
+        @warn "Lower bound cutoff not found for energies, using default range."
+        return sorted_energies[abs.(sorted_energies) .<= 2.0]
     end
+
+    candidate_nus = Iterators.reverse(filter(w -> (-1/(2*beta)) <= w <= 0.45, [-0.1:0.05:0.45;]))
+    end_index = 0
+    for (nu1_candidate, nu2_candidate) in Iterators.product(candidate_nus, candidate_nus)
+        found_index = findlast(w -> abs(integrand_ub(w, nu1_candidate, nu2_candidate)) >= cutoff, sorted_energies)
+        if found_index !== nothing
+            end_index = max(end_index, found_index)
+        end
+    end
+
+    if end_index === 0
+        @warn "Upper bound cutoff not found for energies, using default range."
+        return sorted_energies[abs.(sorted_energies) .<= 2.0]
+    end
+
+    if start_index == 1 || end_index == length(sorted_energies)
+        @warn "No truncation was done, might want more estimating energy range."
+    end
+
+    return sorted_energies[start_index:end_index]
 end
 #* --------------------------------------------------------------------------------------------------------------------------
 #* --------------------------------------------------------------------------------------------------------------------------

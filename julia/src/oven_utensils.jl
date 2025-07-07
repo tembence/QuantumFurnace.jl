@@ -1,6 +1,6 @@
 
 function precompute_labels(::BohrPicture, config::Union{LiouvConfig, ThermalizeConfig})
-    return (nothing, nothing) # Bohr needs no labels
+    return ()# Bohr needs no labels
 end
 
 function precompute_labels(::EnergyPicture, config::Union{LiouvConfig, ThermalizeConfig})

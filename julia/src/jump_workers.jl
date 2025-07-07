@@ -35,13 +35,13 @@ function jump_contribution(::EnergyPicture, jump::JumpOp, hamiltonian::HamHam, c
     energy_labels::Vector{Float64})
 
     dim = size(hamiltonian.data, 1)
-    w0 = energy_labels[2] - energy_labels[1]
+    w0 = abs(energy_labels[2] - energy_labels[1])
 
     transition = pick_transition(config.beta, config.a, config.b, config.with_linear_combination)
 
     liouv_coherent_part_for_jump = zeros(ComplexF64, dim^2, dim^2)
     liouv_diss_part_for_jump = zeros(ComplexF64, dim^2, dim^2)
-    if with_coherent
+    if config.with_coherent
         coherent_term = coherent_bohr(hamiltonian, jump, config)
         liouv_coherent_part_for_jump .+= vectorize_liouvillian_coherent(coherent_term)
     end
@@ -58,7 +58,7 @@ function jump_contribution(::TimePicture, jump::JumpOp, hamiltonian::HamHam, con
     energy_labels::Vector{Float64}, time_labels::Vector{Float64})
 
     dim = size(hamiltonian.data, 1)
-    w0 = energy_labels[2] - energy_labels[1]
+    w0 = abs(energy_labels[2] - energy_labels[1])
     t0 = time_labels[2] - time_labels[1]
     oft_time_labels = truncate_time_labels_for_oft(time_labels, config.beta)
 
@@ -66,7 +66,7 @@ function jump_contribution(::TimePicture, jump::JumpOp, hamiltonian::HamHam, con
 
     liouv_coherent_part_for_jump = zeros(ComplexF64, dim^2, dim^2)
     liouv_diss_part_for_jump = zeros(ComplexF64, dim^2, dim^2)
-    if with_coherent
+    if config.with_coherent
         f_minus = compute_truncated_f(compute_f_minus, time_labels, config.beta)
         if config.with_linear_combination  
             if config.a != 0.0  # Improved Metro / Glauber
@@ -80,7 +80,7 @@ function jump_contribution(::TimePicture, jump::JumpOp, hamiltonian::HamHam, con
     end
 
     liouv_coherent_part_for_jump = zeros(ComplexF64, dim^2, dim^2)
-    total_liouv_diss_part = zeros(ComplexF64, dim^2, dim^2)
+    liouv_diss_part_for_jump = zeros(ComplexF64, dim^2, dim^2)
     if config.with_coherent 
         coherent_term = coherent_term_time(jump, hamiltonian, f_minus, f_plus, t0)  
         liouv_coherent_part_for_jump .+= vectorize_liouvillian_coherent(coherent_term)
@@ -98,7 +98,7 @@ function jump_contribution(::TrotterPicture, jump::JumpOp, trotter::TrottTrott, 
     energy_labels::Vector{Float64}, time_labels::Vector{Float64})
 
     dim = size(trotter.eigvecs, 1)
-    w0 = energy_labels[2] - energy_labels[1]
+    w0 = abs(energy_labels[2] - energy_labels[1])
     oft_time_labels = truncate_time_labels_for_oft(time_labels, config.beta)
 
     transition = pick_transition(config.beta, config.a, config.b, config.with_linear_combination)
@@ -169,7 +169,7 @@ function jump_contribution(::EnergyPicture, evolving_dm::Matrix{ComplexF64}, jum
     config::ThermalizeConfig)
 
     dim = size(evolving_dm, 1)
-    w0 = energy_labels[2] - energy_labels[1]
+    w0 = abs(energy_labels[2] - energy_labels[1])
 
     jump_coherent = zeros(ComplexF64, dim, dim)
     jump_dissipative = zeros(ComplexF64, dim, dim)
@@ -196,7 +196,7 @@ function jump_contribution(::TimePicture, evolving_dm::Matrix{ComplexF64}, jump:
     config::ThermalizeConfig)
 
     dim = size(evolving_dm, 1)
-    w0 = energy_labels[2] - energy_labels[1]
+    w0 = abs(energy_labels[2] - energy_labels[1])
     t0 = time_labels[2] - time_labels[1]
     oft_time_labels = truncate_time_labels_for_oft(time_labels, config.beta)
 
@@ -226,7 +226,7 @@ function jump_contribution(::TrotterPicture, evolving_dm::Matrix{ComplexF64}, ju
     config::ThermalizeConfig)
 
     dim = size(evolving_dm, 1)
-    w0 = energy_labels[2] - energy_labels[1]
+    w0 = abs(energy_labels[2] - energy_labels[1])
     oft_time_labels = truncate_time_labels_for_oft(time_labels, config.beta)
 
     jump_coherent = zeros(ComplexF64, dim, dim)
@@ -256,7 +256,7 @@ function jump_contribution_fast(::TimePicture, evolving_dm::Matrix{ComplexF64}, 
     config::ThermalizeConfig)
 
     dim = size(evolving_dm, 1)
-    w0 = energy_labels[2] - energy_labels[1]
+    w0 = abs(energy_labels[2] - energy_labels[1])
     t0 = time_labels[2] - time_labels[1]
     oft_time_labels = truncate_time_labels_for_oft(time_labels, config.beta)
 
@@ -312,7 +312,7 @@ function jump_contribution_fast(::TrotterPicture, evolving_dm::Matrix{ComplexF64
     config::ThermalizeConfig)
 
     dim = size(evolving_dm, 1)
-    w0 = energy_labels[2] - energy_labels[1]
+    w0 = abs(energy_labels[2] - energy_labels[1])
     t0 = time_labels[2] - time_labels[1]
     oft_time_labels = truncate_time_labels_for_oft(time_labels, config.beta)
 
