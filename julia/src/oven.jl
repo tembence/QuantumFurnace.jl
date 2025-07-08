@@ -62,7 +62,7 @@ function construct_liouvillian(jumps::Vector{JumpOp}, config::LiouvConfig, hamil
     return total_liouv
 end
 
-function run_thermalization_fast(jumps::Vector{JumpOp}, config::ThermalizeConfig, evolving_dm::Matrix{ComplexF64},
+function run_thermalization(jumps::Vector{JumpOp}, config::ThermalizeConfig, evolving_dm::Matrix{ComplexF64},
     hamiltonian::HamHam;
     trotter::Union{TrottTrott, Nothing}=nothing)
 
@@ -77,70 +77,6 @@ function run_thermalization_fast(jumps::Vector{JumpOp}, config::ThermalizeConfig
         @assert trotter !== nothing "A Trotter object must be provided for the TrotterPicture"
         ham_or_trott = trotter
         gibbs = Hermitian(trotter.eigvecs' * hamiltonian.eigvecs * hamiltonian.gibbs * hamiltonian.eigvecs' * trotter.eigvecs)
-    else
-        ham_or_trott = hamiltonian
-        gibbs = hamiltonian.gibbs
-    end
-
-    num_liouv_steps = Int(ceil(mixing_time / delta))
-    energy_labels, time_labels = precompute_labels(config.picture, config)
-
-    # Transition rate gamma
-    @everywhere transition = pick_transition(config.beta, config.a, config.b, config.with_linear_combination)
-    # Functions for B
-    f_minus, f_plus = if config.with_coherent && config.picture isa Union{TimePicture, TrotterPicture}
-        _f_minus = compute_truncated_f(compute_f_minus, time_labels, config.beta)
-
-        f_plus_calculator, f_plus_args = select_f_plus_calculator(config)
-        _f_plus = compute_truncated_f(f_plus_calculator, time_labels, config.beta, f_plus_args...)
-        
-        (_f_minus, _f_plus)
-    else
-        (nothing, nothing)
-    end
-
-    # Broadcast to all workers
-    @everywhere begin
-        global const energy_labels = $energy_labels
-        global const time_labels = $time_labels
-        global const f_minus = $f_minus
-        global const f_plus = $f_plus
-    end
-
-    distances_to_gibbs = [trace_distance_h(Hermitian(evolving_dm), gibbs)]
-    for step in 1:num_liouv_steps
-        update_dm = zeros(size(evolving_dm))
-        update_dm = @distributed (+) for jump in jumps
-            jump_contribution_fast(config.picture, evolving_dm, jump, ham_or_trott, config)
-        end
-
-        evolving_dm .+= update_dm
-
-        dist = trace_distance_h(Hermitian(evolving_dm), gibbs)
-        push!(distances_to_gibbs, dist)
-        if dist < convergence_cutoff
-            num_liouv_steps = step  # Save the actual number of taken steps
-            break
-        end
-    end
-    
-    time_steps = [0.0:delta:(num_liouv_steps * delta);]
-    return HotAlgorithmResults(evolving_dm, distances_to_gibbs, time_steps, hamiltonian, trotter, config)
-end
-
-function run_thermalization(jumps::Vector{JumpOp}, config::ThermalizeConfig, evolving_dm::Matrix{ComplexF64},
-    hamiltonian::HamHam;
-    trotter::Union{TrottTrott, Nothing}=nothing)
-
-    validate_config!(config)
-    print_press(config)
-    picture_name = replace(string(typeof(config.picture)), "Picture" => "")
-    println("Thermalizing ($(picture_name))")
-
-    if config.picture isa TrotterPicture
-        @assert trotter !== nothing "A Trotter object must be provided for the TrotterPicture"
-        ham_or_trott = trotter
-        gibbs = Hermitian(trotter.eigvecs' * hamiltonian.gibbs * trotter.eigvecs)
     else
         ham_or_trott = hamiltonian
         gibbs = hamiltonian.gibbs
@@ -191,6 +127,70 @@ function run_thermalization(jumps::Vector{JumpOp}, config::ThermalizeConfig, evo
     time_steps = [0.0:delta:(num_liouv_steps * delta);]
     return HotAlgorithmResults(evolving_dm, distances_to_gibbs, time_steps, hamiltonian, trotter, config)
 end
+
+# function run_thermalization_slow(jumps::Vector{JumpOp}, config::ThermalizeConfig, evolving_dm::Matrix{ComplexF64},
+#     hamiltonian::HamHam;
+#     trotter::Union{TrottTrott, Nothing}=nothing)
+
+#     validate_config!(config)
+#     print_press(config)
+#     picture_name = replace(string(typeof(config.picture)), "Picture" => "")
+#     println("Thermalizing ($(picture_name))")
+
+#     if config.picture isa TrotterPicture
+#         @assert trotter !== nothing "A Trotter object must be provided for the TrotterPicture"
+#         ham_or_trott = trotter
+#         gibbs = Hermitian(trotter.eigvecs' * hamiltonian.gibbs * trotter.eigvecs)
+#     else
+#         ham_or_trott = hamiltonian
+#         gibbs = hamiltonian.gibbs
+#     end
+
+#     num_liouv_steps = Int(ceil(mixing_time / delta))
+#     energy_labels, time_labels = precompute_labels(config.picture, config)
+
+#     # Transition rate gamma
+#     @everywhere transition = pick_transition(config.beta, config.a, config.b, config.with_linear_combination)
+#     # Functions for B
+#     f_minus, f_plus = if config.with_coherent && config.picture isa Union{TimePicture, TrotterPicture}
+#         _f_minus = compute_truncated_f(compute_f_minus, time_labels, config.beta)
+
+#         f_plus_calculator, f_plus_args = select_f_plus_calculator(config)
+#         _f_plus = compute_truncated_f(f_plus_calculator, time_labels, config.beta, f_plus_args...)
+        
+#         (_f_minus, _f_plus)
+#     else
+#         (nothing, nothing)
+#     end
+
+#     # Broadcast to all workers
+#     @everywhere begin
+#         global const energy_labels = $energy_labels
+#         global const time_labels = $time_labels
+#         global const f_minus = $f_minus
+#         global const f_plus = $f_plus
+#     end
+
+#     distances_to_gibbs = [trace_distance_h(Hermitian(evolving_dm), gibbs)]
+#     for step in 1:num_liouv_steps
+#         update_dm = zeros(size(evolving_dm))
+#         update_dm = @distributed (+) for jump in jumps
+#             jump_contribution_slow(config.picture, evolving_dm, jump, ham_or_trott, config)
+#         end
+
+#         evolving_dm .+= update_dm
+
+#         dist = trace_distance_h(Hermitian(evolving_dm), gibbs)
+#         push!(distances_to_gibbs, dist)
+#         if dist < convergence_cutoff
+#             num_liouv_steps = step  # Save the actual number of taken steps
+#             break
+#         end
+#     end
+    
+#     time_steps = [0.0:delta:(num_liouv_steps * delta);]
+#     return HotAlgorithmResults(evolving_dm, distances_to_gibbs, time_steps, hamiltonian, trotter, config)
+# end
 
 
 # function thermalize(jumps::Vector{JumpOp}, config::ThermalizeConfig, initial_dm::Matrix{ComplexF64};

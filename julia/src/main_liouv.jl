@@ -22,7 +22,7 @@ end
 
 function main()
         #* Config
-        num_qubits = 7
+        num_qubits = 4
         dim = 2^num_qubits
         beta = 10.  # 5, 10, 30
 
@@ -34,7 +34,7 @@ function main()
         with_coherent = true
         with_linear_combination = true
         # energy_picture = EnergyPicture()
-        picture = TimePicture()
+        picture = TrotterPicture()
         num_energy_bits = 11
         w0 = 0.05
         max_E = w0 * 2^num_energy_bits / 2
@@ -108,7 +108,7 @@ function main()
         H::Matrix{ComplexF64} = [1 1; 1 -1] / sqrt(2)
         id::Matrix{ComplexF64} = I(2)
         jump_paulis = [[X], [Y], [Z]]
-        # jump_paulis = [[X]]
+        jump_paulis = [[X]]
 
         jumps::Vector{JumpOp} = []
         for pauli in jump_paulis
@@ -129,9 +129,9 @@ function main()
         @printf("Jumps are created.\n")
 
         #* Liouvillian
-        liouv_result = @time run_liouvillian([jumps[1]], config, hamiltonian; trotter = trotter)
+        liouv_result = @time run_liouvillian(jumps[1:2], config, hamiltonian; trotter = trotter)
         # @printf("Distance to Gibbs: %s\n", norm(liouv_result.fixed_point - hamiltonian.gibbs))
-        # # @printf("Distance to Gibbs (TROTTER): %s\n", norm(liouv_result.fixed_point - gibbs_in_trotter))
+        @printf("Distance to Gibbs (TROTTER): %s\n", norm(liouv_result.fixed_point - gibbs_in_trotter))
         # @printf("Spectral gap: %s\n", abs(real(liouv_result.lambda_2)))
 
         # liouv_result_energy = run_liouvillian(jumps, energy_config, hamiltonian; trotter = trotter)
@@ -139,16 +139,16 @@ function main()
         # norm(liouv_result_energy.data - liouv_result.data)
 
         # Save
-        project_root = Pkg.project().path |> dirname
-        project_root = joinpath(project_root, "julia")  #! Omit this on cluster
-        results_dir = joinpath(project_root, "results")
-        output_filename = generate_filename(config)
-        full_path = joinpath(results_dir, output_filename)
+        # project_root = Pkg.project().path |> dirname
+        # project_root = joinpath(project_root, "julia")  #! Omit this on cluster
+        # results_dir = joinpath(project_root, "results")
+        # output_filename = generate_filename(config)
+        # full_path = joinpath(results_dir, output_filename)
 
 
-        println("Saving results to: ", full_path)
-        BSON.bson(full_path, Dict("results" => liouv_result)) # Save as a dictionary
-        println("Save complete.")
+#         println("Saving results to: ", full_path)
+#         BSON.bson(full_path, Dict("results" => liouv_result)) # Save as a dictionary
+#         println("Save complete.")
 end
 
 if myid() == 1

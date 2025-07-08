@@ -110,6 +110,7 @@ function thermalize_bohr(jumps::Vector{JumpOp}, hamiltonian::HamHam, evolving_dm
     return HotAlgorithmResults(evolving_dm, distances_to_gibbs, time_steps)
 end
 
+#! Changed it slightlyfor speed without debugging
 function coherent_bohr(hamiltonian::HamHam, jump::JumpOp, config::Union{LiouvConfig, ThermalizeConfig})
 
     dim = size(hamiltonian.data, 1)
@@ -118,13 +119,14 @@ function coherent_bohr(hamiltonian::HamHam, jump::JumpOp, config::Union{LiouvCon
     f = pick_f(config)  # Picks rates for B in Bohr picture
 
     B = zeros(ComplexF64, dim, dim)
+    f_A_nu_1 = zeros(ComplexF64, dim, dim)
     for nu_2 in unique_freqs
-
         A_nu_2::SparseMatrixCSC{ComplexF64} = spzeros(dim, dim)
-        A_nu_2[hamiltonian.bohr_dict[nu_2]] .= jump.in_eigenbasis[hamiltonian.bohr_dict[nu_2]]
-        f_nu1_matrix = f.(hamiltonian.bohr_freqs, nu_2, beta, a, b)
+        indices = hamiltonian.bohr_dict[nu_2]
+        A_nu_2[indices] .= jump.in_eigenbasis[indices]
+        @. f_A_nu_1 = f(hamiltonian.bohr_freqs, nu_2, config.beta, config.a, config.b) * jump.in_eigenbasis
 
-        B .+= A_nu_2' * (f_nu1_matrix .* jump.in_eigenbasis)
+        B .+= A_nu_2' * f_A_nu_1
     end
     return B
 end

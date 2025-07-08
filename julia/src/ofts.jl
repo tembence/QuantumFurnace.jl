@@ -15,6 +15,12 @@ function oft(jump::JumpOp, energy::Float64, hamiltonian::HamHam, beta::Float64)
     return jump.in_eigenbasis .* exp.(-beta^2 * (energy .- hamiltonian.bohr_freqs).^2 / 4) 
 end
 
+function oft_fast!(out_matrix::Matrix{ComplexF64}, jump::JumpOp, energy::Float64, hamiltonian::HamHam, beta::Float64)
+    """sigma_E = 1 / beta. Subnormalized, multiply by sqrt(beta / sqrt(2 * pi))"""
+    @. out_matrix = jump.in_eigenbasis * exp(-beta^2 * (energy - hamiltonian.bohr_freqs)^2 / 4) 
+    return out_matrix
+end
+
 function trotter_oft(jump::JumpOp, energy::Float64, trotter::TrottTrott, time_labels::Vector{Float64}, beta::Float64)
 
     prefactors = @fastmath exp.(- time_labels.^2 / beta^2 .- 1im * energy * time_labels) # Gauss and Fourier factors

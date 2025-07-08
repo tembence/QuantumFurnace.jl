@@ -2,96 +2,132 @@ using LinearAlgebra
 using SparseArrays
 using Random
 using Printf
-# using QuantumOptics # Add it back if needed
 using JLD2
 
 include("hamiltonian.jl")
 
-function kron!(C, A, B)
-    m, n = size(A)
-    p, q = size(B)
-    @inbounds for j in 1:n, i in 1:m
-        c = A[i, j]
-        if !iszero(c)
-            # Get the block of C to write into
-            block = @view C[(i-1)*p+1:i*p, (j-1)*q+1:j*q]
-            # C_block = A[i,j] * B
-            block .= c .* B
+
+# Computes C .+= alpha .* kron(A, B) completely in-place, without allocating
+# the result of the Kronecker product. This is the key to memory efficiency.
+function kron!(
+    C::AbstractMatrix,
+    A::AbstractMatrix,
+    B::AbstractMatrix,
+    alpha::Number
+)
+    m_a, n_a = size(A)
+    m_b, n_b = size(B)
+    
+    # This check is good for debugging but can be removed for performance
+    @assert size(C) == (m_a * m_b, n_a * n_b) "Output matrix C has incorrect dimensions."
+
+    for j in 1:n_a
+        for i in 1:m_a
+            a_ij = A[i, j]
+            # If the element in A is zero, the whole block is zero.
+            iszero(a_ij) && continue
+            
+            # Calculate the top-left corner of the block in C
+            c_row_offset = (i - 1) * m_b
+            c_col_offset = (j - 1) * n_b
+            
+            # Iterate over the B matrix
+            for l in 1:n_b
+                for k in 1:m_b
+                    # C[block_row, block_col] += alpha * A[i,j] * B[k,l]
+                    @inbounds C[c_row_offset + k, c_col_offset + l] += alpha * a_ij * B[k, l]
+                end
+            end
         end
     end
     return C
 end
 
-function vectorize_liouvillian_diss(jump_1::AbstractMatrix{ComplexF64}, jump_2::AbstractMatrix{ComplexF64})
-    """L = J1 * X * J2 - 0.5 * (J2 * J1 * X + X * J2 * J1)"""
 
-    dim = size(jump_1, 1)
-    spI = sparse(I, dim, dim)
-
-    jump_2_jump_1 = jump_2 * jump_1
-    vectorized_diss_part = zeros(ComplexF64, dim^2, dim^2)
-    temp_kron_matrix = similar(vectorized_diss_part)
-
-    kron!(vectorized_diss_part, jump_1, transpose(jump_2))
-
-    kron!(temp_kron_matrix, jump_2_jump_1, spI)
-    vectorized_diss_part .-= 0.5 .* temp_kron_matrix
-
-    fill!(temp_kron_matrix, 0.0)
-    kron!(temp_kron_matrix, spI, transpose(jump_2_jump_1))
-    vectorized_diss_part .-= 0.5 .* temp_kron_matrix
-
-    return vectorized_diss_part
-end
-
-function vectorize_liouvillian_coherent(coherent_term::Matrix{ComplexF64})
-    dim = size(coherent_term)[1]
-    spI = sparse(I, dim, dim)
-
-    vectorized_coherent_part = zeros(ComplexF64, dim^2, dim^2)
-    temp_kron_matrix = similar(vectorized_coherent_part)
-
-    kron!(vectorized_coherent_part, coherent_term, spI)
-    kron!(temp_kron_matrix, spI, transpose(coherent_term))
-    vectorized_coherent_part .-= temp_kron_matrix
-    vectorized_coherent_part .*= -1im
-
-    return vectorized_coherent_part
-end
-
-function vectorize_liouvillian_diss(jump::AbstractMatrix{ComplexF64})
-    """Allocates way less, with inplace kron! and pre allocated temp"""
+# Takes in a jump operator, vectorizes it and adds it to the target liouvillian. 
+# L = J1 * X * J2 - 0.5 * (J2 * J1 * X + X * J2 * J1)
+# The way it is coded, makes it sure, that we allocate the least amount of times, i.e. the liouvillian is only allocated once, 
+# there is no unnecessary copies during the calculations. 
+# Note, that since it adds the liouvillian parts one by one to the liouvillian, on large scales
+# there is some arithmetic error to an implementation that adds the parts together and then to the liouvillian.
+function vectorize_liouv_diss_and_add!(
+    L_target::AbstractMatrix{ComplexF64},
+    jump::AbstractMatrix{ComplexF64},
+    scalar::Number
+)
     dim = size(jump, 1)
     spI = sparse(I, dim, dim)
 
+    kron!(L_target, jump, conj(jump), scalar)
+
     jump_dag_jump = jump' * jump
-    vectorized_diss_part = zeros(ComplexF64, dim^2, dim^2)
-    temp_kron_matrix = similar(vectorized_diss_part)
-
-    kron!(vectorized_diss_part, jump, conj(jump))
-
-    kron!(temp_kron_matrix, jump_dag_jump, spI)
-    vectorized_diss_part .-= 0.5 .* temp_kron_matrix
-
-    fill!(temp_kron_matrix, 0.0)
-    kron!(temp_kron_matrix, spI, transpose(jump_dag_jump))
-    vectorized_diss_part .-= 0.5 .* temp_kron_matrix
-
-    return vectorized_diss_part
+    kron!(L_target, jump_dag_jump, spI, -0.5 * scalar)
+    kron!(L_target, spI, transpose(jump_dag_jump), -0.5 * scalar)
+    
+    return L_target
 end
 
-# function vectorize_liouvillian_diss(jump::Matrix{ComplexF64})
-#     dim = size(jump, 1)
-#     spI = sparse(I, dim, dim)
+function vectorize_liouv_diss_and_add!(
+    L_target::AbstractMatrix{ComplexF64},
+    jump_1::AbstractMatrix{ComplexF64},
+    jump_2::AbstractMatrix{ComplexF64},
+    scalar::Number
+)
+    dim = size(jump_1, 1)
+    spI = sparse(I, dim, dim)
 
-#     vectorized_liouv = zeros(ComplexF64, dim^2, dim^2)
-#     jump_dag_jump = jump' * jump
+    kron!(L_target, jump_1, transpose(jump_2), scalar)
 
-#     # Jump^\dag^T = Jump^*
-#     # Watrous
-#     vectorized_liouv .+= kron(jump, conj(jump)) - 0.5 * (kron(jump_dag_jump, spI) + kron(spI, transpose(jump_dag_jump))) 
-#     return vectorized_liouv
-# end
+    jump_2_jump_1 = jump_2 * jump_1
+    kron!(L_target, jump_2_jump_1, spI, -0.5 * scalar)
+    kron!(L_target, spI, transpose(jump_2_jump_1), -0.5 * scalar)
+    
+    return L_target
+end
+
+function vectorize_liouvillian_coherent!(
+    L_target::AbstractMatrix{ComplexF64},
+    coherent_term::AbstractMatrix{ComplexF64})
+
+    dim = size(coherent_term)[1]
+    spI = sparse(I, dim, dim)
+
+    kron!(L_target, coherent_term, spI, -1im)
+    kron!(L_target, spI, transpose(coherent_term), +1im)
+    return L_target
+end
+
+function vectorize_liouvillian_diss(jump::AbstractMatrix{ComplexF64})
+    dim = size(jump, 1)
+    spI = sparse(I, dim, dim)
+
+    vectorized_liouv = zeros(ComplexF64, dim^2, dim^2)
+    jump_dag_jump = jump' * jump
+
+    # Watrous
+    vectorized_liouv .+= kron(jump, conj(jump)) - 0.5 * (kron(jump_dag_jump, spI) + kron(spI, transpose(jump_dag_jump))) 
+    return vectorized_liouv
+end
+
+function vectorize_liouvillian_diss(jump_1::AbstractMatrix{ComplexF64}, jump_2::AbstractMatrix{ComplexF64})
+    dim = size(jump_1, 1)
+    spI = sparse(I, dim, dim)
+
+    vectorized_liouv = zeros(ComplexF64, dim^2, dim^2)
+    jump_2_jump_1 = jump_2 * jump_1
+
+    # Watrous
+    vectorized_liouv .+= kron(jump_1, transpose(jump_2)) - 0.5 * (kron(jump_2_jump_1, spI) + kron(spI, transpose(jump_2_jump_1))) 
+    return vectorized_liouv
+end
+
+function vectorize_liouvillian_coherent(coherent_term::AbstractMatrix{ComplexF64})
+    dim = size(coherent_term)[1]
+    spI = sparse(I, dim, dim)
+    vectorized_coherent_part = -1im *(kron(coherent_term, spI) - kron(spI, transpose(coherent_term)))
+
+    return vectorized_coherent_part
+end
 
 
 
