@@ -3,6 +3,7 @@ using LinearAlgebra
 using Printf
 using BenchmarkTools
 using ProgressMeter
+using Arpack
 
 include("hamiltonian.jl")
 include("qi_tools.jl")
@@ -23,16 +24,31 @@ function run_liouvillian(jumps::Vector{JumpOp}, config::LiouvConfig, hamiltonian
 
     liouv = construct_liouvillian(jumps, config, hamiltonian, trotter=trotter)
 
-    liouv_eigvals, liouv_eigvecs = eigen(liouv) 
-    steady_state_vec = liouv_eigvecs[:, end]
+    # Full eigen
+    # liouv_eigvals, liouv_eigvecs = eigen(liouv) 
+    # steady_state_vec = liouv_eigvecs[:, end]
+    # steady_state_dm = reshape(steady_state_vec, size(hamiltonian.data))
+    # steady_state_dm /= tr(steady_state_dm)
+
+    # Arpack eigs
+    eigvals_near_zero, eigvecs_near_zero = eigs(liouv, nev=2, which=:SM, tol=1e-14)
+    ss_index = findmin(abs.(eigvals_near_zero))[2]
+    gap_index = (ss_index == 1) ? 2 : 1
+    steady_state_eigval = eigvals_near_zero[ss_index]
+    lambda_2 = eigvals_near_zero[gap_index] # This is the spectral gap eigenvalue
+
+    steady_state_vec = eigvecs_near_zero[:, ss_index]
     steady_state_dm = reshape(steady_state_vec, size(hamiltonian.data))
-    steady_state_dm /= tr(steady_state_dm)
+    steady_state_dm ./= tr(steady_state_dm) # Normalize
+
+    eigvals_end, _ = eigs(liouv, nev=1, which=:LM)
+    lambda_end = eigvals_end[1]
 
     result = HotSpectralResults(
         data = liouv,
         fixed_point = steady_state_dm,
-        lambda_2 = liouv_eigvals[end-1],
-        lambda_end = liouv_eigvals[1],
+        lambda_2 = lambda_2,
+        lambda_end = lambda_end,
         hamiltonian = hamiltonian,
         trotter = trotter, 
         config = config

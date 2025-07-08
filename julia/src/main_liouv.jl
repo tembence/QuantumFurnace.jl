@@ -1,4 +1,5 @@
 using Distributed
+using Profile
 
 # For local testing
 # if nprocs() == 1
@@ -16,13 +17,13 @@ end
 
 @everywhere using Pkg
 @everywhere Pkg.activate(".")
-@everywhere using LinearAlgebra, Random, Printf, SparseArrays, JLD2, BSON
+@everywhere using LinearAlgebra, Random, Printf, SparseArrays, JLD2, BSON, Arpack
 @everywhere include("QuantumFurnace.jl")
 @everywhere using .QuantumFurnace
 
 function main()
         #* Config
-        num_qubits = 4
+        num_qubits = 5
         dim = 2^num_qubits
         beta = 10.  # 5, 10, 30
 
@@ -34,7 +35,7 @@ function main()
         with_coherent = true
         with_linear_combination = true
         # energy_picture = EnergyPicture()
-        picture = TrotterPicture()
+        picture = TimePicture()
         num_energy_bits = 11
         w0 = 0.05
         max_E = w0 * 2^num_energy_bits / 2
@@ -108,7 +109,7 @@ function main()
         H::Matrix{ComplexF64} = [1 1; 1 -1] / sqrt(2)
         id::Matrix{ComplexF64} = I(2)
         jump_paulis = [[X], [Y], [Z]]
-        jump_paulis = [[X]]
+        jump_paulis = [[Y]]
 
         jumps::Vector{JumpOp} = []
         for pauli in jump_paulis
@@ -129,10 +130,13 @@ function main()
         @printf("Jumps are created.\n")
 
         #* Liouvillian
-        liouv_result = @time run_liouvillian(jumps[1:2], config, hamiltonian; trotter = trotter)
-        # @printf("Distance to Gibbs: %s\n", norm(liouv_result.fixed_point - hamiltonian.gibbs))
-        @printf("Distance to Gibbs (TROTTER): %s\n", norm(liouv_result.fixed_point - gibbs_in_trotter))
+        liouv_result = @time run_liouvillian([jumps[1]], config, hamiltonian; trotter = trotter)
+        @printf("Spectral gap: %s\n", (liouv_result.lambda_2))
+
+        @printf("Distance to Gibbs: %s\n", norm(liouv_result.fixed_point - hamiltonian.gibbs))
+        # @printf("Distance to Gibbs (TROTTER): %s\n", norm(liouv_result.fixed_point - gibbs_in_trotter))
         # @printf("Spectral gap: %s\n", abs(real(liouv_result.lambda_2)))
+        # @printf("Largest EV: %s\n", abs(real(liouv_result.lambda_end)))
 
         # liouv_result_energy = run_liouvillian(jumps, energy_config, hamiltonian; trotter = trotter)
         # @printf("Distance to Gibbs (ENERGY): %s\n", norm(liouv_result_energy.fixed_point - hamiltonian.gibbs))

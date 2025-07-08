@@ -21,6 +21,21 @@ struct OFTCaches
     end
 end
 
+# For Linear Maps (for single node)
+struct JumpCaches
+    jump_1::AbstractMatrix{ComplexF64}
+    jump_2_dag_jump_1::AbstractMatrix{ComplexF64}
+    temp1::AbstractMatrix{ComplexF64}
+
+    function JumpCaches(dim::Int)
+        jump_1 = zeros(ComplexF64, dim, dim)
+        jump_2_dag_jump_1 = zeros(ComplexF64, dim, dim)
+        temp1 = zeros(ComplexF64, dim, dim)
+        new(jump_1, jump_2_dag_jump_1, temp1)
+    end
+
+end
+
 # Let's keep this structure, and have the "give w0 for desired energy integral error" type of config optimization
 # before the construct_liouvillian function
 @kwdef struct LiouvConfig

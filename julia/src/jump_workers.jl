@@ -310,6 +310,185 @@ function jump_contribution(::TrotterPicture, evolving_dm::Matrix{ComplexF64}, ju
     return jump_dm_contribution
 end
 
+#* Linear Map jump contributions -----
+function jump_contribution!(
+    target_d_rho::AbstractMatrix{ComplexF64}, 
+    ::BohrPicture, 
+    rho::AbstractMatrix{ComplexF64}, 
+    jump::JumpOp, 
+    hamiltonian::HamHam,
+    config::LiouvConfig,
+    precomputed_data,
+    caches
+    )
+
+    (; w0, t0, transition, f_minus, f_plus, energy_labels, oft_time_labels) = precomputed_data
+    (; jump_caches, oft_caches) = caches
+
+    alpha = pick_alpha(config)
+    unique_freqs = keys(hamiltonian.bohr_dict)
+
+    # Coherent part
+    if config.with_coherent
+        coherent_term = coherent_bohr(hamiltonian, jump, config)
+        mul!(target_d_rho, coherent_term, rho, -1im, 1.0)
+        mul!(target_d_rho, rho, coherent_term, 1im, 1.0)
+    end
+
+    # Dissipative part
+    # mul!(C, A, B, α, β) computes C = α*A*B + β*C
+    for nu_2 in unique_freqs
+        @. jump_caches.jump_1 = alpha(hamiltonian.bohr_freqs, nu_2, config.beta, config.a, config.b) * jump.in_eigenbasis
+
+        A_nu_2::SparseMatrixCSC{ComplexF64} = spzeros(dim, dim)
+        indices = hamiltonian.bohr_dict[nu_2]
+        A_nu_2[indices] .= jump.in_eigenbasis[indices]
+
+        mul!(jump_caches.jump_2_dag_jump_1, A_nu_2', jump_caches.jump_1)
+
+        # Term 1
+        mul!(jump.temp1, rho, A_nu_2')
+        mul!(target_d_rho, jump_caches.jump_1, jump.temp1, 1.0, 1.0)
+
+        # Term 2
+        mul!(target_d_rho, jump_caches.jump_2_dag_jump_1, rho, -0.5, 1.0)
+
+        # Term 3
+        mul!(target_d_rho, rho, jump_caches.jump_2_dag_jump_1, -0.5, 1.0)
+    end
+        
+    return target_d_rho
+end
+
+function jump_contribution!(
+    target_d_rho::AbstractMatrix{ComplexF64}, 
+    ::EnergyPicture, 
+    rho::AbstractMatrix{ComplexF64}, 
+    jump::JumpOp, 
+    hamiltonian::HamHam,
+    config::LiouvConfig,
+    precomputed_data,
+    caches
+    )
+
+    (; w0, t0, transition, f_minus, f_plus, energy_labels, oft_time_labels) = precomputed_data
+    (; jump_caches, oft_caches) = caches
+
+    # Coherent part
+    if config.with_coherent
+        coherent_term = coherent_bohr(hamiltonian, jump, config)
+        mul!(target_d_rho, coherent_term, rho, -1im, 1.0)
+        mul!(target_d_rho, rho, coherent_term, 1im, 1.0)
+    end
+
+    # Dissipative part
+    prefactor = w0 * config.beta / sqrt(2 * pi)
+    # mul!(C, A, B, α, β) computes C = α*A*B + β*C
+    for w in energy_labels
+        oft_fast!(jump_caches.jump_1, jump, w, hamiltonian, config.beta)
+        mul!(jump_caches.jump_2_dag_jump_1, jump_caches.jump_1', jump_caches.jump_1)
+
+        loop_factor = transition(w) * prefactor
+        # Term 1
+        mul!(jump.temp1, rho, jump_caches.jump_1')  # rho * A'
+        mul!(target_d_rho, jump_caches.jump_1, jump.temp1, loop_factor, 1.0)  # L += prefactor * A * rho * A'
+
+        # Term 2
+        mul!(target_d_rho, jump_caches.jump_2_dag_jump_1, rho, -0.5 * loop_factor, 1.0)
+        
+        # Term 3
+        mul!(target_d_rho, rho, jump_caches.jump_2_dag_jump_1, -0.5 * loop_factor, 1.0)
+    end
+    
+    return target_d_rho
+end
+
+function jump_contribution!(
+    target_d_rho::AbstractMatrix{ComplexF64}, 
+    ::TimePicture, 
+    rho::AbstractMatrix{ComplexF64}, 
+    jump::JumpOp, 
+    hamiltonian::HamHam,
+    config::LiouvConfig,
+    precomputed_data,
+    caches
+    )
+
+    (; w0, t0, transition, f_minus, f_plus, energy_labels, oft_time_labels) = precomputed_data
+    (; jump_caches, oft_caches) = caches
+
+    # Coherent part
+    if config.with_coherent
+        coherent_term = coherent_term_time(jump, hamiltonian, f_minus, f_plus, t0)
+        mul!(target_d_rho, coherent_term, rho, -1im, 1.0)
+        mul!(target_d_rho, rho, coherent_term, 1im, 1.0)
+    end
+
+    prefactor = w0 * t0^2 * (sqrt(2 / pi) / config.beta) / (2 * pi)
+    for w in energy_labels
+        time_oft_fast!(jump_caches.jump_1, oft_caches, jump, w, hamiltonian, oft_time_labels, config.beta)
+        
+        # jump_dag_jump = jump_oft' * jump_oft
+        mul!(jump_caches.jump_2_dag_jump_1, jump_caches.jump_1', jump_caches.jump_1)
+
+        loop_factor = transition(w) * prefactor
+        # Term 1
+        mul!(jump_caches.temp1, rho, jump_caches.jump_1')  # rho * A'
+        mul!(target_d_rho, jump_caches.jump_1, jump_caches.temp1, loop_factor, 1.0)  # L += prefactor * A * rho * A'
+
+        # Term 2
+        mul!(target_d_rho, jump_caches.jump_2_dag_jump_1, rho, -0.5 * loop_factor, 1.0)
+
+        # Term 3
+        mul!(target_d_rho, rho, jump_caches.jump_2_dag_jump_1, -0.5 * loop_factor, 1.0)
+    end
+    return target_d_rho
+end
+
+function jump_contribution!(
+    target_d_rho::AbstractMatrix{ComplexF64}, 
+    ::TrotterPicture, 
+    rho::AbstractMatrix{ComplexF64}, 
+    jump::JumpOp, 
+    trotter::TrottTrott,
+    config::LiouvConfig,
+    precomputed_data,
+    caches
+    )
+
+    (; w0, t0, transition, f_minus, f_plus, energy_labels, oft_time_labels) = precomputed_data
+    (; jump_caches, oft_caches) = caches
+
+    # Coherent part
+    if config.with_coherent
+        coherent_term = coherent_term_trotter(jump, trotter, f_minus, f_plus)
+        mul!(target_d_rho, coherent_term, rho, -1im, 1.0)
+        mul!(target_d_rho, rho, coherent_term, 1im, 1.0)
+    end
+
+    prefactor = w0 * t0^2 * (sqrt(2 / pi) / config.beta) / (2 * pi)
+    for w in energy_labels
+        trotter_oft_fast!(jump_caches.jump_1, oft_caches, jump, w, trotter, oft_time_labels, config.beta)
+        
+        # jump_dag_jump = jump_oft' * jump_oft
+        mul!(jump_caches.jump_2_dag_jump_1, jump_caches.jump_1', jump_caches.jump_1)
+
+        loop_factor = transition(w) * prefactor
+        # Term 1
+        mul!(jump_caches.temp1, rho, jump_caches.jump_1')  # rho * A'
+        mul!(target_d_rho, jump_caches.jump_1, jump_caches.temp1, loop_factor, 1.0)  # L += prefactor * A * rho * A'
+
+        # Term 2
+        mul!(target_d_rho, jump_caches.jump_2_dag_jump_1, rho, -0.5 * loop_factor, 1.0)
+
+        # Term 3
+        mul!(target_d_rho, rho, jump_caches.jump_2_dag_jump_1, -0.5 * loop_factor, 1.0)
+    end
+
+    return target_d_rho
+end
+
+
 
 #* Slow and old
 # function jump_contribution_slow(::TrotterPicture, jump::JumpOp, trotter::TrottTrott, config::LiouvConfig, 
