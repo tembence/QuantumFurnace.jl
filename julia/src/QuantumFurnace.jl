@@ -9,7 +9,7 @@ export LiouvConfig, ThermalizeConfig, HamHam, TrottTrott, HotAlgorithmResults, H
        validate_config!,
        create_trotter, compute_trotter_error,
        gibbs_state, gibbs_state_in_eigen,
-       create_bohr_dict, pad_term
+       create_bohr_dict, pad_term, pick_transition
 
 # --- Internal Implementation ---
 include("hamiltonian.jl")

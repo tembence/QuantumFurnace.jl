@@ -127,7 +127,6 @@ end
     data::Matrix{ComplexF64}  #! Remove when space will matter
     fixed_point::Matrix{ComplexF64}
     lambda_2::ComplexF64    # For spectral gap
-    lambda_end::ComplexF64  # For ideal delta in the algorithmic thermalization
     hamiltonian::HamHam
     trotter::Union{TrottTrott,Nothing} = nothing
     config::LiouvConfig

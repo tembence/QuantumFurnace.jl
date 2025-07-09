@@ -122,7 +122,7 @@ function jump_contribution(::TrotterPicture, jump::JumpOp, trotter::TrottTrott, 
 
     liouv_for_jump = zeros(ComplexF64, dim^2, dim^2)
     if config.with_coherent 
-        coherent_term = coherent_term_trotter(jump, trotter, f_minus, f_plus) 
+        coherent_term = coherent_term_trotter(jump, trotter, f_minus, f_plus)
         vectorize_liouvillian_coherent!(liouv_for_jump, coherent_term)
     end
 
@@ -347,8 +347,8 @@ function jump_contribution!(
         mul!(jump_caches.jump_2_dag_jump_1, A_nu_2', jump_caches.jump_1)
 
         # Term 1
-        mul!(jump.temp1, rho, A_nu_2')
-        mul!(target_d_rho, jump_caches.jump_1, jump.temp1, 1.0, 1.0)
+        mul!(jump_caches.temp1, rho, A_nu_2')
+        mul!(target_d_rho, jump_caches.jump_1, jump_caches.temp1, 1.0, 1.0)
 
         # Term 2
         mul!(target_d_rho, jump_caches.jump_2_dag_jump_1, rho, -0.5, 1.0)

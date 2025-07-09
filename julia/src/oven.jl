@@ -23,6 +23,7 @@ function run_liouvillian(jumps::Vector{JumpOp}, config::LiouvConfig, hamiltonian
     print_press(config)
 
     liouv = construct_liouvillian(jumps, config, hamiltonian, trotter=trotter)
+    @printf("Done.\n")
 
     # Full eigen
     # liouv_eigvals, liouv_eigvecs = eigen(liouv) 
@@ -31,24 +32,21 @@ function run_liouvillian(jumps::Vector{JumpOp}, config::LiouvConfig, hamiltonian
     # steady_state_dm /= tr(steady_state_dm)
 
     # Arpack eigs
-    eigvals_near_zero, eigvecs_near_zero = eigs(liouv, nev=2, which=:SM, tol=1e-14)
+    # eigvals_near_zero, eigvecs_near_zero = eigs(liouv, nev=2, which=:SM, tol=1e-12)
+    shift = 1e-8 * (1 + 1im)
+    eigvals_near_zero, eigvecs_near_zero = eigs(liouv, nev=2, sigma=shift, tol=1e-12)
     ss_index = findmin(abs.(eigvals_near_zero))[2]
     gap_index = (ss_index == 1) ? 2 : 1
-    steady_state_eigval = eigvals_near_zero[ss_index]
-    lambda_2 = eigvals_near_zero[gap_index] # This is the spectral gap eigenvalue
+    lambda_2 = eigvals_near_zero[gap_index] # Spectral gap
 
     steady_state_vec = eigvecs_near_zero[:, ss_index]
     steady_state_dm = reshape(steady_state_vec, size(hamiltonian.data))
     steady_state_dm ./= tr(steady_state_dm) # Normalize
 
-    eigvals_end, _ = eigs(liouv, nev=1, which=:LM)
-    lambda_end = eigvals_end[1]
-
     result = HotSpectralResults(
         data = liouv,
         fixed_point = steady_state_dm,
         lambda_2 = lambda_2,
-        lambda_end = lambda_end,
         hamiltonian = hamiltonian,
         trotter = trotter, 
         config = config
@@ -87,8 +85,6 @@ function run_thermalization(jumps::Vector{JumpOp}, config::ThermalizeConfig, evo
     picture_name = replace(string(typeof(config.picture)), "Picture" => "")
     println("Thermalizing ($(picture_name))")
 
-    convergence_cutoff = 1e-6
-
     if config.picture isa TrotterPicture
         @assert trotter !== nothing "A Trotter object must be provided for the TrotterPicture"
         ham_or_trott = trotter
@@ -98,7 +94,7 @@ function run_thermalization(jumps::Vector{JumpOp}, config::ThermalizeConfig, evo
         gibbs = hamiltonian.gibbs
     end
 
-    num_liouv_steps = Int(ceil(mixing_time / delta))
+    num_liouv_steps = Int(ceil(config.mixing_time / config.delta))
     energy_labels, time_labels = precompute_labels(config.picture, config)
 
     # Transition rate gamma
@@ -123,6 +119,7 @@ function run_thermalization(jumps::Vector{JumpOp}, config::ThermalizeConfig, evo
         global const f_plus = $f_plus
     end
 
+    convergence_cutoff = 1e-6
     distances_to_gibbs = [trace_distance_h(Hermitian(evolving_dm), gibbs)]
     for step in 1:num_liouv_steps
         update_dm = zeros(size(evolving_dm))
@@ -140,7 +137,7 @@ function run_thermalization(jumps::Vector{JumpOp}, config::ThermalizeConfig, evo
         end
     end
     
-    time_steps = [0.0:delta:(num_liouv_steps * delta);]
+    time_steps = [0.0:config.delta:(num_liouv_steps * config.delta);]
     return HotAlgorithmResults(evolving_dm, distances_to_gibbs, time_steps, hamiltonian, trotter, config)
 end
 

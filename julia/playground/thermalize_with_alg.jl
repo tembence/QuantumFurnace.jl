@@ -11,10 +11,6 @@
 # include("qi_tools.jl")
 # include("structs.jl")
 
-# #TODO: Struct for Configs / Initialization of the thermalizations
-# #TODO: Compare this to other thermalizations
-# #TODO: Figure out how to best structure the code
-
 
 # function thermalize_gaussian(jumps::Vector{JumpOp}, hamiltonian::HamHam, with_coherent::Bool, evolved_dm::Matrix{ComplexF64},
 #     num_energy_bits::Int64, filter_gauss_w::Function, transition_gauss::Function,

@@ -4,11 +4,15 @@ using Random
 using Printf
 using Plots
 using QuadGK
+using Pkg
+using JLD2
 
 include("hamiltonian.jl")
 include("qi_tools.jl")
 include("bohr_picture.jl")
 include("timelike_tools.jl")
+include("misc_tools.jl")
+include("structs.jl")
 
 function oft(jump::JumpOp, energy::Float64, hamiltonian::HamHam, beta::Float64)
     """sigma_E = 1 / beta. Subnormalized, multiply by sqrt(beta / sqrt(2 * pi))"""
@@ -45,7 +49,7 @@ function trotter_oft(jump::JumpOp, energy::Float64, trotter::TrottTrott, time_la
             if i <= mid_point
                 num_t0_steps = i - 1
             else
-                num_t0_steps = i - 2 * mid_point - 1 # Pain
+                num_t0_steps = i - 2 * mid_point # Pain / Why am I torturing myself multiple times.
             end
             trott_U .= trotter_time_evolution(num_t0_steps)
             jump_oft .+=  @fastmath (prefactors[i] * trott_U * jump.in_trotter_basis * trott_U')
@@ -169,7 +173,7 @@ function trotter_oft_fast!(out_matrix::Matrix{ComplexF64}, caches::OFTCaches,
         end
     else # Non-orthogonal jumps
         for i in eachindex(time_labels)
-            num_t0_steps = (i <= mid_point) ? (i - 1) : (i - 2 * mid_point - 1)
+            num_t0_steps = (i <= mid_point) ? (i - 1) : (i - 2 * mid_point)
             
             @fastmath caches.U.diag .= trotter.eigvals_t0 .^ num_t0_steps
             
@@ -186,7 +190,7 @@ end
 
 
 #* Trotter OFT check
-# energy_labels = create_energy_labels(num_energy_bits, w0)
+# energy_labels, time_labels = precompute_labels(config.picture, config)
 # truncated_energy_labels = truncate_energy_labels(energy_labels, beta,
 # a, b, with_linear_combination)
 # time_labels = energy_labels .* (t0 / w0)
