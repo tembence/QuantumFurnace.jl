@@ -1,6 +1,6 @@
 using Distributed
 using Profile
-
+#TODO: I haven't debugged this since changing f -> b. (liouvillian one was debugged.)
 # For local testing
 # if nprocs() == 1
 #     println("No external workers detected. Adding 4 local workers for testing...")
@@ -35,15 +35,15 @@ function main()
     with_coherent = true
     with_linear_combination = true
     picture = TimePicture()
-    num_energy_bits = 10
-    w0 = 0.1
+    num_energy_bits = 11
+    w0 = 0.05
     max_E = w0 * 2^num_energy_bits / 2
     t0 = 2pi / (2^num_energy_bits * w0)
     num_trotter_steps_per_t0 = 10
 
     # Thermalizing configs:
-    mixing_time = 10.0
-    delta = 0.2
+    mixing_time = 10.0 * 12 #!
+    delta = 0.16 * 12 #!!!
     unravel = false
 
     config = ThermalizeConfig(
@@ -94,10 +94,13 @@ function main()
     id::Matrix{ComplexF64} = I(2)
     jump_paulis = [[X], [Y], [Z]]
 
+    num_of_jumps = length(jump_paulis) * num_qubits
+    jump_normalization = sqrt(num_of_jumps)
+    # jump_normalization = 1.0
     jumps::Vector{JumpOp} = []
     for pauli in jump_paulis
         for site in 1:num_qubits
-        jump_op = Matrix(pad_term(pauli, num_qubits, site))
+        jump_op = Matrix(pad_term(pauli, num_qubits, site)) / jump_normalization
         jump_op_in_eigenbasis = hamiltonian.eigvecs' * jump_op * hamiltonian.eigvecs
         jump_in_trotter_basis = trotter.eigvecs' * jump_op * trotter.eigvecs
         orthogonal = (jump_op == transpose(jump_op))
@@ -111,10 +114,10 @@ function main()
         end
     end
 
-    #FIXME: What the hell it somehow doesn't see a lot of things in the thermalization branch?...
     #* Thermalization
     alg_results = @time run_thermalization(jumps, config, initial_dm, hamiltonian; trotter=trotter)
     @printf("\n Last distance to Gibbs: %s\n", alg_results.distances_to_gibbs[end])
+    @printf("Number of steps taken: %s\n", length(alg_results.time_steps))
     # plot(alg_results.time_steps, alg_results.distances_to_gibbs, label="Distance to Gibbs", xlabel="Time", ylabel="Distance", title="Distance to Gibbs over time")
 
     # Save

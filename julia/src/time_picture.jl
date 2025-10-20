@@ -26,15 +26,15 @@ function construct_liouvillian_time(jumps::Vector{JumpOp}, hamiltonian::HamHam, 
     transition = pick_transition(config.beta, config.a, config.b, config.with_linear_combination)
 
     if with_coherent
-        f_minus = compute_truncated_f(compute_f_minus, time_labels, config.beta)
+        f_minus = compute_truncated_func(compute_f_minus, time_labels, config.beta)
         if config.with_linear_combination  
             if config.a != 0.0  # Improved Metro / Glauber
-                f_plus = compute_truncated_f(compute_f_plus_eh, time_labels, config.beta, config.a, config.b)
+                f_plus = compute_truncated_func(compute_f_plus_eh, time_labels, config.beta, config.a, config.b)
             else  # Metro
-                f_plus = compute_truncated_f(compute_f_plus_metro, time_labels, config.beta, config.eta)
+                f_plus = compute_truncated_func(compute_f_plus_metro, time_labels, config.beta, config.eta)
             end
         else  # Gaussian
-            f_plus = compute_truncated_f(compute_f_plus, time_labels, config.beta)
+            f_plus = compute_truncated_func(compute_f_plus, time_labels, config.beta)
         end
     end
 

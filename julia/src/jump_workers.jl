@@ -66,22 +66,35 @@ function jump_contribution(::TimePicture, jump::JumpOp, hamiltonian::HamHam, con
 
     transition = pick_transition(config.beta, config.a, config.b, config.with_linear_combination)
 
+    # if config.with_coherent
+    #     f_minus = compute_truncated_func(compute_f_minus, time_labels, config.beta)
+    #     if config.with_linear_combination  
+    #         if config.a != 0.0  # Improved Metro / Glauber
+    #             f_plus = compute_truncated_func(compute_f_plus_eh, time_labels, config.beta, config.a, config.b)
+    #         else  # Metro
+    #             f_plus = compute_truncated_func(compute_f_plus_metro, time_labels, config.beta, config.eta)
+    #         end
+    #     else  # Gaussian
+    #         f_plus = compute_truncated_func(compute_f_plus, time_labels, config.beta)
+    #     end
+    # end
+
     if config.with_coherent
-        f_minus = compute_truncated_f(compute_f_minus, time_labels, config.beta)
+        b_minus = compute_truncated_func(compute_b_minus, time_labels)
         if config.with_linear_combination  
             if config.a != 0.0  # Improved Metro / Glauber
-                f_plus = compute_truncated_f(compute_f_plus_eh, time_labels, config.beta, config.a, config.b)
+                b_plus = compute_truncated_func(compute_b_plus_eh, time_labels, config.a / config.beta, config.b)
             else  # Metro
-                f_plus = compute_truncated_f(compute_f_plus_metro, time_labels, config.beta, config.eta)
+                b_plus = compute_truncated_func(compute_b_plus_metro, time_labels, config.eta)
             end
         else  # Gaussian
-            f_plus = compute_truncated_f(compute_f_plus, time_labels, config.beta)
+                b_plus = compute_truncated_func(compute_b_plus, time_labels)
         end
     end
 
     liouv_for_jump = zeros(ComplexF64, dim^2, dim^2)
     if config.with_coherent 
-        coherent_term = coherent_term_time(jump, hamiltonian, f_minus, f_plus, t0)  
+        coherent_term = B_time(jump, hamiltonian, b_minus, b_plus, t0, config.beta)
         vectorize_liouvillian_coherent!(liouv_for_jump, coherent_term)
     end
 
@@ -108,21 +121,21 @@ function jump_contribution(::TrotterPicture, jump::JumpOp, trotter::TrottTrott, 
     transition = pick_transition(config.beta, config.a, config.b, config.with_linear_combination)
 
     if config.with_coherent
-        f_minus = compute_truncated_f(compute_f_minus, time_labels, config.beta)
+        b_minus = compute_truncated_func(compute_b_minus, time_labels)
         if config.with_linear_combination  
             if config.a != 0.0  # Improved Metro / Glauber
-                f_plus = compute_truncated_f(compute_f_plus_eh, time_labels, config.beta, config.a, config.b)
+                b_plus = compute_truncated_func(compute_b_plus_eh, time_labels, config.a / config.beta, config.b)
             else  # Metro
-                f_plus = compute_truncated_f(compute_f_plus_metro, time_labels, config.beta, config.eta)
+                b_plus = compute_truncated_func(compute_b_plus_metro, time_labels, config.eta)
             end
         else  # Gaussian
-            f_plus = compute_truncated_f(compute_f_plus, time_labels, config.beta)
+                b_plus = compute_truncated_func(compute_b_plus, time_labels)
         end
     end
 
     liouv_for_jump = zeros(ComplexF64, dim^2, dim^2)
     if config.with_coherent 
-        coherent_term = coherent_term_trotter(jump, trotter, f_minus, f_plus)
+        coherent_term = B_trotter(jump, trotter, b_minus, b_plus, config.beta)
         vectorize_liouvillian_coherent!(liouv_for_jump, coherent_term)
     end
 
@@ -139,11 +152,16 @@ function jump_contribution(::TrotterPicture, jump::JumpOp, trotter::TrottTrott, 
 end
 
 #* Algorithmic jump contributions -----
-function jump_contribution(::BohrPicture, evolving_dm::Matrix{ComplexF64}, jump::JumpOp, hamiltonian::HamHam, 
-    config::ThermalizeConfig)
+function jump_contribution(::BohrPicture, 
+    evolving_dm::Matrix{ComplexF64}, 
+    jump::JumpOp, 
+    hamiltonian::HamHam, 
+    config::ThermalizeConfig,
+    precomputed_data)
+
+    (; alpha) = precomputed_data
 
     dim = size(evolving_dm, 1)
-    alpha = pick_alpha(config)
     unique_freqs = keys(hamiltonian.bohr_dict)
 
     jump_dm_contribution = zeros(ComplexF64, dim, dim)
@@ -182,11 +200,16 @@ function jump_contribution(::BohrPicture, evolving_dm::Matrix{ComplexF64}, jump:
     return jump_dm_contribution
 end
 
-function jump_contribution(::EnergyPicture, evolving_dm::Matrix{ComplexF64}, jump::JumpOp, hamiltonian::HamHam, 
-    config::ThermalizeConfig)
+function jump_contribution(::EnergyPicture, 
+    evolving_dm::Matrix{ComplexF64}, 
+    jump::JumpOp, 
+    hamiltonian::HamHam, 
+    config::ThermalizeConfig, 
+    precomputed_data)
+
+    (; w0, transition, energy_labels) = precomputed_data
 
     dim = size(evolving_dm, 1)
-    w0 = abs(energy_labels[2] - energy_labels[1])
 
     jump_dm_contribution = zeros(ComplexF64, dim, dim)
     # Coherent part
@@ -221,19 +244,22 @@ function jump_contribution(::EnergyPicture, evolving_dm::Matrix{ComplexF64}, jum
     return jump_dm_contribution
 end
 
-function jump_contribution(::TimePicture, evolving_dm::Matrix{ComplexF64}, jump::JumpOp, hamiltonian::HamHam, 
-    config::ThermalizeConfig)
+function jump_contribution(
+    ::TimePicture, 
+    evolving_dm::Matrix{ComplexF64}, 
+    jump::JumpOp, 
+    hamiltonian::HamHam, 
+    config::ThermalizeConfig,
+    precomputed_data)
 
     dim = size(evolving_dm, 1)
-    w0 = abs(energy_labels[2] - energy_labels[1])
-    t0 = time_labels[2] - time_labels[1]
-    oft_time_labels = truncate_time_labels_for_oft(time_labels, config.beta)
+    (; w0, t0, transition, energy_labels, oft_time_labels, b_minus, b_plus) = precomputed_data
 
     jump_dm_contribution = zeros(ComplexF64, dim, dim)
-
     # Coherent part
     if config.with_coherent
-        coherent_term = coherent_term_time(jump, hamiltonian, f_minus, f_plus, t0)
+        # coherent_term_f = coherent_term_time(jump, hamiltonian, f_minus, f_plus, t0)
+        coherent_term = B_time(jump, hamiltonian, b_minus, b_plus, t0, config.beta)
         mul!(jump_dm_contribution, coherent_term, evolving_dm, -1im * config.delta, 1.0)
         mul!(jump_dm_contribution, evolving_dm, coherent_term, 1im * config.delta, 1.0)
     end
@@ -265,19 +291,21 @@ function jump_contribution(::TimePicture, evolving_dm::Matrix{ComplexF64}, jump:
     return jump_dm_contribution
 end
 
-function jump_contribution(::TrotterPicture, evolving_dm::Matrix{ComplexF64}, jump::JumpOp, trotter::TrottTrott, 
-    config::ThermalizeConfig)
+function jump_contribution(::TrotterPicture, 
+    evolving_dm::Matrix{ComplexF64}, 
+    jump::JumpOp, 
+    trotter::TrottTrott, 
+    config::ThermalizeConfig,
+    precomputed_data)
 
     dim = size(evolving_dm, 1)
-    w0 = abs(energy_labels[2] - energy_labels[1])
-    t0 = time_labels[2] - time_labels[1]
-    oft_time_labels = truncate_time_labels_for_oft(time_labels, config.beta)
+    (; w0, t0, transition, energy_labels, oft_time_labels, b_minus, b_plus) = precomputed_data
 
     jump_dm_contribution = zeros(ComplexF64, dim, dim)
-
     # Coherent part
     if config.with_coherent
-        coherent_term = coherent_term_trotter(jump, trotter, f_minus, f_plus)
+        # coherent_term_f = coherent_term_trotter(jump, trotter, f_minus, f_plus)
+        coherent_term = B_trotter(jump, trotter, b_minus, b_plus, beta)
         mul!(jump_dm_contribution, coherent_term, evolving_dm, -1im * config.delta, 1.0)
         mul!(jump_dm_contribution, evolving_dm, coherent_term, 1im * config.delta, 1.0)
     end

@@ -110,7 +110,7 @@ function thermalize_bohr(jumps::Vector{JumpOp}, hamiltonian::HamHam, evolving_dm
     return HotAlgorithmResults(evolving_dm, distances_to_gibbs, time_steps)
 end
 
-#! Changed it slightlyfor speed without debugging
+#! Changed it slightly for speed without debugging
 function coherent_bohr(hamiltonian::HamHam, jump::JumpOp, config::Union{LiouvConfig, ThermalizeConfig})
 
     dim = size(hamiltonian.data, 1)

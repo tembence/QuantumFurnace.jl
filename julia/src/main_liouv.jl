@@ -23,20 +23,25 @@ end
 
 function main()
         #* Config
-        num_qubits = 6
+        num_qubits = 4
         dim = 2^num_qubits
         beta = 10.  # 5, 10, 30
 
         # Smooth Metro
-        a = beta / 50. # a = beta / 50.
-        b = 0.5  # b = 0.5
+        a = beta / 30. # a = beta / 50.
+        b = 0.4  # b = 0.5
         eta = 0.0  # eta = 0.2
+
+        # Kinky Metro 
+        # a = 0.0
+        # b = 0.0
+        # eta = 0.002
 
         with_coherent = true
         with_linear_combination = true
         # energy_picture = EnergyPicture()
         picture = TrotterPicture()
-        num_energy_bits = 11
+        num_energy_bits = 13  # 11
         w0 = 0.05
         max_E = w0 * 2^num_energy_bits / 2
         t0 = 2pi / (2^num_energy_bits * w0)  # Max time evolution pi / w0
@@ -110,10 +115,13 @@ function main()
         id::Matrix{ComplexF64} = I(2)
         jump_paulis = [[X], [Y], [Z]]
 
+        num_of_jumps = length(jump_paulis) * num_qubits
+        jump_normalization = sqrt(num_of_jumps)
+        # jump_normalization = 1.0
         jumps::Vector{JumpOp} = []
         for pauli in jump_paulis
                 for site in 1:num_qubits
-                jump_op = Matrix(pad_term(pauli, num_qubits, site))
+                jump_op = Matrix(pad_term(pauli, num_qubits, site)) / jump_normalization
                 jump_op_in_eigenbasis = hamiltonian.eigvecs' * jump_op * hamiltonian.eigvecs
                 jump_in_trotter_basis = trotter.eigvecs' * jump_op * trotter.eigvecs
                 orthogonal = (jump_op == transpose(jump_op))
@@ -132,8 +140,7 @@ function main()
         liouv_result = @time run_liouvillian(jumps, config, hamiltonian; trotter = trotter)
         @printf("Distance to Gibbs: %s\n", norm(liouv_result.fixed_point - hamiltonian.gibbs))
         @printf("Distance to Gibbs (TROTTER): %s\n", norm(liouv_result.fixed_point - gibbs_in_trotter))
-        # @printf("Spectral gap: %s\n", abs(real(liouv_result.lambda_2)))
-        #TODO: Maybe normalize jumps with sum Adag A as in paper they do.
+        @printf("Spectral gap: %s\n", abs(real(liouv_result.lambda_2)))
 
 
         # opt_delta =  2 / (abs(liouv_eigvals[2]) + abs(liouv_eigvals[end]))

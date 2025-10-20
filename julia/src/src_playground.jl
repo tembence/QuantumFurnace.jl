@@ -23,15 +23,19 @@ dim = 2^num_qubits
 beta = 10.  # 5, 10, 30
 
 # Smooth Metro
-a = beta / 50. # a = beta / 50.
+a = beta / 20. # a = beta / 50 or beta / 20 for b
 b = 0.5  # b = 0.5
 eta = 0.0  # eta = 0.2
+
+# a = 0
+# b = 0
+# eta = 0.2
 
 with_coherent = true
 with_linear_combination = true
 # energy_picture = EnergyPicture()
-picture = TrotterPicture()
-num_energy_bits = 11
+picture = TimePicture()
+num_energy_bits = 14
 w0 = 0.05
 max_E = w0 * 2^num_energy_bits / 2
 t0 = 2pi / (2^num_energy_bits * w0)  # Max time evolution pi / w0
@@ -103,32 +107,114 @@ for pauli in jump_paulis
 end
 @printf("Jumps are created.\n")
 
+#* Coherent part norm check with f+-
 energy_labels, time_labels = precompute_labels(config.picture, config)
-w = -0.12
-oft_time_labels = truncate_time_labels_for_oft(time_labels, beta)
-jump = jumps[9]
+if config.with_coherent
+        f_minus = compute_truncated_func(compute_f_minus, time_labels, config.beta)
+        if config.with_linear_combination  
+                if config.a != 0.0  # Improved Metro / Glauber
+                        f_plus = compute_truncated_func(compute_f_plus_eh, time_labels, config.beta, config.a, config.b)
+                else  # Metro
+                        f_plus = compute_truncated_func(compute_f_plus_metro, time_labels, config.beta, config.eta)
+                end
+        else  # Gaussian
+                f_plus = compute_truncated_func(compute_f_plus, time_labels, config.beta)
+        end
+end
+
+# ! Testing for b.
+if config.with_coherent
+        b_minus = compute_truncated_func(compute_b_minus, time_labels)
+        if config.with_linear_combination  
+                if config.a != 0.0  # Improved Metro / Glauber
+                        b_plus = compute_truncated_func(compute_b_plus_eh, time_labels, config.a / config.beta, config.b)
+                else  # Metro
+                        b_plus = compute_truncated_func(compute_b_plus_metro, time_labels, config.eta)
+                end
+        else  # Gaussian
+                b_plus = compute_truncated_func(compute_b_plus, time_labels)
+        end
+end
+
+# btimes = sort(collect(keys(b_minus)))
+# bfvals = [b_minus[ti] for ti in btimes]
+# plot(btimes, real.(bfvals))
+
+# ftimes = sort(collect(keys(f_minus)))
+# ffvals = [f_minus[ti] for ti in ftimes]
+# plot!(ftimes, 2pi * sqrt(pi) * real.(ffvals) * beta^2)
+
+# for t in keys(f_minus)
+#         b_minus_t = b_minus[t]
+#         f_minus_t = f_minus[t]
+#         diff = b_minus[t] - 2pi * sqrt(pi) * f_minus[t] * beta^2
+#         display(norm(diff))
+# end
+
+ #* B check
+jump = jumps[1]
+B_bohr = coherent_bohr(hamiltonian, jump, config)
+B_f = coherent_term_time(jump, hamiltonian, f_minus, f_plus, t0)
+B_b = B_time(jump, hamiltonian, b_minus, b_plus, t0, beta)
+
+@printf("Bohr - f: %s\n", norm(B_bohr - B_f))
+@printf("Bohr - b: %s\n", norm(B_bohr - B_b))
+
+
+# t0 = abs(time_labels[2] - time_labels[1])
+
+# function l1_norm(func_dict, t0)
+#         l1_norm = 0.0
+#         for t in keys(func_dict)
+#                 l1_norm += abs(func_dict[t]) * t0
+#         end
+#         return l1_norm
+# end
+
+# f_plus_norm = l1_norm(f_plus, t0)
+# f_minus_norm = l1_norm(f_minus, t0)
+# b_plus_norm = l1_norm(b_plus, t0)
+
+# f_plus_norm / b_plus_norm * beta #* this matches with the maths on L1 norms, careful with the same t0 labels after rescaling.
+
+# pi*sqrt(pi)*beta / 8
+
+
+# coherent_term = coherent_term_time(jump, hamiltonian, f_minus, f_plus, t0) 
+# norm(coherent_term)
+
+
+#* OFT checks
+# energy_labels, time_labels = precompute_labels(config.picture, config)
+
+# w = -0.12
+# oft_time_labels = truncate_time_labels_for_oft(time_labels, beta)
+# jump = jumps[9]
 # oft_trott = trotter_oft(jump, w, trotter, oft_time_labels, beta) * t0 * sqrt((sqrt(2 / pi)/beta) / (2 * pi))
 # oft_trott = trotter.trafo_from_eigen_to_trotter' * oft_trott * trotter.trafo_from_eigen_to_trotter
 # oft_time = time_oft(jump, w, hamiltonian, oft_time_labels, beta) * t0 * sqrt((sqrt(2 / pi)/beta) / (2 * pi))
 # norm(oft_w - oft_trott)
 # norm(oft_w - oft_time)
 
+# oft_w = zeros(ComplexF64, dim, dim)
+# oft_w_old = oft(jump, w, hamiltonian, beta) * sqrt(beta / sqrt(2 * pi))
+# oft_fast!(oft_w, jump, w, hamiltonian, beta)
+# norm(oft_w * sqrt(beta / sqrt(2 * pi)) - oft_w_old)
+
+# beta = 10.
+# a = beta / 50
+# b = 0.5
+# sqrt(beta * (4*a + beta)) / (a * sqrt(1 + b))exp(-a*b/(2*beta)) /(2*pi*sqrt(pi)/beta)
 
 
-oft_w = zeros(ComplexF64, dim, dim)
-oft_w_old = oft(jump, w, hamiltonian, beta) * sqrt(beta / sqrt(2 * pi))
-oft_fast!(oft_w, jump, w, hamiltonian, beta)
-norm(oft_w * sqrt(beta / sqrt(2 * pi)) - oft_w_old)
+# oft_t = similar(oft_w)
+# oft_trott = similar(oft_w)
+# oft_caches = OFTCaches(dim)
+# time_oft_fast!(oft_t, oft_caches, jump, w, hamiltonian, oft_time_labels, beta)
 
+# oft_caches = OFTCaches(dim)
+# trotter_oft_fast!(oft_trott, oft_caches, jump, w, trotter, oft_time_labels, beta)
+# oft_trott = trotter.trafo_from_eigen_to_trotter' * oft_trott * trotter.trafo_from_eigen_to_trotter  * t0 * sqrt((sqrt(2 / pi)/beta) / (2 * pi))
 
-oft_t = similar(oft_w)
-oft_trott = similar(oft_w)
-oft_caches = OFTCaches(dim)
-time_oft_fast!(oft_t, oft_caches, jump, w, hamiltonian, oft_time_labels, beta)
-
-oft_caches = OFTCaches(dim)
-trotter_oft_fast!(oft_trott, oft_caches, jump, w, trotter, oft_time_labels, beta)
-oft_trott = trotter.trafo_from_eigen_to_trotter' * oft_trott * trotter.trafo_from_eigen_to_trotter  * t0 * sqrt((sqrt(2 / pi)/beta) / (2 * pi))
-
-norm(oft_w * sqrt(beta / sqrt(2 * pi)) - oft_trott)
-norm(oft_w * sqrt(beta / sqrt(2 * pi)) - oft_t * t0 * sqrt((sqrt(2 / pi)/beta) / (2 * pi)))
+# norm(oft_w * sqrt(beta / sqrt(2 * pi)) - oft_trott)
+# norm(oft_w * sqrt(beta / sqrt(2 * pi)) - oft_t * t0 * sqrt((sqrt(2 / pi)/beta) / (2 * pi)))

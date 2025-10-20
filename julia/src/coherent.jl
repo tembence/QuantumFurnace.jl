@@ -12,6 +12,66 @@ include("qi_tools.jl")
 #* COHERENT TERMS -----------------------------------------------------------------------------------------------------------
 # (3.1) and Proposition III.1
 # Has to be on a symmetric time domain, otherwise it can't be Hermitian.
+function B_time(jump::JumpOp, hamiltonian::HamHam, b_minus::Dict{Float64, ComplexF64}, 
+    b_plus::Dict{Float64, ComplexF64}, t0::Float64, beta::Float64)
+    
+    dim = size(hamiltonian.data)
+    diag_time_evolve(t) = Diagonal(exp.(1im * hamiltonian.eigvals * t * beta))  # beta factor comes in for b_1,2
+
+    # Inner summand b_plus
+    b_plus_summand = zeros(ComplexF64, dim)
+    U = zeros(ComplexF64, dim)
+    U_minus_2 = zeros(ComplexF64, dim)
+    for s in keys(b_plus)
+        U .= diag_time_evolve(s)
+        U_minus_2 .= diag_time_evolve(-2.0 * s)
+        b_plus_summand .+= b_plus[s] * U * jump.in_eigenbasis' * U_minus_2 * jump.in_eigenbasis * U
+    end
+
+    # Outer summand b_minus
+    # A is Hermitian
+    B = zeros(ComplexF64, dim)
+    for t in keys(b_minus)
+        U .= diag_time_evolve(t)
+        B .+= b_minus[t] * U' * b_plus_summand * U
+    end
+
+    # If A is non-Hermitian
+    # ...
+
+    return B * t0^2
+end
+
+function B_trotter(jump::JumpOp, trotter::TrottTrott, b_minus::Dict{Float64, ComplexF64}, 
+    b_plus::Dict{Float64, ComplexF64}, beta::Float64)
+
+    dim = size(trotter.eigvecs)
+    trotter_time_evolution(n::Int64) = Diagonal(trotter.eigvals_t0 .^ n)  # n - number of t0 time chunks
+
+    trott_U = zeros(ComplexF64, dim)
+    trott_U_2 = zeros(ComplexF64, dim)
+    # Inner summand f_plus
+    b_plus_summand = zeros(ComplexF64, dim)
+    for (s, b_s) in b_plus
+        num_t0_steps = Int(round(s * beta / trotter.t0))
+
+        trott_U .= trotter_time_evolution(num_t0_steps)
+        trott_U_2 .= trotter_time_evolution(-2 * num_t0_steps)
+
+        b_plus_summand .+= (b_s *
+            trott_U * jump.in_trotter_basis' * trott_U_2 * jump.in_trotter_basis * trott_U)
+    end
+    B = zeros(ComplexF64, dim)
+    for (t, b_t) in b_minus
+        num_t0_steps = Int(round(t * beta  / trotter.t0))
+        trott_U .= trotter_time_evolution(num_t0_steps)
+
+        B .+= b_t * trott_U' * b_plus_summand * trott_U
+    end
+
+    return B * trotter.t0^2  # B in Trotter basis
+end
+
 function coherent_term_time(jump::JumpOp, hamiltonian::HamHam, f_minus::Dict{Float64, ComplexF64}, 
     f_plus::Dict{Float64, ComplexF64}, t0::Float64)
     
@@ -72,91 +132,47 @@ function coherent_term_trotter(jump::JumpOp, trotter::TrottTrott,
     return B * trotter.t0^2  # B in Trotter basis
 end
 
-# function coherent_term_time_b(jump::JumpOp, hamiltonian::HamHam, 
-#     b1::Dict{Float64, ComplexF64}, b2::Dict{Float64, ComplexF64}, t0::Float64, beta::Float64)
-#     """Coherent term for the Gaussian AND Metropolis case IF jump op is [A Adag, H] = 0 (X, Y, Z)
-#     written in timedomain and using ideal time evolution.
-#     Working in the energy eigenbasis for the time evolutions, where H is diagonal.
-#         sigma_E = sigma_gamma = w_gamma = 1 / beta"""
-    
-#     diag_time_evolve(t) = Diagonal(exp.(1im * hamiltonian.eigvals * t))
+function coherent_term_time_metro_exact(jump::JumpOp, hamiltonian::HamHam, time_labels::Vector{Float64}, beta::Float64)
 
-#     # Inner b2 sum
-#     b2_integral = zeros(ComplexF64, size(hamiltonian.data))
-#     for s in keys(b2)
-#         time_evolution_inner = diag_time_evolve(beta * s)
-#         b2_integral .+= b2[s] * (time_evolution_inner * jump.in_eigenbasis' 
-#                             * (time_evolution_inner')^2 * jump.in_eigenbasis * time_evolution_inner)
-#     end
+    dim = size(hamiltonian.data)
+    t0 = time_labels[2] - time_labels[1]
+    time_labels_no_zero = time_labels[2:end]
+    diag_time_evolve(t) = Diagonal(exp.(1im * hamiltonian.eigvals * t))
 
-#     # Outer b1 sum
-#     B = zeros(ComplexF64, size(hamiltonian.data))
-#     for t in keys(b1)
-#         time_evolution_outer = diag_time_evolve(beta * t)
-#         B .+= b1[t] * time_evolution_outer' * b2_integral * time_evolution_outer
-#     end
-#     return B * t0^2  # Correction in b2 already
-# end
+    f_minus = compute_truncated_f_minus(time_labels_no_zero, beta)
+    # Oh = construct_metro_oh(jump, hamiltonian, time_labels_no_zero, beta) #!
+    Oh = construct_metro_oh_integrated(jump, hamiltonian, beta)
 
+    B = zeros(ComplexF64, dim)
+    for t in keys(f_minus)
+        U_t = diag_time_evolve(t)
+        B .+= f_minus[t] * U_t' * Oh * U_t
+    end
 
-# function coherent_term_time_integrated_metro(jump::JumpOp, hamiltonian::HamHam, eta::Float64, beta::Float64; 
-#     time_domain::Tuple{Float64, Float64} = (-Inf, Inf), atol=1e-12, rtol=1e-12)
+    return t0 * B
+end
 
-#     diag_time_evolve(t) = Diagonal(exp.(1im * hamiltonian.eigvals * t))
-#     f_plus_inegrand(s) = (compute_f_plus_metro(s, eta, beta) * 
-#             diag_time_evolve(s) * jump.in_eigenbasis' * diag_time_evolve(-2 * s) * jump.in_eigenbasis * diag_time_evolve(s))
+function coherent_term_timedomain_integrated_gauss(jump::JumpOp, hamiltonian::HamHam, beta::Float64, 
+    time_domain::Tuple{Float64, Float64} = (-Inf, Inf))
 
-#     f_plus_integral, _ = quadgk(f_plus_inegrand, time_domain[1], time_domain[2]; atol=atol, rtol=rtol)
+    f1(t) = 1 / cosh(2 * pi * t)
+    f2(t) = sin(-t) * exp(-2 * t^2)
+    b1_fn(t) = 2 * sqrt(pi) * exp(1/8) * convolute.(Ref(f1), Ref(f2), t)
+    b2_fn(t) = exp(-4*t^2 - 2im*t) / sqrt(4*pi^3)
+    diag_time_evolve(t) = Diagonal(exp.(1im * hamiltonian.eigvals * t))
+    jump_op_in_eigenbasis_dag = jump.in_eigenbasis'
 
-#     f_minus_integrand(t) = (compute_f_minus(t, beta) * diag_time_evolve(-t) 
-#                             * (f_plus_integral + jump.in_eigenbasis' * jump.in_eigenbasis / (2pi * sqrt(2))) 
-#                             * diag_time_evolve(t))
-#     B, _ = quadgk(f_minus_integrand, time_domain[1], time_domain[2]; atol=atol, rtol=rtol)
+    # Inner b2 integral
+    b2_integrand(s) = b2_fn(s) * (diag_time_evolve(beta * s) * 
+                           (jump_op_in_eigenbasis_dag * diag_time_evolve(- 2 * beta * s) * jump.in_eigenbasis) *
+                           diag_time_evolve(beta * s))
+    b2_integral, _ = quadgk(b2_integrand, time_domain[1], time_domain[2]; atol=1e-12, rtol=1e-12)
 
-#     return B
-# end
-
-# function coherent_term_time_metro_exact(jump::JumpOp, hamiltonian::HamHam, time_labels::Vector{Float64}, beta::Float64)
-
-#     dim = size(hamiltonian.data)
-#     t0 = time_labels[2] - time_labels[1]
-#     time_labels_no_zero = time_labels[2:end]
-#     diag_time_evolve(t) = Diagonal(exp.(1im * hamiltonian.eigvals * t))
-
-#     f_minus = compute_truncated_f_minus(time_labels_no_zero, beta)
-#     # Oh = construct_metro_oh(jump, hamiltonian, time_labels_no_zero, beta) #!
-#     Oh = construct_metro_oh_integrated(jump, hamiltonian, beta)
-
-#     B = zeros(ComplexF64, dim)
-#     for t in keys(f_minus)
-#         U_t = diag_time_evolve(t)
-#         B .+= f_minus[t] * U_t' * Oh * U_t
-#     end
-
-#     return t0 * B
-# end
-
-# function coherent_term_timedomain_integrated_gauss(jump::JumpOp, hamiltonian::HamHam, beta::Float64, 
-#     time_domain::Tuple{Float64, Float64} = (-Inf, Inf))
-
-#     f1(t) = 1 / cosh(2 * pi * t)
-#     f2(t) = sin(-t) * exp(-2 * t^2)
-#     b1_fn(t) = 2 * sqrt(pi) * exp(1/8) * convolute.(Ref(f1), Ref(f2), t)
-#     b2_fn(t) = exp(-4*t^2 - 2im*t) / sqrt(4*pi^3)
-#     diag_time_evolve(t) = Diagonal(exp.(1im * hamiltonian.eigvals * t))
-#     jump_op_in_eigenbasis_dag = jump.in_eigenbasis'
-
-#     # Inner b2 integral
-#     b2_integrand(s) = b2_fn(s) * (diag_time_evolve(beta * s) * 
-#                            (jump_op_in_eigenbasis_dag * diag_time_evolve(- 2 * beta * s) * jump.in_eigenbasis) *
-#                            diag_time_evolve(beta * s))
-#     b2_integral, _ = quadgk(b2_integrand, time_domain[1], time_domain[2]; atol=1e-12, rtol=1e-12)
-
-#     # Outer b1 integral
-#     b1_integrand(t) = b1_fn(t) * diag_time_evolve(- beta * t) * b2_integral * diag_time_evolve(beta * t)
-#     B, _ = quadgk(b1_integrand, time_domain[1], time_domain[2]; atol=1e-12, rtol=1e-12)
-#     return B
-# end
+    # Outer b1 integral
+    b1_integrand(t) = b1_fn(t) * diag_time_evolve(- beta * t) * b2_integral * diag_time_evolve(beta * t)
+    B, _ = quadgk(b1_integrand, time_domain[1], time_domain[2]; atol=1e-12, rtol=1e-12)
+    return B
+end
 
 function coherent_term_time_integrated_metro(jump::JumpOp, hamiltonian::HamHam, eta::Float64, beta::Float64, 
     time_domain::Tuple{Float64, Float64} = (-Inf, Inf))
@@ -200,6 +216,27 @@ function coherent_term_time_integrated_eh(jump::JumpOp, hamiltonian::HamHam, bet
     return B
 end
 
+function coherent_term_time_integrated_eh_b(jump::JumpOp, hamiltonian::HamHam, beta::Float64, a::Float64, b::Float64,
+    time_domain::Tuple{Float64, Float64} = (-Inf, Inf))
+
+    diag_time_evolve(t) = Diagonal(exp.(1im * hamiltonian.eigvals * t * beta))
+
+    # Inner b2 integral
+    b_plus_integrand(s) = (compute_b_plus_eh(s, a, b) * diag_time_evolve(s) * 
+                           (jump.in_eigenbasis' * diag_time_evolve(- 2 * s) * jump.in_eigenbasis) *
+                           diag_time_evolve(s))
+    # b2 function has singularity in t = 0
+    eps = 1e-12
+    b_plus_integral_1, _ = quadgk(b_plus_integrand, time_domain[1], -eps; atol=1e-12, rtol=1e-12)
+    b_plus_integral_2, _ = quadgk(b_plus_integrand, eps, time_domain[2]; atol=1e-12, rtol=1e-12)
+    b_plus_integral = b_plus_integral_1 + b_plus_integral_2
+
+    # Outer b1 integral
+    b_minus_integrand(t) = compute_b_minus(t) * diag_time_evolve(-t) * b_plus_integral * diag_time_evolve(t)
+    B, _ = quadgk(b_minus_integrand, time_domain[1], time_domain[2]; atol=1e-12, rtol=1e-12)
+    return B
+end
+
 #* B1 AND B2 ---------------------------------------------------------------------------------------------------------------
 # Corollary III.1, every parameter = 1 / beta
 function compute_f_minus(t::Float64, beta::Float64)
@@ -216,8 +253,8 @@ end
 
 function compute_f_plus_eh(t::Float64, beta::Float64, a::Float64, b::Float64)
     """b = 0: Metro, b = 2: Glauber"""
-    f = exp(-t * (2t + 1im * beta) * (1 + b) / beta^2 - a * b / (2 * beta)) / (4 * t^2 + a * beta + 2im * t * beta)
-    return 2 * beta * sqrt(4 * a / beta + 1) * f / sqrt(2pi)
+    fvals = exp(-t * (2t + 1im * beta) * (1 + b) / beta^2 - a * b / (2 * beta)) / (4 * t^2 + a * beta + 2im * t * beta)
+    return 2 * beta * sqrt(4 * a / beta + 1) * fvals / sqrt(2pi)
 end
 
 # Actually faster broadcasting the whole function than taking in a vector argument
@@ -225,7 +262,7 @@ function compute_f_plus_metro(t::Float64, beta::Float64, eta::Float64)
 
     if abs(t) < 1e-12  # Handle t=0
         return complex(sqrt(1 / 2pi) / beta) 
-    elseif abs(t) ≤ eta  #! Is this correct, doesn't the rescaling to an f function from b would change this eta threshold? #TODO:
+    elseif abs(t) ≤ eta
         numerator = exp(-2 * t^2 / beta^2 - 1im * t / beta) + 1im * (2 * t / beta + 1im)
     else
         numerator = exp(-2 * t^2 / beta^2 - 1im * t / beta)
@@ -234,70 +271,38 @@ function compute_f_plus_metro(t::Float64, beta::Float64, eta::Float64)
     return (sqrt(1 / 2pi) / beta) * numerator / denominator
 end
 
-function compute_truncated_f(target_func::Function, time_labels::Vector{Float64}, fixed_args...; atol::Float64 = 1e-12)
+function compute_b_minus(t::Float64)  # 2pi sqrt(pi) * f_minus(t / sigma_E)
+    f1(t) = 1 / cosh(2 * pi * t)
+    f2(t) = sin(-t) * exp(-2 * t^2)
+    return 2 * sqrt(pi) * exp(1/8) * convolute(f1, f2, t)
+end
+
+function compute_b_plus(t::Float64)  # f_plus(t * beta) / (2pi sqrt(pi))
+    return exp(- 4 * t^2 - 2 * im * t) / sqrt(pi^3)  # Corrected
+end
+
+function compute_b_plus_metro(t::Float64, eta::Float64)
+    if abs(t) < 1e-12  # Handle t=0
+        return complex(1 / (2 * sqrt(2) * pi^2)) 
+    elseif abs(t) ≤ eta
+        numerator = exp(-2 * t^2 - 1im * t) + 1im * (2 * t + 1im)
+    else
+        numerator = exp(-2 * t^2 - 1im * t)
+    end
+    denominator = t * (2 * t + 1im)
+    return (1 / (2 * sqrt(2) * pi^2)) * numerator / denominator
+end
+
+function compute_b_plus_eh(t::Float64, a::Float64, b::Float64)
+    b_vals = exp(- a * b / 2) * exp(-t * (2 * t + 1im) * (1 + b)) / (4 * t^2 + a + 2im * t)
+    return sqrt(4 * a + 1) * b_vals / (sqrt(2) * pi^2)
+end
+
+function compute_truncated_func(target_func::Function, time_labels::Vector{Float64}, fixed_args...; atol::Float64 = 1e-12)
     f_vals = Vector{ComplexF64}(target_func.(time_labels, fixed_args...))
     indices_to_keep = get_truncated_indices(f_vals; atol=atol)
     return Dict(zip(time_labels[indices_to_keep], f_vals[indices_to_keep]))
 end
-
-# function compute_truncated_f_minus(time_labels::Vector{Float64}, beta::Float64; atol::Float64 = 1e-12)
-#     f_minus = Vector{ComplexF64}(compute_f_minus.(time_labels, beta))
-#     # Skip all elements where fminus fplus are smaller than 1e-12
-#     indices_f_minus = get_truncated_indices(f_minus; atol=atol)
-#     return Dict(zip(time_labels[indices_f_minus], f_minus[indices_f_minus]))
-# end
-
-# function compute_truncated_f_plus(time_labels::Vector{Float64}, beta::Float64; atol::Float64 = 1e-12)
-#     f_plus = Vector{ComplexF64}(compute_f_plus.(time_labels, beta))
-#     indices_f_plus = get_truncated_indices(f_plus; atol=atol)
-#     return Dict(zip(time_labels[indices_f_plus], f_plus[indices_f_plus]))
-# end
-
-# function compute_truncated_f_plus_eh(time_labels::Vector{Float64}, beta::Float64, a::Float64, b::Float64; atol::Float64 = 1e-12)
-#     f_plus = Vector{ComplexF64}(compute_f_plus_eh.(time_labels, beta, a, b))
-#     good_indices = get_truncated_indices(f_plus; atol=atol)
-#     return Dict(zip(time_labels[good_indices], f_plus[good_indices]))
-# end
-
-# function compute_truncated_f_plus_metro(time_labels::Vector{Float64}, beta::Float64, eta::Float64; atol::Float64 = 1e-12)
-#     f_plus = Vector{ComplexF64}(compute_f_plus_metro.(time_labels, beta, eta))
-#     good_indices = get_truncated_indices(f_plus; atol=atol)
-#     return Dict(zip(time_labels[good_indices], f_plus[good_indices]))
-# end
-
-# function compute_b1(time_labels::Vector{Float64})
-#     f1(t) = 1 / cosh(2 * pi * t)
-#     f2(t) = sin(-t) * exp(-2 * t^2)
-#     return 2 * sqrt(pi) * exp(1/8) * convolute.(Ref(f1), Ref(f2), time_labels)
-# end
-
-# function compute_truncated_b1(time_labels::Vector{Float64}; atol::Float64 = 1e-14)
-
-#     b1 = Vector{ComplexF64}(compute_b1(time_labels))
-
-#     # Skip all elements where b1 b2 are smaller than 1e-14
-#     indices_b1 = get_truncated_indices(b1; atol)
-#     b1_times = time_labels[indices_b1]
-#     b1_vals = b1[indices_b1]
-    
-#     return Dict(zip(b1_times, b1_vals))
-# end
-
-# function compute_b2(time_labels::Vector{Float64})
-#     return 2 * exp.(- 4 * time_labels.^2 .- 2 * im * time_labels) / sqrt(4 * pi^3)  # Corrected
-# end
-
-# function compute_truncated_b2(time_labels::Vector{Float64}; atol::Float64 = 1e-14)
-
-#     b2 = Vector{ComplexF64}(compute_b2(time_labels))
-
-#     # Skip all elements where b1 b2 are smaller than 1e-14
-#     indices_b2 = get_truncated_indices(b2; atol)
-#     b2_times = time_labels[indices_b2]
-#     b2_vals = b2[indices_b2]
-
-#     return Dict(zip(b2_times, b2_vals))
-# end
 
 #* TOOLS --------------------------------------------------------------------------------------------------------------------
 function get_truncated_indices(fvals::Vector{Float64}; atol::Float64 = 1e-12)
@@ -360,7 +365,6 @@ end
 # energy_labels = hamiltonian.nu_min * N_labels
 
 # #* Trotter
-# #TODO: Where is the Trotter scaling? Why does it get worse if r is higher = smaller t0, but more B terms.
 # num_trotter_steps_per_t0 = 100
 # trotter = create_trotter(hamiltonian, t0, num_trotter_steps_per_t0)
 # trotter_error_T = compute_trotter_error(hamiltonian, trotter, 2^num_energy_bits * t0)

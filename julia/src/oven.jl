@@ -95,42 +95,23 @@ function run_thermalization(jumps::Vector{JumpOp}, config::ThermalizeConfig, evo
     end
 
     num_liouv_steps = Int(ceil(config.mixing_time / config.delta))
-    energy_labels, time_labels = precompute_labels(config.picture, config)
 
-    # Transition rate gamma
-    @everywhere transition = pick_transition(config.beta, config.a, config.b, config.with_linear_combination)
-    # Functions for B
-    f_minus, f_plus = if config.with_coherent && config.picture isa Union{TimePicture, TrotterPicture}
-        _f_minus = compute_truncated_f(compute_f_minus, time_labels, config.beta)
+    # Energy, Time labels; B functions; transition
+    precomputed_data = precompute_data(config.picture, config)
 
-        f_plus_calculator, f_plus_args = select_f_plus_calculator(config)
-        _f_plus = compute_truncated_f(f_plus_calculator, time_labels, config.beta, f_plus_args...)
-        
-        (_f_minus, _f_plus)
-    else
-        (nothing, nothing)
-    end
-
-    # Broadcast to all workers
-    @everywhere begin
-        global const energy_labels = $energy_labels
-        global const time_labels = $time_labels
-        global const f_minus = $f_minus
-        global const f_plus = $f_plus
-    end
-
-    convergence_cutoff = 1e-6
+    convergence_cutoff = 1e-5
     distances_to_gibbs = [trace_distance_h(Hermitian(evolving_dm), gibbs)]
     for step in 1:num_liouv_steps
         update_dm = zeros(size(evolving_dm))
-        update_dm = @distributed (+) for jump in jumps
-            jump_contribution(config.picture, evolving_dm, jump, ham_or_trott, config)
+        update_dm = @distributed (+) for jump in jumps  # Does this wait until its done and then continue?
+            jump_contribution(config.picture, evolving_dm, jump, ham_or_trott, config, precomputed_data)
         end
 
         evolving_dm .+= update_dm
 
         dist = trace_distance_h(Hermitian(evolving_dm), gibbs)
         push!(distances_to_gibbs, dist)
+        @printf("Dist to Gibbs: %s\n", dist)
         if dist < convergence_cutoff
             num_liouv_steps = step  # Save the actual number of taken steps
             break
