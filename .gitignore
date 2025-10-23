@@ -12,10 +12,6 @@
 /results/
 /hamiltonians/
 
-# Python for now
-/tools/python/
-
-
 # OS-specific files
 /docs/.DS_Store
 .DS_Store
