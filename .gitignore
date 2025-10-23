@@ -3,18 +3,20 @@
 *.jl.cov
 *.jl.mem
 
-# Build artifacts
+# Artifacts
 /build/
 /docs/build/
-/hamiltonians/
 /playground/
 
 # Generated files
 /results/
+/hamiltonians/
+
 
 # OS-specific files
+/docs/.DS_Store
 .DS_Store
-Thumbs.db
+
 
 # Editor-specific
 .vscode/
