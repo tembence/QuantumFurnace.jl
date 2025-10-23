@@ -1,6 +1,6 @@
 # QuantumFurnace.jl
 
-## 🚧 Current Status: Pre-Alpha 🚧
+## 🚧 Under Construction: Firing up the Furnace... 🚧
 
 **This package is currently under active development and should be considered pre-alpha software.**
 
