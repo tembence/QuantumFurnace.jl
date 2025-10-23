@@ -1,5 +1,9 @@
 # QuantumFurnace.jl
 
+## 🚧 Current Status: Pre-Alpha 🚧
+
+**This package is currently under active development and should be considered pre-alpha software.**
+
 ## Overview
 A high-performance Julia package for simulating open quantum systems that prepare quantum Gibbs states. `QuantumFurnace` is a framework in which the user can both learn about the details of quantum Gibbs sampling, and also research the topic further with the efficient implementations provided here. This project serves as a complementary resource to the recent papers [[CKBG23](#references), [CKG23](#references)] that achieved a breakthrough in the theory of quantum Gibbs sampling. 
 
@@ -26,13 +30,13 @@ pkg> add QuantumFurnace
 ```
 ## Quick Start: $\,$ Finding the Thermal State
 This example demonstrates one of the core workflows of `QuantumFurnace.jl`. We will prepare the quantum Gibbs state 
-$$\sigma_\beta = \frac{e^{\,-\beta H}}{\text{tr}\;e^{\,-\beta H}}$$
+$$\sigma_\beta = \frac{e^{-\beta H}}{\text{tr}e^{-\beta H}},$$
 at some inverse temperature $\beta$, for a system that is defined by the Hamiltonian $H$ of the 1D Heisenberg model with an external field. The algorithm then drives the system to the thermal state by applying carefully constructed jump operators.
 
 The process involves four main steps:
 
 1.  **Configure the algorithm parameters:** Set the number of system qubits $n$, inverse temperature $\beta$, timestep size $\delta$, etc.
-2. **Define the system:** Provide the Hamiltonian
+2. **Define the system:** Provide the Hamiltonian.
 3. **Define the environment:** Provide the set of jump operators $\{A^a\}$.
 4. **Solve:** Use the `run_thermalization` function to find the resulting thermal state up to $\mathcal{O}(\delta^2)$ errors.
 
@@ -41,6 +45,7 @@ The process involves four main steps:
 using QuantumFurnace
 
 # --- 1. Configure the algorithm parameters ---
+
 num_qubits = 4
 dim = 2^num_qubits
 num_energy_bits = 11
@@ -81,12 +86,13 @@ config = ThermalizeConfig(
 
 # --- 2. Define the system Hamiltonian ---
 
-# We generate a 4-qubit chain Heisenberg Hamiltonian
 hamiltonian_terms = [["X", "X"], ["Y", "Y"], ["Z", "Z"]]
 hamiltonian_coeffs = fill(1.0, length(hamiltonian_terms))
+# Generate a 4-qubit chain Heisenberg Hamiltonian
 hamiltonian = create_hamham(hamiltonian_terms, hamiltonian_coeffs, num_qubits)
 
 # --- 3. Define the jump operators for the evolution ---
+
 X::Matrix{ComplexF64} = [0 1; 1 0]
 Y::Matrix{ComplexF64} = [0.0 -im; im 0.0]
 Z::Matrix{ComplexF64} = [1 0; 0 -1]
@@ -117,7 +123,7 @@ results = run_thermalization(jumps, config, initial_dm, hamiltonian)
 ```
 
 ## Documentation
-For detailed tutorials, background theory, and the full API reference, please see our **[documentation website](https/tembence.github.io/QuantumFurnace.jl/dev/)**.
+For detailed tutorials, background theory, and the full API reference, please see our **[documentation website](https://tembence.github.io/QuantumFurnace.jl/)**.
 
 ## Citing
 Paper on this work is still in progress but if you use `QuantumFurnace.jl` in your research, please cite the Zenodo DOI of the software package for now. You can find it in the badge at the top the page.
