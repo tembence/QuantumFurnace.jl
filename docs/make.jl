@@ -19,7 +19,7 @@ for filename in readdir(literate_dir)
         output_file_stem = first(splitext(filename))
         
         # Generate Markdown file
-        Literate.markdown(input_file, generated_dir, name=output_file_stem)
+        Literate.markdown(input_file, generated_dir, name=output_file_stem, documenter=true)
         
         # Generate Jupyter Notebook
         Literate.notebook(input_file, generated_dir, name=output_file_stem)
