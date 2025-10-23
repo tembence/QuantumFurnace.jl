@@ -1,25 +1,25 @@
-using Distributed
-using Profile
 #TODO: I haven't debugged this since changing f -> b. (liouvillian one was debugged.)
-# For local testing
-# if nprocs() == 1
-#     println("No external workers detected. Adding 4 local workers for testing...")
-#     addprocs(4)
-#     println("Workers available: ", workers())
-# end
+using QuantumFurnace
+using Distributed
 
 if "SLURM_JOB_ID" in keys(ENV)
+    # For HPC environments
     using ClusterManagers
     num_tasks = parse(Int, ENV["SLURM_NTASKS"])
     addprocs(SlurmManager(num_tasks))
     println("Slurm environment detected. Added $(nworkers()) workers.")
+else
+    # For local testing
+    if nprocs() == 1
+        println("No external workers detected. Adding 4 local workers for testing...")
+        addprocs(4)
+        println("Workers available: ", workers())
+    end
 end
 
-@everywhere using Pkg
-@everywhere Pkg.activate(".")
-@everywhere using LinearAlgebra, Random, Printf, SparseArrays, JLD2, BSON, Arpack
-@everywhere include("QuantumFurnace.jl")
-@everywhere using .QuantumFurnace
+println("Loading QuantumFurnace on all $(nworkers()) workers...")
+@everywhere using QuantumFurnace
+@everywhere using Pkg, LinearAlgebra, Random, Printf, SparseArrays, JLD2, BSON, Arpack
 
 function main()
     #* Config
@@ -42,8 +42,8 @@ function main()
     num_trotter_steps_per_t0 = 10
 
     # Thermalizing configs:
-    mixing_time = 10.0 * 12 #!
-    delta = 0.16 * 12 #!!!
+    mixing_time = 10.0
+    delta = 0.1
     unravel = false
 
     config = ThermalizeConfig(
@@ -67,7 +67,6 @@ function main()
     #* Hamiltonian
     # Hamiltonian path
     project_root = Pkg.project().path |> dirname
-    project_root = joinpath(project_root, "julia")  #! Omit for cluster
     data_dir = joinpath(project_root, "hamiltonians")
     output_filename = join(["heis", "disordered", "periodic", "n=$num_qubits"], "_") * ".jld2"
     ham_path = joinpath(data_dir, output_filename)

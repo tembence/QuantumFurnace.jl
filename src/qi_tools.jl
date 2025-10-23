@@ -4,9 +4,6 @@ using Random
 using Printf
 using JLD2
 
-include("hamiltonian.jl")
-
-
 # Computes C .+= alpha .* kron(A, B) completely in-place, without allocating
 # the result of the Kronecker product. This is the key to memory efficiency.
 function kron!(

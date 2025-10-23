@@ -7,13 +7,6 @@ using QuadGK
 using Pkg
 using JLD2
 
-include("hamiltonian.jl")
-include("qi_tools.jl")
-include("bohr_picture.jl")
-include("timelike_tools.jl")
-include("misc_tools.jl")
-include("structs.jl")
-
 function oft(jump::JumpOp, energy::Float64, hamiltonian::HamHam, beta::Float64)
     """sigma_E = 1 / beta. Subnormalized, multiply by sqrt(beta / sqrt(2 * pi))"""
     return jump.in_eigenbasis .* exp.(-beta^2 * (energy .- hamiltonian.bohr_freqs).^2 / 4) 

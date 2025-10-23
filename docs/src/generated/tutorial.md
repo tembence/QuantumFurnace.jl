@@ -1,3 +1,8 @@
+```@meta
+EditURL = "../literate/tutorial.jl"
+```
+
+````@example tutorial
 #' # Tutorial: Finding a Thermal State
 #'
 #' In this tutorial, we will walk through the process of finding the steady-state
@@ -15,17 +20,34 @@ using LinearAlgebra
 #' First, we define the system's Hamiltonian `H`. We'll use a simple
 #' two-qubit Heisenberg model.
 num_qubits = 2
-# H = generate_heisenberg_hamiltonian(num_qubits, 1.0)
+````
 
+H = generate_heisenberg_hamiltonian(num_qubits, 1.0)
+
+````@example tutorial
 #' ## Step 2: Define the Environment
 #' Next, we define the jump operators `L` and the temperature `T`.
-# jump_operators = [get_lowering_operator(num_qubits, i) for i in 1:2]
+````
+
+jump_operators = [get_lowering_operator(num_qubits, i) for i in 1:2]
+
+````@example tutorial
 temperature = 0.5
 
 #' ## Step 3: Solve for the Thermal State
 #' Now, we can call our main solver function.
-# rho_thermal = thermalize(H, jump_operators, temperature)
+````
 
+rho_thermal = thermalize(H, jump_operators, temperature)
+
+````@example tutorial
 #' ## Step 4: Analyze the Result
 #' The resulting density matrix should have a trace of 1.
-# tr(rho_thermal)
+````
+
+tr(rho_thermal)
+
+---
+
+*This page was generated using [Literate.jl](https://github.com/fredrikekre/Literate.jl).*
+

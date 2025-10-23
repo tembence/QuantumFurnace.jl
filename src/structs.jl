@@ -1,8 +1,6 @@
-
-using Base
-
 # Pictures
 abstract type AbstractPicture end
+
 struct BohrPicture <: AbstractPicture end
 struct EnergyPicture <: AbstractPicture end
 struct TimePicture <: AbstractPicture end

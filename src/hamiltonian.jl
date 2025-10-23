@@ -1,15 +1,5 @@
-using LinearAlgebra
-using SparseArrays
-using Random
-using Printf
-using ProgressMeter
-using Debugger
-using JLD2
-
-include("structs.jl")
 
 # Could add a term coeff dict, to make find ideal hamiltonian, trotter, more generic, instead of Heisenberg
-
 function create_hamham(terms::Vector{Vector{String}}, coeffs::Vector{Float64}, num_qubits::Int64; 
     periodic::Bool = true)
     """Creates a HamHam object from terms and coefficients. Only for NN terms for now."""
