@@ -7,4 +7,4 @@ This package provides a high-performance Julia suite for simulating open quantum
 
 ## Getting Started
 
-If you are new, we recommend starting with the **[Tutorials](@ref tutorials)** to see how to solve common problems. For a detailed breakdown of all available functions, please see the **[API Reference](@ref api)**.
+If you are new, we recommend starting with the **[Tutorials](generated/tutorial.md)** to see how to solve common problems. For a detailed breakdown of all available functions, please see the **[API Reference](api.md)**.
