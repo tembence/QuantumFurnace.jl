@@ -1,4 +1,20 @@
-data/
-/results/
+# Julia-specific
+*.log
+*.jl.cov
+*.jl.mem
+
+# Build artifacts
+/build/
+/docs/build/
 /hamiltonians/
 /playground/
+
+# Generated files
+/results/
+
+# OS-specific files
+.DS_Store
+Thumbs.db
+
+# Editor-specific
+.vscode/
