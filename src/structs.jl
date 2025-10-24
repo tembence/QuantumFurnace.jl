@@ -39,24 +39,17 @@ end
 """
     LiouvConfig
 
-A configuration object that holds all the parameters for the core function: `run_liouvillian`, which constructs the
-Lindbladian of the thermalizing system.
+A configuration object that holds all the parameters for the core function: `run_liouvillian`, which constructs the Lindbladian of the thermalizing system.
 
 # Fields
 - `num_qubits::Int64`: The number of system qubits.
-- `with_coherent::Bool`: The option to add (=true) or omit (=false) the coherent term in the Lindbladian. 
-If added, the target state of the evolution will be the exactly the Gibbs state, otherwise only approximately.
-- `with_linear_combination::Bool`: The option to choose if we want to apply a convex combination of Lindbladians for a faster
-mixing. Could add extra complexities if the resulting transition function is not smooth. (See more in `Theory`).
+- `with_coherent::Bool`: The option to add (=true) or omit (=false) the coherent term in the Lindbladian.\nIf added, the target state of the evolution will be the exactly the Gibbs state, otherwise only approximately.
+- `with_linear_combination::Bool`: The option to choose if we want to apply a convex combination of Lindbladians for a faster mixing. Could add extra complexities if the resulting transition function is not smooth. (See more in `Theory`).
 - `a::Float64` and `b::Float64`: The parameters that specify the type of linear combination.
-- `eta::Float64`: in the case of the Metropolis linear combination, η is an additional coefficient that determines 
-the accuracy of the time picture approximation.
-- `picture::AbstractPicture`: The picture the simulation runs in (`BOHR`, `ENERGY`, `TIME`, `TROTTER`). The choice of the
-picture represents the levels of approximations we need to get form theory down to quantum circuitry.
-- `num_energy_bits::Int64`: Determines the how coarse the energy and time grid is and thus how accurate the approximations
-between each picture are.
-- `t0::Float64` and `w0::Float64`: are the time and energy units we are working with in the Riemann summed integrals.
-Of course, the smaller the better but also the costlier, and the two are intertwined due to Fourier: ω₀t₀ = 2π / N.
+- `eta::Float64`: in the case of the Metropolis linear combination, η is an additional coefficient that determines the accuracy of the time picture approximation.
+- `picture::AbstractPicture`: The picture the simulation runs in (`BOHR`, `ENERGY`, `TIME`, `TROTTER`). The choice of the picture represents the levels of approximations we need to get form theory down to quantum circuitry.
+- `num_energy_bits::Int64`: Determines the how coarse the energy and time grid is and thus how accurate the approximations between each picture are.
+- `t0::Float64` and `w0::Float64`: are the time and energy units we are working with in the Riemann summed integrals. Of course, the smaller the better but also the costlier, and the two are intertwined due to Fourier: ω₀t₀ = 2π / N.
 - `num_trotter_steps_per_t0::Int64`: The number of Trotter steps used for a unit of time t₀.
 
 ## Currently possible linear combinations
@@ -64,13 +57,10 @@ Of course, the smaller the better but also the costlier, and the two are intertw
 
 ## Available pictures:
 The `picture` field can be set to one of the following options:
-- **`BohrPicture()`**: The highest level picture where the jump operators and thus the Lindbladian are written in a 
-decomposition of Bohr frequencies.
+- **`BohrPicture()`**: The highest level picture where the jump operators and thus the Lindbladian are written in a decomposition of Bohr frequencies.
 - **`EnergyPicture()`**: A level lower, in which the operators are approximated by energy integrals.
-- **`TimePicture()`**: Another level lower, in which the energy approximates are written up as 
-Fourier's of the temporal equals.
-- **`TrotterPicture()`**: The lowest level, thus also the only one implementable on a quantum computer, in which all time
-evolutions are replaced via their Trotter series.
+- **`TimePicture()`**: Another level lower, in which the energy approximates are written up as Fourier's of the temporal equals.
+- **`TrotterPicture()`**: The lowest level, thus also the only one implementable on a quantum computer, in which all time evolutions are replaced via their Trotter series.
 """
 @kwdef struct LiouvConfig
     num_qubits::Int64 
