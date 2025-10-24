@@ -867,7 +867,7 @@ version = "2.11.2"
     Enzyme = "7da242da-08ed-463a-9acd-ee780be4f1d9"
 
 [[deps.QuantumFurnace]]
-deps = ["Arpack", "BSON", "ClusterManagers", "DataStructures", "Distributed", "JLD2", "LinearAlgebra", "LinearMaps", "Pkg", "Plots", "Printf", "ProgressMeter", "QuadGK", "Random", "Roots", "SparseArrays", "SpecialFunctions"]
+deps = ["Arpack", "BSON", "ClusterManagers", "DataStructures", "Distributed", "DocumenterTools", "JLD2", "LinearAlgebra", "LinearMaps", "Pkg", "Plots", "Printf", "ProgressMeter", "QuadGK", "Random", "Roots", "SparseArrays", "SpecialFunctions"]
 path = "."
 uuid = "572f92bd-4202-48dc-8017-a9da11cbf84d"
 version = "0.1.0"

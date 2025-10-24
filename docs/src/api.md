@@ -5,5 +5,5 @@ Here you can find a detailed list of all functions exported by `QuantumFurnace.j
 ## Public API
 
 ```@docs
-QuantumFurnace.run_thermalization
-
+QuantumFurnace.LiouvConfig
+```

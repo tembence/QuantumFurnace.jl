@@ -1,4 +1,21 @@
 #* Liouvillian jump contributions
+# """
+#     jump_contribution(::BohrPicture, jump::JumpOp, hamiltonian::HamHam, config::LiouvConfig)
+
+# Creates the vectorized contribution to the (dissipative) Lindbladian evolution for a given `jump`.
+# It works within the `BohrPicture`, i.e. the jumps are decomposed into their Bohr frequency
+# parts which are then acted upon accordingly.
+# ∑_i
+# ```math
+#     \\sum_i
+# ```
+
+# # Arguments
+# - 
+
+# # Returns
+# - 
+# """
 function jump_contribution(::BohrPicture, jump::JumpOp, hamiltonian::HamHam, config::LiouvConfig)
 
     dim = size(hamiltonian.data, 1)

@@ -1,6 +1,7 @@
 using Documenter
-using QuantumFurnace
 using Literate
+using QuantumFurnace
+
 
 # --- 1. Generate tutorials and theory pages from Literate.jl scripts ---
 const literate_dir = joinpath(@__DIR__, "src/literate")
@@ -40,7 +41,6 @@ makedocs(
         "Home" => "index.md",
         "Tutorials" => [
             "Finding a Thermal State" => "generated/tutorial.md",
-            # Add more tutorials here as you write them
         ],
         "API Reference" => "api.md",
     ]
