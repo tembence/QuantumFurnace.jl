@@ -39,6 +39,9 @@ makedocs(
     modules = [QuantumFurnace],
     pages = [
         "Home" => "index.md",
+        "Theory" => [
+
+        ],
         "Tutorials" => [
             "Finding a Thermal State" => "generated/tutorial.md",
         ],

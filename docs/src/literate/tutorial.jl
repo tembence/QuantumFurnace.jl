@@ -3,9 +3,9 @@
 # In this tutorial, we will walk through the process of finding the steady-state
 # thermal density matrix $\rho_{ss}$ for a system coupled to a thermal bath.
 # The evolution of such a system is governed by the Lindblad master equation:
-#
-# $$ \frac{d\rho}{dt} = -i[H, \rho] + \sum_k \gamma_k \left( L_k \rho L_k^\dagger - \frac{1}{2}\{L_k^\dagger L_k, \rho\} \right) $$
-#
+# ```math
+# \frac{d\rho}{dt} = -i[H, \rho] + \sum_k \gamma_k \left( L_k \rho L_k^\dagger - \frac{1}{2}\{L_k^\dagger L_k, \rho\} \right)
+# ```
 # Our goal is to find the state $\rho_{ss}$ where $\frac{d\rho}{dt} = 0$.
 
 using QuantumFurnace

@@ -28,7 +28,7 @@ The package can be installed using the Julia package manager. From the Julia REP
 ```julia
 pkg> add QuantumFurnace
 ```
-## Quick Start: $\,$ Finding the Thermal State
+## Quick Start: Finding the Thermal State
 This example demonstrates one of the core workflows of `QuantumFurnace.jl`. We will prepare the quantum Gibbs state 
 $$\sigma_\beta = \frac{e^{-\beta H}}{\text{tr}e^{-\beta H}},$$
 at some inverse temperature $\beta$, for a system that is defined by the Hamiltonian $H$ of the 1D Heisenberg model with an external field. The algorithm then drives the system to the thermal state by applying carefully constructed jump operators.

@@ -52,8 +52,11 @@ A configuration object that holds all the parameters for the core function: `run
 - `t0::Float64` and `w0::Float64`: are the time and energy units we are working with in the Riemann summed integrals. Of course, the smaller the better but also the costlier, and the two are intertwined due to Fourier: ω₀t₀ = 2π / N.
 - `num_trotter_steps_per_t0::Int64`: The number of Trotter steps used for a unit of time t₀.
 
-## Currently possible linear combinations
-(a, b) = {(0, 0) - Gaussian; (>0, 0) - Metropolis; (>0, >0) - Glauber}
+## Currently possible linear combinations:
+(a, b) = 
+- (0, 0) - no linear combination, simple Gaussian
+- (>0, 0) - linear combination that results in Metropolis-like transition
+- (>0, >0) - linear combination that results in Glauber transition (smoother)
 
 ## Available pictures:
 The `picture` field can be set to one of the following options:
