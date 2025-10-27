@@ -31,7 +31,7 @@ shots = 1
 hamiltonian = find_ideal_heisenberg(num_qubits, bohr_bound, eps, signed=False, for_oft=True)
 rescaled_coeff = hamiltonian.rescaled_coeffs
 # Corresponding Trotter step circuit
-hamiltonian.trotter_step_circ = trotter_step_heisenberg(num_qubits, coeffs=rescaled_coeff, symbreak=True)
+hamiltonian.trotter_step_circ = trotter_step_heisenberg(num_qubits, coeffs=rescaled_coeff, disordering=True)
 
 #* --- Circuit
 qr_boltzmann = QuantumRegister(1, name='boltz')

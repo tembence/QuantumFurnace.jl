@@ -38,8 +38,8 @@ function main()
 
         with_coherent = true
         with_linear_combination = true
-        # energy_picture = EnergyPicture()
-        picture = TimePicture()
+        # energy_domain = EnergyDomain()
+        domain = TimeDomain()
         num_energy_bits = 11  # 11
         w0 = 0.05
         max_E = w0 * 2^num_energy_bits / 2
@@ -50,7 +50,7 @@ function main()
         #         num_qubits = num_qubits, 
         #         with_coherent = with_coherent,
         #         with_linear_combination = with_linear_combination, 
-        #         picture = energy_picture,
+        #         domain = energy_domain,
         #         beta = beta,
         #         a = a,
         #         b = b,
@@ -65,7 +65,7 @@ function main()
                 num_qubits = num_qubits, 
                 with_coherent = with_coherent,
                 with_linear_combination = with_linear_combination, 
-                picture = picture,
+                domain = domain,
                 beta = beta,
                 a = a,
                 b = b,

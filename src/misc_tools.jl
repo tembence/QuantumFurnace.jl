@@ -1,5 +1,5 @@
 function generate_filename(config::LiouvConfig)
-    pic_str = string(typeof(config.picture))
+    pic_str = string(typeof(config.domain))
     
     beta_str = "beta=$(config.beta)"
     a_str = "a=$(config.a)"
@@ -15,7 +15,7 @@ function generate_filename(config::LiouvConfig)
 end
 
 function generate_filename(config::ThermalizeConfig)
-    pic_str = string(typeof(config.picture))
+    pic_str = string(typeof(config.domain))
     
     beta_str = "beta=$(config.beta)"
     a_str = "a=$(config.a)"
@@ -70,53 +70,53 @@ end
 # function is_config_valid(config::Union{LiouvConfig, ThermalizeConfig})::Bool
 #     errors = String[]
 
-#     # Check based on the picture type.
-#     if config.picture == BOHR
+#     # Check based on the domain type.
+#     if config.domain == BOHR
 #         nothing
-#     elseif config.picture == ENERGY
+#     elseif config.domain == ENERGY
 #         if config.num_energy_bits <= 0
-#             push!(errors, "For picture ENERGY, num_energy_bits must be > 0.")
+#             push!(errors, "For domain ENERGY, num_energy_bits must be > 0.")
 #         end
 #         if config.w0 <= 0.
-#             push!(errors, "For picture ENERGY, w0 must be > 0.")
+#             push!(errors, "For domain ENERGY, w0 must be > 0.")
 #         end
-#     elseif config.picture == TIME
+#     elseif config.domain == TIME
 #         if config.num_energy_bits <= 0
-#             push!(errors, "For picture TIME, num_energy_bits must be > 0.")
+#             push!(errors, "For domain TIME, num_energy_bits must be > 0.")
 #         end
 #         if config.t0 <= 0.
-#             push!(errors, "For picture TIME, t0 must be > 0.")
+#             push!(errors, "For domain TIME, t0 must be > 0.")
 #         end
 #         if config.w0 <= 0.
-#             push!(errors, "For picture TIME, w0 must be > 0.")
+#             push!(errors, "For domain TIME, w0 must be > 0.")
 #         end
 #         if (config.t0 * config.w0 != 2pi/2^config.num_energy_bits)
 #             push!(errors, "t0 * w0 != 2pi / N")
 #         end
 #         if (config.a == 0. && config.eta <= 0. && config.with_linear_combination)
-#             push!(errors, "For linear combinations and picture TIME, a = 0 needs an eta > 0")
+#             push!(errors, "For linear combinations and domain TIME, a = 0 needs an eta > 0")
 #         end 
-#     elseif config.picture == TROTTER
+#     elseif config.domain == TROTTER
 #         if config.num_energy_bits <= 0
-#             push!(errors, "For picture TROTTER, num_energy_bits must be > 0.")
+#             push!(errors, "For domain TROTTER, num_energy_bits must be > 0.")
 #         end
 #         if config.t0 <= 0.
-#             push!(errors, "For picture TROTTER, t0 must be > 0.")
+#             push!(errors, "For domain TROTTER, t0 must be > 0.")
 #         end
 #         if config.w0 <= 0.
-#             push!(errors, "For picture TROTTER, w0 must be > 0.")
+#             push!(errors, "For domain TROTTER, w0 must be > 0.")
 #         end
 #         if config.num_trotter_steps_per_t0 <= 0
-#             push!(errors, "For picture TROTTER, num_trotter_steps_per_t0 must be > 0.")
+#             push!(errors, "For domain TROTTER, num_trotter_steps_per_t0 must be > 0.")
 #         end
 #         if (norm(config.t0 * config.w0 - 2pi/2^config.num_energy_bits) > 1e-15)
 #             push!(errors, "t0 * w0 != 2pi / N")
 #         end
 #         if (config.a == 0. && config.eta <= 0. && config.with_linear_combination)
-#             push!(errors, "For linear combinations and picture TROTTER, a = 0 needs an eta > 0")
+#             push!(errors, "For linear combinations and domain TROTTER, a = 0 needs an eta > 0")
 #         end 
 #     else
-#         push!(errors, "Unknown picture type.")
+#         push!(errors, "Unknown domain type.")
 #     end
 
 #     if (config.b != 0. && config.a == 0. && config.with_linear_combination)
@@ -136,16 +136,16 @@ end
 function validate_config!(config::Union{LiouvConfig, ThermalizeConfig})
     errors = String[]
 
-    # --- Picture-Specific Validation ---
-    _collect_config_errors!(errors, config.picture, config)
+    # --- Domain-Specific Validation ---
+    _collect_config_errors!(errors, config.domain, config)
 
     # --- Common Validation Logic ---
     if config.with_linear_combination && config.a == 0.0
         if config.b != 0.0
             push!(errors, "For linear combinations with b != 0, a must also be non-zero.")
         end
-        if config.picture isa Union{TimePicture, TrotterPicture} && config.eta <= 0.0
-            push!(errors, "For linear combinations with a=0 in TIME or TROTTER picture, eta must be > 0.")
+        if config.domain isa Union{TimeDomain, TrotterDomain} && config.eta <= 0.0
+            push!(errors, "For linear combinations with a=0 in TIME or TROTTER domain, eta must be > 0.")
         end
     end
 
@@ -158,56 +158,56 @@ function validate_config!(config::Union{LiouvConfig, ThermalizeConfig})
     return nothing
 end
 
-function _collect_config_errors!(errors::Vector{String}, ::BohrPicture, config)
+function _collect_config_errors!(errors::Vector{String}, ::BohrDomain, config)
     return # No specific checks
 end
 
-function _collect_config_errors!(errors::Vector{String}, ::EnergyPicture, config)
+function _collect_config_errors!(errors::Vector{String}, ::EnergyDomain, config)
     if config.num_energy_bits <= 0
-        push!(errors, "For EnergyPicture, num_energy_bits must be > 0.")
+        push!(errors, "For EnergyDomain, num_energy_bits must be > 0.")
     end
     if config.w0 <= 0.0
-        push!(errors, "For EnergyPicture, w0 must be > 0.")
+        push!(errors, "For EnergyDomain, w0 must be > 0.")
     end
 end
 
-function _collect_config_errors!(errors::Vector{String}, ::TimePicture, config)
+function _collect_config_errors!(errors::Vector{String}, ::TimeDomain, config)
     if config.num_energy_bits <= 0
-        push!(errors, "For TimePicture, num_energy_bits must be > 0.")
+        push!(errors, "For TimeDomain, num_energy_bits must be > 0.")
     end
     if config.t0 <= 0.0
-        push!(errors, "For TimePicture, t0 must be > 0.")
+        push!(errors, "For TimeDomain, t0 must be > 0.")
     end
     if config.w0 <= 0.0
-        push!(errors, "For TimePicture, w0 must be > 0.")
+        push!(errors, "For TimeDomain, w0 must be > 0.")
     end
     if !isapprox(config.t0 * config.w0, 2pi / 2^config.num_energy_bits)
-        push!(errors, "For TimePicture, the relation t0 * w0 ≈ 2π / 2^N must hold.")
+        push!(errors, "For TimeDomain, the relation t0 * w0 ≈ 2π / 2^N must hold.")
     end
 end
 
-function _collect_config_errors!(errors::Vector{String}, ::TrotterPicture, config)
+function _collect_config_errors!(errors::Vector{String}, ::TrotterDomain, config)
     if config.num_energy_bits <= 0
-        push!(errors, "For TrotterPicture, num_energy_bits must be > 0.")
+        push!(errors, "For TrotterDomain, num_energy_bits must be > 0.")
     end
     if config.t0 <= 0.0
-        push!(errors, "For TrotterPicture, t0 must be > 0.")
+        push!(errors, "For TrotterDomain, t0 must be > 0.")
     end
     if config.w0 <= 0.0
-        push!(errors, "For TrotterPicture, w0 must be > 0.")
+        push!(errors, "For TrotterDomain, w0 must be > 0.")
     end
     if config.num_trotter_steps_per_t0 <= 0
-        push!(errors, "For TrotterPicture, num_trotter_steps_per_t0 must be > 0.")
+        push!(errors, "For TrotterDomain, num_trotter_steps_per_t0 must be > 0.")
     end
     if !isapprox(config.t0 * config.w0, 2pi / 2^config.num_energy_bits)
-        push!(errors, "For TrotterPicture, the relation t0 * w0 ≈ 2π / 2^N must hold.")
+        push!(errors, "For TrotterDomain, the relation t0 * w0 ≈ 2π / 2^N must hold.")
     end
 end
 
 
 function print_press(config::LiouvConfig)
     params = [
-        ("picture", config.picture),
+        ("domain", config.domain),
         ("num_qubits", config.num_qubits),
         ("num_energy_bits", config.num_energy_bits),
         ("beta", config.beta),
@@ -234,7 +234,7 @@ end
 
 function print_press(config::ThermalizeConfig)
     params = [
-        ("picture", config.picture),
+        ("domain", config.domain),
         ("num_qubits", config.num_qubits),
         ("num_energy_bits", config.num_energy_bits),
         ("beta", config.beta),

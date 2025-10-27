@@ -34,7 +34,7 @@ function main()
 
     with_coherent = true
     with_linear_combination = true
-    picture = TimePicture()
+    domain = TimeDomain()
     num_energy_bits = 11
     w0 = 0.05
     max_E = w0 * 2^num_energy_bits / 2
@@ -50,7 +50,7 @@ function main()
         num_qubits = num_qubits, 
         with_coherent = with_coherent,
         with_linear_combination = with_linear_combination, 
-        picture = picture,
+        domain = domain,
         beta = beta,
         a = a,
         b = b,
@@ -65,6 +65,11 @@ function main()
     )
 
     #* Hamiltonian
+    X::Matrix{ComplexF64} = [0 1; 1 0]
+    Y::Matrix{ComplexF64} = [0.0 -im; im 0.0]
+    Z::Matrix{ComplexF64} = [1 0; 0 -1]
+    id::Matrix{ComplexF64} = I(2)
+    
     # Hamiltonian path
     project_root = Pkg.project().path |> dirname
     data_dir = joinpath(project_root, "hamiltonians")
@@ -87,10 +92,6 @@ function main()
     @printf("Trotter is created.\n")
 
     #* Jumps
-    X::Matrix{ComplexF64} = [0 1; 1 0]
-    Y::Matrix{ComplexF64} = [0.0 -im; im 0.0]
-    Z::Matrix{ComplexF64} = [1 0; 0 -1]
-    id::Matrix{ComplexF64} = I(2)
     jump_paulis = [[X], [Y], [Z]]
 
     num_of_jumps = length(jump_paulis) * num_qubits

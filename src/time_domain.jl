@@ -229,7 +229,7 @@ end
 
 #* TOOLS
 
-#! Gauss with b's somehow gave slightly closer results to the Bohr picture.
+#! Gauss with b's somehow gave slightly closer results to the Bohr domain.
 # function construct_liouvillian_time_gauss(jumps::Vector{JumpOp}, hamiltonian::HamHam, time_labels::Vector{Float64},
 #     energy_labels::Vector{Float64}, with_coherent::Bool, beta::Float64)
 

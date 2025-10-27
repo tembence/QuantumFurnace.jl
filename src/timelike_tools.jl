@@ -67,13 +67,13 @@ function trotterize2(hamiltonian::HamHam, T::Float64, num_trotter_steps::Int64)
         U_1site_terms = compute_U_group(groups.one_sites[1], groups.one_sites[2], all_sites, num_qubits, timestep)
     end
 
-    # Symbreaking part (1-site with different coeffs one each site, i.e. disordered)
-    U_symbreak = I(dim)
-    if hamiltonian.symbreak_terms !== nothing
+    # disorderinging part (1-site with different coeffs one each site, i.e. disordered)
+    U_disordering = I(dim)
+    if hamiltonian.disordering_terms !== nothing
         for q in 1:num_qubits
-            expm_symbreak_pauli_term = expm_pauli_padded(hamiltonian.symbreak_terms, 
-                    timestep * hamiltonian.symbreak_coeffs[q] / 2, num_qubits, q)
-            U_symbreak *= expm_symbreak_pauli_term
+            expm_disordering_pauli_term = expm_pauli_padded(hamiltonian.disordering_terms, 
+                    timestep * hamiltonian.disordering_coeffs[q] / 2, num_qubits, q)
+            U_disordering *= expm_disordering_pauli_term
         end
     end
 
@@ -89,7 +89,7 @@ function trotterize2(hamiltonian::HamHam, T::Float64, num_trotter_steps::Int64)
     end
 
     # Assemble a δ step
-    append!(left_unitary_sequence, [U_odd, U_even, U_odd_bdr, U_1site_terms, U_symbreak], sequence_2site_not_commuting)
+    append!(left_unitary_sequence, [U_odd, U_even, U_odd_bdr, U_1site_terms, U_disordering], sequence_2site_not_commuting)
     U_step = foldl(*, left_unitary_sequence) * foldl(*, reverse(left_unitary_sequence))
 
     for step in 1:num_trotter_steps
@@ -167,12 +167,12 @@ function trotterize(hamiltonian::HamHam, T::Float64, num_trotter_steps::Int64)
                     U *= expm_pauli_term
             end
 
-        # Symbreak
-            if typeof(hamiltonian.symbreak_terms) != Nothing
-                expm_symbreak_pauli_term = expm_pauli_padded(hamiltonian.symbreak_terms, 
-                                                            timestep * hamiltonian.symbreak_coeffs[q], 
+        # disordering
+            if typeof(hamiltonian.disordering_terms) != Nothing
+                expm_disordering_pauli_term = expm_pauli_padded(hamiltonian.disordering_terms, 
+                                                            timestep * hamiltonian.disordering_coeffs[q], 
                                                             num_qubits, q)
-                U *= expm_symbreak_pauli_term
+                U *= expm_disordering_pauli_term
             end
         end
     end
@@ -241,10 +241,10 @@ end
 # num_trotter_steps = 1
 
 # terms = [["X", "Y"], ["Z", "X"]]
-# symbreak = ["Z"]
+# disordering = ["Z"]
 # coeffs = [2.2, 3.9]
-# symbreak_coeffs = rand(num_qubits)
-# hamiltonian = create_hamham(terms, coeffs, symbreak, symbreak_coeffs, num_qubits)
+# disordering_coeffs = rand(num_qubits)
+# hamiltonian = create_hamham(terms, coeffs, disordering, disordering_coeffs, num_qubits)
 
 # # Exact
 # exact_U = exp(im * T * hamiltonian.data)

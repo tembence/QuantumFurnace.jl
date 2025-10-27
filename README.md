@@ -15,7 +15,7 @@ A high-performance Julia package for simulating open quantum systems that prepar
 ## Features
 - Construct approximate and exact detailed balanced Liouvillians.
 - Efficiently simulate the algorithm step-by-step to reach the quantum Gibbs state, either on a single node or  distributed over multiple nodes.
-- Analyse the errors due to approximations with the separately provided `BOHR`, `ENERGY`, `TIME` and `TROTTER` pictures (see exmaples).
+- Analyse the errors due to approximations with the separately provided `BOHR`, `ENERGY`, `TIME` and `TROTTER` domains (see exmaples).
 - Input Hamitlonians and jump operators of your choice, and choose or come up with the required functions that can make or break the thermalization process.
 
 Upcoming:
@@ -45,7 +45,6 @@ The process involves four main steps:
 using QuantumFurnace
 
 # --- 1. Configure the algorithm parameters ---
-
 num_qubits = 4
 dim = 2^num_qubits
 num_energy_bits = 11
@@ -53,8 +52,8 @@ beta = 10.0
 w0 = 0.05                            # energy estimating precision
 t0 = 2pi / (2^num_energy_bits * w0)  # time estimating precision
 
-# Choose the picture to work in:
-picture = TimePicture()
+# Choose the domain to work in:
+domain = TimeDomain()
 
 # Add coherent term to the evolution for exact detailed balance
 # or omit for approx. detailed balance:
@@ -73,7 +72,7 @@ config = ThermalizeConfig(
     num_qubits = num_qubits, 
     with_coherent = with_coherent,
     with_linear_combination = with_linear_combination, 
-    picture = picture,
+    domain = domain,
     beta = beta,
     a = a,
     b = b,
@@ -85,20 +84,22 @@ config = ThermalizeConfig(
 )
 
 # --- 2. Define the system Hamiltonian ---
-
-hamiltonian_terms = [["X", "X"], ["Y", "Y"], ["Z", "Z"]]
-hamiltonian_coeffs = fill(1.0, length(hamiltonian_terms))
-# Generate a 4-qubit chain Heisenberg Hamiltonian
-hamiltonian = create_hamham(hamiltonian_terms, hamiltonian_coeffs, num_qubits)
-
-# --- 3. Define the jump operators for the evolution ---
-
 X::Matrix{ComplexF64} = [0 1; 1 0]
 Y::Matrix{ComplexF64} = [0.0 -im; im 0.0]
 Z::Matrix{ComplexF64} = [1 0; 0 -1]
+
+hamiltonian_terms = [[X, X], [Y, Y], [Z, Z]]
+hamiltonian_coeffs = fill(1.0, length(hamiltonian_terms))
+disordering_term = [Z]
+disordering_coeffs = rand(num_qubits)
+# Generate a 4-qubit chain Heisenberg Hamiltonian
+hamiltonian = create_hamham(hamiltonian_terms, hamiltonian_coeffs, 
+    disordering_term, disordering_coeffs, num_qubits)
+
+# --- 3. Define the jump operators for the evolution ---
 jump_set = [[X], [Y], [Z]]
 
-# We choose 1-site Pauli jumps over each system site
+# 1-site Pauli jumps over each system site
 jumps::Vector{JumpOp} = []
 jump_normalization = sqrt(length(jump_paulis) * num_qubits)
 for jump_A in jump_set
@@ -112,7 +113,6 @@ for jump_A in jump_set
 end
 
 # --- 4. Find the thermal state ---
-
 # Start from some initial state, here, the maximally mixed state:
 initial_dm = Matrix{ComplexF64}(I(dim) / dim)
 

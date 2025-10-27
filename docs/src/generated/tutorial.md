@@ -30,7 +30,7 @@ Next, we define the jump operators `L` and the temperature `T`.
 
 ````@example tutorial
 temperature = 0.5
-picture = TimePicture()
+domain = TimeDomain()
 ````
 
 ## Step 3: Solve for the Thermal State

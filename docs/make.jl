@@ -39,11 +39,16 @@ makedocs(
     modules = [QuantumFurnace],
     pages = [
         "Home" => "index.md",
-        "Theory" => [
-
-        ],
         "Tutorials" => [
-            "Finding a Thermal State" => "generated/tutorial.md",
+            "Finding a Thermal State" => "generated/tutorial_thermalize.md",
+            "Constructing the Detailed Balanced Lindbladian" => "generated/tutorial_lindbladian.md",
+            "Create a Hamiltonian" => "generated/tutorial_hamiltonian.md"
+        ],
+        "Theory" => [
+            "Open Quantum System Dynamics" => "generated/theory_oqs_dynamics.md",
+            "Detailed Balanced Lindbladian" => "generated/theory_detailed_balance.md",
+            "Weak-measurement based Lindbladian Evolution" => "generated/theory_weak_measurement.md",
+            "Convex Combination of Lindbladians" => "generated/theory_convex_combination.md"
         ],
         "API Reference" => "api.md",
     ]

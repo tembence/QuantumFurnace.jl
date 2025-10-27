@@ -1,9 +1,9 @@
 #* Liouvillian jump contributions
 # """
-#     jump_contribution(::BohrPicture, jump::JumpOp, hamiltonian::HamHam, config::LiouvConfig)
+#     jump_contribution(::BohrDomain, jump::JumpOp, hamiltonian::HamHam, config::LiouvConfig)
 
 # Creates the vectorized contribution to the (dissipative) Lindbladian evolution for a given `jump`.
-# It works within the `BohrPicture`, i.e. the jumps are decomposed into their Bohr frequency
+# It works within the `BohrDomain`, i.e. the jumps are decomposed into their Bohr frequency
 # parts which are then acted upon accordingly.
 # ∑_i
 # ```math
@@ -16,7 +16,7 @@
 # # Returns
 # - 
 # """
-function jump_contribution(::BohrPicture, jump::JumpOp, hamiltonian::HamHam, config::LiouvConfig)
+function jump_contribution(::BohrDomain, jump::JumpOp, hamiltonian::HamHam, config::LiouvConfig)
 
     dim = size(hamiltonian.data, 1)
     unique_freqs = keys(hamiltonian.bohr_dict)
@@ -42,7 +42,7 @@ function jump_contribution(::BohrPicture, jump::JumpOp, hamiltonian::HamHam, con
     return liouv_for_jump
 end
 
-function jump_contribution(::EnergyPicture, jump::JumpOp, hamiltonian::HamHam, config::LiouvConfig, 
+function jump_contribution(::EnergyDomain, jump::JumpOp, hamiltonian::HamHam, config::LiouvConfig, 
     energy_labels::Vector{Float64})
 
     dim = size(hamiltonian.data, 1)
@@ -67,7 +67,7 @@ function jump_contribution(::EnergyPicture, jump::JumpOp, hamiltonian::HamHam, c
     return liouv_for_jump
 end
 
-function jump_contribution(::TimePicture, jump::JumpOp, hamiltonian::HamHam, config::LiouvConfig, 
+function jump_contribution(::TimeDomain, jump::JumpOp, hamiltonian::HamHam, config::LiouvConfig, 
     energy_labels::Vector{Float64}, time_labels::Vector{Float64})
 
     dim = size(hamiltonian.data, 1)
@@ -121,7 +121,7 @@ function jump_contribution(::TimePicture, jump::JumpOp, hamiltonian::HamHam, con
     return liouv_for_jump
 end
 
-function jump_contribution(::TrotterPicture, jump::JumpOp, trotter::TrottTrott, config::LiouvConfig, 
+function jump_contribution(::TrotterDomain, jump::JumpOp, trotter::TrottTrott, config::LiouvConfig, 
     energy_labels::Vector{Float64}, time_labels::Vector{Float64})
 
     dim = size(trotter.eigvecs, 1)
@@ -163,7 +163,7 @@ function jump_contribution(::TrotterPicture, jump::JumpOp, trotter::TrottTrott, 
 end
 
 #* Algorithmic jump contributions -----
-function jump_contribution(::BohrPicture, 
+function jump_contribution(::BohrDomain, 
     evolving_dm::Matrix{ComplexF64}, 
     jump::JumpOp, 
     hamiltonian::HamHam, 
@@ -211,7 +211,7 @@ function jump_contribution(::BohrPicture,
     return jump_dm_contribution
 end
 
-function jump_contribution(::EnergyPicture, 
+function jump_contribution(::EnergyDomain, 
     evolving_dm::Matrix{ComplexF64}, 
     jump::JumpOp, 
     hamiltonian::HamHam, 
@@ -256,7 +256,7 @@ function jump_contribution(::EnergyPicture,
 end
 
 function jump_contribution(
-    ::TimePicture, 
+    ::TimeDomain, 
     evolving_dm::Matrix{ComplexF64}, 
     jump::JumpOp, 
     hamiltonian::HamHam, 
@@ -302,7 +302,7 @@ function jump_contribution(
     return jump_dm_contribution
 end
 
-function jump_contribution(::TrotterPicture, 
+function jump_contribution(::TrotterDomain, 
     evolving_dm::Matrix{ComplexF64}, 
     jump::JumpOp, 
     trotter::TrottTrott, 
@@ -352,7 +352,7 @@ end
 #* Linear Map jump contributions -----
 function jump_contribution!(
     target_d_rho::AbstractMatrix{ComplexF64}, 
-    ::BohrPicture, 
+    ::BohrDomain, 
     rho::AbstractMatrix{ComplexF64}, 
     jump::JumpOp, 
     hamiltonian::HamHam,
@@ -401,7 +401,7 @@ end
 
 function jump_contribution!(
     target_d_rho::AbstractMatrix{ComplexF64}, 
-    ::EnergyPicture, 
+    ::EnergyDomain, 
     rho::AbstractMatrix{ComplexF64}, 
     jump::JumpOp, 
     hamiltonian::HamHam,
@@ -444,7 +444,7 @@ end
 
 function jump_contribution!(
     target_d_rho::AbstractMatrix{ComplexF64}, 
-    ::TimePicture, 
+    ::TimeDomain, 
     rho::AbstractMatrix{ComplexF64}, 
     jump::JumpOp, 
     hamiltonian::HamHam,
@@ -486,7 +486,7 @@ end
 
 function jump_contribution!(
     target_d_rho::AbstractMatrix{ComplexF64}, 
-    ::TrotterPicture, 
+    ::TrotterDomain, 
     rho::AbstractMatrix{ComplexF64}, 
     jump::JumpOp, 
     trotter::TrottTrott,
@@ -530,7 +530,7 @@ end
 
 
 #* Slow and old
-# function jump_contribution_slow(::TrotterPicture, jump::JumpOp, trotter::TrottTrott, config::LiouvConfig, 
+# function jump_contribution_slow(::TrotterDomain, jump::JumpOp, trotter::TrottTrott, config::LiouvConfig, 
 #     energy_labels::Vector{Float64}, time_labels::Vector{Float64})
 
 #     dim = size(trotter.eigvecs, 1)
@@ -570,7 +570,7 @@ end
 #     return liouv_coherent_part_for_jump .+ prefactor * liouv_diss_part_for_jump  #! L in trotter basis
 # end
 
-# function jump_contribution_slow(::TimePicture, jump::JumpOp, hamiltonian::HamHam, config::LiouvConfig, 
+# function jump_contribution_slow(::TimeDomain, jump::JumpOp, hamiltonian::HamHam, config::LiouvConfig, 
 #     energy_labels::Vector{Float64}, time_labels::Vector{Float64})
 
 #     dim = size(hamiltonian.data, 1)
@@ -608,7 +608,7 @@ end
 #     return liouv_coherent_part_for_jump .+ prefactor * liouv_diss_part_for_jump
 # end
 
-# function jump_contribution_slow(::EnergyPicture, jump::JumpOp, hamiltonian::HamHam, config::LiouvConfig, 
+# function jump_contribution_slow(::EnergyDomain, jump::JumpOp, hamiltonian::HamHam, config::LiouvConfig, 
 #     energy_labels::Vector{Float64})
 
 #     dim = size(hamiltonian.data, 1)
@@ -631,7 +631,7 @@ end
 #     return liouv_coherent_part_for_jump .+ w0 * oft_norm_squared * liouv_diss_part_for_jump
 # end
 
-# function jump_contribution_slow(::BohrPicture, jump::JumpOp, hamiltonian::HamHam, config::LiouvConfig)
+# function jump_contribution_slow(::BohrDomain, jump::JumpOp, hamiltonian::HamHam, config::LiouvConfig)
 #     dim = size(hamiltonian.data, 1)
 #     unique_freqs = keys(hamiltonian.bohr_dict)
 
@@ -656,7 +656,7 @@ end
 #     return liouv_for_jump
 # end
 
-# function jump_contribution_slow(::BohrPicture, evolving_dm::Matrix{ComplexF64}, jump::JumpOp, hamiltonian::HamHam, 
+# function jump_contribution_slow(::BohrDomain, evolving_dm::Matrix{ComplexF64}, jump::JumpOp, hamiltonian::HamHam, 
 #     config::ThermalizeConfig)
 
 #     dim = size(evolving_dm, 1)
@@ -686,7 +686,7 @@ end
 #     return config.delta * (jump_coherent + jump_dissipative)
 # end
 
-# function jump_contribution_slow(::EnergyPicture, evolving_dm::Matrix{ComplexF64}, jump::JumpOp, hamiltonian::HamHam, 
+# function jump_contribution_slow(::EnergyDomain, evolving_dm::Matrix{ComplexF64}, jump::JumpOp, hamiltonian::HamHam, 
 #     config::ThermalizeConfig)
 
 #     dim = size(evolving_dm, 1)
@@ -713,7 +713,7 @@ end
 #     return config.delta * (jump_coherent + w0 * oft_prefactor * jump_dissipative)
 # end
 
-# function jump_contribution_slow(::TimePicture, evolving_dm::Matrix{ComplexF64}, jump::JumpOp, hamiltonian::HamHam, 
+# function jump_contribution_slow(::TimeDomain, evolving_dm::Matrix{ComplexF64}, jump::JumpOp, hamiltonian::HamHam, 
 #     config::ThermalizeConfig)
 
 #     dim = size(evolving_dm, 1)
@@ -743,7 +743,7 @@ end
 #     return config.delta * (jump_coherent + w0 * t0^2 * oft_prefactor * jump_dissipative)
 # end
 
-# function jump_contribution_slow(::TrotterPicture, evolving_dm::Matrix{ComplexF64}, jump::JumpOp, trotter::TrottTrott, 
+# function jump_contribution_slow(::TrotterDomain, evolving_dm::Matrix{ComplexF64}, jump::JumpOp, trotter::TrottTrott, 
 #     config::ThermalizeConfig)
 
 #     dim = size(evolving_dm, 1)

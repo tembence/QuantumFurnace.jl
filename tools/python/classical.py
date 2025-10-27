@@ -63,10 +63,10 @@ def find_ideal_heisenberg(num_qubits: int, bohr_bound: float, eps: float, fix_co
         coeffs = fix_coeffs
         if bohr_bound == 0:
             found_ideal_spectrum = True
-            # generate random coeffs for symbreak
-            symbreak_coeffs = np.round(np.random.rand(num_qubits), 3)
+            # generate random coeffs for disordering
+            disordering_coeffs = np.round(np.random.rand(num_qubits), 3)
             hamiltonian_qt = hamiltonian_matrix([X, X], [Y, Y], [Z, Z], coeffs=coeffs, num_qubits=num_qubits, 
-                                                symbreak_term=[Z], symbreak_coeffs=symbreak_coeffs)
+                                                disordering_term=[Z], disordering_coeffs=disordering_coeffs)
             
             rescaling_factor, shift = rescaling_and_shift_factors(hamiltonian_qt, eps=eps, signed=signed, for_oft=for_oft)
             
@@ -74,9 +74,9 @@ def find_ideal_heisenberg(num_qubits: int, bohr_bound: float, eps: float, fix_co
             rescaled_spectrum, eigvecs = np.linalg.eigh(rescaled_hamiltonian_qt)
             
             rescaled_coeffs = coeffs / rescaling_factor
-            rescaled_symbreak_coeffs = symbreak_coeffs / rescaling_factor
+            rescaled_disordering_coeffs = disordering_coeffs / rescaling_factor
             
-            all_rescaled_coeffs = np.concatenate((rescaled_coeffs, rescaled_symbreak_coeffs))
+            all_rescaled_coeffs = np.concatenate((rescaled_coeffs, rescaled_disordering_coeffs))
             
             hamiltonian = HamHam(rescaled_hamiltonian_qt, shift=shift, rescaling_factor=rescaling_factor, 
                         spectrum=rescaled_spectrum, eigvecs=eigvecs , rescaled_coeffs=all_rescaled_coeffs)
@@ -90,7 +90,7 @@ def find_ideal_heisenberg(num_qubits: int, bohr_bound: float, eps: float, fix_co
     
     found_ideal_spectrum = False
     for coeffs in coeff_mesh:
-        hamiltonian_qt = hamiltonian_matrix([X, X], [Y, Y], [Z, Z], coeffs=coeffs, num_qubits=num_qubits, symbreak_term=[Z])
+        hamiltonian_qt = hamiltonian_matrix([X, X], [Y, Y], [Z, Z], coeffs=coeffs, num_qubits=num_qubits, disordering_term=[Z])
         rescaling_factor, shift = rescaling_and_shift_factors(hamiltonian_qt, eps=eps, signed=signed, for_oft=for_oft)
         
         rescaled_hamiltonian_qt = hamiltonian_qt / rescaling_factor + shift * qt.qeye(hamiltonian_qt.shape[0])
@@ -127,19 +127,19 @@ def find_ideal_heisenberg(num_qubits: int, bohr_bound: float, eps: float, fix_co
 
         
 def hamiltonian_matrix(*terms: list[qt.Qobj], coeffs: list[float], num_qubits: int, 
-                       symbreak_term: list[qt.Qobj] = [], symbreak_coeffs: list[float] = None) -> np.ndarray:
+                       disordering_term: list[qt.Qobj] = [], disordering_coeffs: list[float] = None) -> np.ndarray:
     """Gets the Hamiltonian as a Qobj. Assumes periodic boundaries.
     Args:
         terms: list of Qobjs, each Qobj is a single body term in the list
                 building a many-body term together, e.g. [X, Y, Z] -> X^Y^Z
-        coeffs: list of coefficients for each term in `terms` and the last one is for the `symbreak_term` if
+        coeffs: list of coefficients for each term in `terms` and the last one is for the `disordering_term` if
                 we want to break the symmetry.
     """
     
-    if len(symbreak_term) != 0 and len(symbreak_coeffs) == 0:
+    if len(disordering_term) != 0 and len(disordering_coeffs) == 0:
         raise ValueError("If a symmetry breaking term is given, then coefficients are needed.")
     
-    # if (len(terms) + len(symbreak_term)) != len(coeffs):
+    # if (len(terms) + len(disordering_term)) != len(coeffs):
     #     raise ValueError("Number of terms and coefficients must match.")
     
     hamiltonian = np.zeros((2**num_qubits, 2**num_qubits))
@@ -150,10 +150,10 @@ def hamiltonian_matrix(*terms: list[qt.Qobj], coeffs: list[float], num_qubits: i
     # Add symmetry breaking term (breaks translation symmetry but also spin flip sym if chosen well) 
     # -> makes spectrum less degenerate
     
-    if (len(symbreak_term) != 0) and (num_qubits != 2):
+    if (len(disordering_term) != 0) and (num_qubits != 2):
         for q in range(0, num_qubits):
             # print(f'Applied sym breaking term onto qubit {q}')
-            hamiltonian += symbreak_coeffs[q] * pad_term(symbreak_term, num_qubits, q).data
+            hamiltonian += disordering_coeffs[q] * pad_term(disordering_term, num_qubits, q).data
             
     return hamiltonian
 
@@ -182,10 +182,10 @@ def pad_term(terms: list[qt.Qobj], num_qubits: int, position: int) -> qt.Qobj:
 # if shift != 0:
 #     trott_hamiltonian_qt = trott_hamiltonian_qt * qt.Qobj(expm(1j * shift * np.eye(2**num_qubits)))
 def trotter_step_heisenberg_qt(num_qubits: int, step_size: float, coeffs: list[float],
-                               symbreak: bool = True) -> qt.Qobj:
+                               disordering: bool = True) -> qt.Qobj:
     
-    if symbreak == True and len(coeffs) != 4:
-        raise ValueError("If symbreak is True, then 3+1 coefficients are needed.")
+    if disordering == True and len(coeffs) != 4:
+        raise ValueError("If disordering is True, then 3+1 coefficients are needed.")
         
     trott_step_qt = qt.qeye(2**num_qubits)
   
@@ -197,7 +197,7 @@ def trotter_step_heisenberg_qt(num_qubits: int, step_size: float, coeffs: list[f
         eXX = expm(1j * coeffs[0] * step_size * XX.full())
         eYY = expm(1j * coeffs[1] * step_size * YY.full())
         eZZ = expm(1j * coeffs[2] * step_size * ZZ.full())
-        if (i in range(1, num_qubits - 1)) and (symbreak == True):
+        if (i in range(1, num_qubits - 1)) and (disordering == True):
             # print(f'eZ for qubit {i}')
             Z = pad_term([qt.sigmaz()], num_qubits, i)
             eZ = expm(1j * coeffs[3] * step_size * Z.full())

@@ -183,7 +183,7 @@ end
 
 
 #* Trotter OFT check
-# energy_labels, time_labels = precompute_labels(config.picture, config)
+# energy_labels, time_labels = precompute_labels(config.domain, config)
 # truncated_energy_labels = truncate_energy_labels(energy_labels, beta,
 # a, b, with_linear_combination)
 # time_labels = energy_labels .* (t0 / w0)

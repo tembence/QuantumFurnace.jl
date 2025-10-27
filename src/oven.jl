@@ -45,20 +45,20 @@ end
 function construct_liouvillian(jumps::Vector{JumpOp}, config::LiouvConfig, hamiltonian::HamHam;
     trotter::Union{TrottTrott, Nothing}=nothing)
     
-    picture_name = replace(string(typeof(config.picture)), "Picture" => "")
-    println("Constructing Liouvillian ($(picture_name))")
+    domain_name = replace(string(typeof(config.domain)), "Domain" => "")
+    println("Constructing Liouvillian ($(domain_name))")
 
-    ham_or_trott = if config.picture isa TrotterPicture
-        trotter === nothing && error("A Trotter object must be provided for the TrotterPicture")
+    ham_or_trott = if config.domain isa TrotterDomain
+        trotter === nothing && error("A Trotter object must be provided for the TrotterDomain")
         trotter
-    else # For Bohr, Energy, Time pictures
+    else # For Bohr, Energy, Time domains
         hamiltonian
     end
 
-    labels = precompute_labels(config.picture, config)
+    labels = precompute_labels(config.domain, config)
 
     total_liouv = @distributed (+) for jump in jumps
-        jump_contribution(config.picture, jump, ham_or_trott, config, labels...)
+        jump_contribution(config.domain, jump, ham_or_trott, config, labels...)
     end
 
     return total_liouv
@@ -70,11 +70,11 @@ function run_thermalization(jumps::Vector{JumpOp}, config::ThermalizeConfig, evo
 
     validate_config!(config)
     print_press(config)
-    picture_name = replace(string(typeof(config.picture)), "Picture" => "")
-    println("Thermalizing ($(picture_name))")
+    domain_name = replace(string(typeof(config.domain)), "Domain" => "")
+    println("Thermalizing ($(domain_name))")
 
-    if config.picture isa TrotterPicture
-        @assert trotter !== nothing "A Trotter object must be provided for the TrotterPicture"
+    if config.domain isa TrotterDomain
+        @assert trotter !== nothing "A Trotter object must be provided for the TrotterDomain"
         ham_or_trott = trotter
         gibbs = Hermitian(trotter.eigvecs' * hamiltonian.eigvecs * hamiltonian.gibbs * hamiltonian.eigvecs' * trotter.eigvecs)
     else
@@ -85,14 +85,14 @@ function run_thermalization(jumps::Vector{JumpOp}, config::ThermalizeConfig, evo
     num_liouv_steps = Int(ceil(config.mixing_time / config.delta))
 
     # Energy, Time labels; B functions; transition
-    precomputed_data = precompute_data(config.picture, config)
+    precomputed_data = precompute_data(config.domain, config)
 
     convergence_cutoff = 1e-5
     distances_to_gibbs = [trace_distance_h(Hermitian(evolving_dm), gibbs)]
     for step in 1:num_liouv_steps
         update_dm = zeros(size(evolving_dm))
         update_dm = @distributed (+) for jump in jumps  # Does this wait until its done and then continue?
-            jump_contribution(config.picture, evolving_dm, jump, ham_or_trott, config, precomputed_data)
+            jump_contribution(config.domain, evolving_dm, jump, ham_or_trott, config, precomputed_data)
         end
 
         evolving_dm .+= update_dm
@@ -116,11 +116,11 @@ end
 
 #     validate_config!(config)
 #     print_press(config)
-#     picture_name = replace(string(typeof(config.picture)), "Picture" => "")
-#     println("Thermalizing ($(picture_name))")
+#     domain_name = replace(string(typeof(config.domain)), "Domain" => "")
+#     println("Thermalizing ($(domain_name))")
 
-#     if config.picture isa TrotterPicture
-#         @assert trotter !== nothing "A Trotter object must be provided for the TrotterPicture"
+#     if config.domain isa TrotterDomain
+#         @assert trotter !== nothing "A Trotter object must be provided for the TrotterDomain"
 #         ham_or_trott = trotter
 #         gibbs = Hermitian(trotter.eigvecs' * hamiltonian.gibbs * trotter.eigvecs)
 #     else
@@ -129,12 +129,12 @@ end
 #     end
 
 #     num_liouv_steps = Int(ceil(mixing_time / delta))
-#     energy_labels, time_labels = precompute_labels(config.picture, config)
+#     energy_labels, time_labels = precompute_labels(config.domain, config)
 
 #     # Transition rate gamma
 #     @everywhere transition = pick_transition(config.beta, config.a, config.b, config.with_linear_combination)
 #     # Functions for B
-#     f_minus, f_plus = if config.with_coherent && config.picture isa Union{TimePicture, TrotterPicture}
+#     f_minus, f_plus = if config.with_coherent && config.domain isa Union{TimeDomain, TrotterDomain}
 #         _f_minus = compute_truncated_f(compute_f_minus, time_labels, config.beta)
 
 #         f_plus_calculator, f_plus_args = select_f_plus_calculator(config)
@@ -157,7 +157,7 @@ end
 #     for step in 1:num_liouv_steps
 #         update_dm = zeros(size(evolving_dm))
 #         update_dm = @distributed (+) for jump in jumps
-#             jump_contribution_slow(config.picture, evolving_dm, jump, ham_or_trott, config)
+#             jump_contribution_slow(config.domain, evolving_dm, jump, ham_or_trott, config)
 #         end
 
 #         evolving_dm .+= update_dm
@@ -179,10 +179,10 @@ end
 #     hamiltonian::Union{HamHam, Nothing} = nothing,
 #     trotter::Union{TrottTrott, Nothing} = nothing)
 
-#     if (config.picture == TROTTER && trotter === nothing)
-#         error("For TROTTER picture, a trotterization needs to be provided")
-#     elseif (config.picture != TROTTER && hamiltonian === nothing)
-#         error("For NON - TROTTER picture, a hamiltonian needs to be provided")
+#     if (config.domain == TROTTER && trotter === nothing)
+#         error("For TROTTER domain, a trotterization needs to be provided")
+#     elseif (config.domain != TROTTER && hamiltonian === nothing)
+#         error("For NON - TROTTER domain, a hamiltonian needs to be provided")
 #     end
 
 #     if !(is_config_valid(config))
@@ -191,7 +191,7 @@ end
 
 #     print_press(config)
 
-#     if config.picture==BOHR
+#     if config.domain==BOHR
 #         if config.with_linear_combination
 #             return thermalize_bohr(jumps, hamiltonian, initial_dm, config.with_coherent, config.beta, config.a, config.b,
 #             config.mixing_time, config.delta, config.unravel)
@@ -200,7 +200,7 @@ end
 #                 config.mixing_time, config.delta, config.unravel)
 #         end
 #     end
-#     if config.picture==ENERGY
+#     if config.domain==ENERGY
 #         energy_labels = create_energy_labels(config.num_energy_bits, config.w0)
 #         truncated_energy_labels = truncate_energy_labels(energy_labels, config.beta,
 #             config.a, config.b, config.with_linear_combination)
@@ -213,7 +213,7 @@ end
 #             config.with_coherent, config.beta, config.mixing_time, config.delta, config.unravel)
 #         end
 #     end
-#     if config.picture==TIME
+#     if config.domain==TIME
 #         energy_labels = create_energy_labels(config.num_energy_bits, config.w0)
 #         truncated_energy_labels = truncate_energy_labels(energy_labels, config.beta,
 #         config.a, config.b, config.with_linear_combination)
@@ -227,7 +227,7 @@ end
 #             config.with_coherent, config.beta, config.mixing_time, config.delta, config.unravel)
 #         end
 #     end
-#     if config.picture == TROTTER
+#     if config.domain == TROTTER
 #         energy_labels = create_energy_labels(config.num_energy_bits, config.w0)
 #         truncated_energy_labels = truncate_energy_labels(energy_labels, config.beta,
 #         config.a, config.b, config.with_linear_combination)

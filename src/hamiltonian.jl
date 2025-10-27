@@ -1,102 +1,78 @@
+function create_hamham(terms::Vector{Vector{Matrix{ComplexF64}}}, coeffs::Vector{Float64}, num_qubits::Int64; 
+    periodic::Bool = true, hermitian_check = false)
+    """Creates a HamHam object from terms and coefficients."""
 
-# Could add a term coeff dict, to make find ideal hamiltonian, trotter, more generic, instead of Heisenberg
-function create_hamham(terms::Vector{Vector{String}}, coeffs::Vector{Float64}, num_qubits::Int64; 
-    periodic::Bool = true)
-    """Creates a HamHam object from terms and coefficients. Only for NN terms for now."""
+    hamiltonian_matrix = construct_base_ham(terms, coeffs, num_qubits; periodic=periodic)
 
-    sigmax::Matrix{ComplexF64} = [0 1; 1 0]
-    sigmay::Matrix{ComplexF64} = [0.0 -im; im 0.0]
-    sigmaz::Matrix{ComplexF64} = [1 0; 0 -1]
-    pauli_dict = Dict("X" => sigmax, "Y" => sigmay, "Z" => sigmaz, "I" => Matrix(I(2)))
-
-    terms_matrices::Vector{Vector{Matrix{ComplexF64}}} = []
-    for term in terms
-        push!(terms_matrices, [])
-        for pauli_str in term
-            push!(terms_matrices[end], pauli_dict[pauli_str])
-        end
-    end
-
-    base_hamiltonian = construct_base_ham(terms_matrices, coeffs, num_qubits; periodic=periodic)
-
-    rescaling_factor, shift = rescaling_and_shift_factors(base_hamiltonian)
-    rescaled_hamiltonian::Hermitian{ComplexF64, Matrix{ComplexF64}} = base_hamiltonian / rescaling_factor + 
+    rescaling_factor, shift = rescaling_and_shift_factors(hamiltonian_matrix)
+    rescaled_hamiltonian::Hermitian{ComplexF64, Matrix{ComplexF64}} = hamiltonian_matrix / rescaling_factor + 
                                                                                     shift * I(2^num_qubits)
 
     rescaled_eigvals, rescaled_eigvecs = eigen(rescaled_hamiltonian)
     rescaled_base_coeffs = coeffs / rescaling_factor
     smallest_bohr_freq = minimum(diff(rescaled_eigvals))
 
-   hamiltonian = HamHam(
-    rescaled_hamiltonian,
-    nothing,  # bohr_freqs is added later
-    nothing,
-    terms,
-    rescaled_base_coeffs,
-    nothing,  # symbreak_terms absent
-    nothing,  # Symbreak coeffs absent
-    rescaled_eigvals,
-    rescaled_eigvecs,
-    smallest_bohr_freq,
-    shift,
-    rescaling_factor,
-    periodic
+    if hermitian_check
+        @assert ishermitian(rescaled_hamiltonian) "The resulting matrix is not Hermitian!"
+    end
+
+    hamiltonian = HamHam(
+        rescaled_hamiltonian,
+        nothing,  # bohr_freqs is added later
+        nothing,
+        terms,
+        rescaled_base_coeffs,
+        nothing,  # disordering_terms absent
+        nothing,  # disordering coeffs absent
+        rescaled_eigvals,
+        rescaled_eigvecs,
+        smallest_bohr_freq,
+        shift,
+        rescaling_factor,
+        periodic,
+        Hermitian(zeros(ComplexF64, 1, 1))
    )
 
     return hamiltonian
 end
 
-#TODO: Combine symbreak terms into just terms to make it cleaner
-function create_hamham(terms::Vector{Vector{String}}, coeffs::Vector{Float64}, 
-    symbreak_terms::Vector{String}, symbreak_coeffs::Vector{Float64}, num_qubits::Int64; periodic::Bool = true)
-    """Creates a HamHam object from terms and coefficients. Only for NN terms for now."""
+function create_hamham(terms::Vector{Vector{Matrix{ComplexF64}}}, coeffs::Vector{Float64}, 
+    disordering_terms::Vector{Matrix{ComplexF64}}, disordering_coeffs::Vector{Float64}, 
+    num_qubits::Int64; periodic::Bool = true, hermitian_check = false)
+    """Creates a HamHam object from terms and coefficients."""
 
-    sigmax::Matrix{ComplexF64} = [0 1; 1 0]
-    sigmay::Matrix{ComplexF64} = [0.0 -im; im 0.0]
-    sigmaz::Matrix{ComplexF64} = [1 0; 0 -1]
-    pauli_dict = Dict("X" => sigmax, "Y" => sigmay, "Z" => sigmaz, "I" => Matrix(I(2)))
+    base_hamiltonian = construct_base_ham(terms, coeffs, num_qubits)
+    disordering_hamiltonian = construct_disordering_terms(disordering_terms, disordering_coeffs, num_qubits)
+    disordered_ham = base_hamiltonian + disordering_hamiltonian
 
-    terms_matrices::Vector{Vector{Matrix{ComplexF64}}} = []
-    symbreak_terms_matrices::Vector{Matrix{ComplexF64}} = []
-
-    for term in terms
-        push!(terms_matrices, [])
-        for pauli_str in term
-            push!(terms_matrices[end], pauli_dict[pauli_str])
-        end
-    end
-
-    for pauli_str in symbreak_terms
-        push!(symbreak_terms_matrices, pauli_dict[pauli_str])
-    end
-
-    base_hamiltonian = construct_base_ham(terms_matrices, coeffs, num_qubits)
-    symbreak_hamiltonian = construct_symbreak_terms(symbreak_terms_matrices, symbreak_coeffs, num_qubits)
-    symbroken_ham = base_hamiltonian + symbreak_hamiltonian
-
-    rescaling_factor, shift = rescaling_and_shift_factors(symbroken_ham)
-    rescaled_hamiltonian::Hermitian{ComplexF64, Matrix{ComplexF64}} = symbroken_ham / rescaling_factor + 
+    rescaling_factor, shift = rescaling_and_shift_factors(disordered_ham)
+    rescaled_hamiltonian::Hermitian{ComplexF64, Matrix{ComplexF64}} = disordered_ham / rescaling_factor + 
                                                                                     shift * I(2^num_qubits)
 
     rescaled_eigvals, rescaled_eigvecs = eigen(rescaled_hamiltonian)
     rescaled_base_coeffs = coeffs / rescaling_factor
-    rescaled_symbreak_coeffs = symbreak_coeffs / rescaling_factor
+    rescaled_disordering_coeffs = disordering_coeffs / rescaling_factor
     smallest_bohr_freq = minimum(diff(rescaled_eigvals))
 
-   hamiltonian = HamHam(
-    rescaled_hamiltonian,
-    nothing,  # bohr_freqs is added later
-    nothing,
-    terms,
-    rescaled_base_coeffs,
-    symbreak_terms,
-    rescaled_symbreak_coeffs,
-    rescaled_eigvals,
-    rescaled_eigvecs,
-    smallest_bohr_freq,
-    shift,
-    rescaling_factor,
-    periodic
+    if hermitian_check
+        @assert ishermitian(rescaled_hamiltonian) "The resulting matrix is not Hermitian!"
+    end
+
+    hamiltonian = HamHam(
+        rescaled_hamiltonian,
+        nothing,  # bohr_freqs is added later
+        nothing,
+        terms,
+        rescaled_base_coeffs,
+        disordering_terms,
+        rescaled_disordering_coeffs,
+        rescaled_eigvals,
+        rescaled_eigvecs,
+        smallest_bohr_freq,
+        shift,
+        rescaling_factor,
+        periodic,
+        Hermitian(zeros(ComplexF64, 1, 1))
    )
 
     return hamiltonian
@@ -125,14 +101,12 @@ function find_ideal_heisenberg(num_qubits::Int64,
     coeffs::Vector{Float64}; batch_size::Int64 = 1, periodic::Bool = true)
     """Periodic Heisenberg 1D chain"""
 
-    sigmax::Matrix{ComplexF64} = [0 1; 1 0]
-    sigmay::Matrix{ComplexF64} = [0.0 -im; im 0.0]
-    sigmaz::Matrix{ComplexF64} = [1 0; 0 -1]
+    X::Matrix{ComplexF64} = [0 1; 1 0]
+    Y::Matrix{ComplexF64} = [0.0 -im; im 0.0]
+    Z::Matrix{ComplexF64} = [1 0; 0 -1]
 
-    terms = [[sigmax, sigmax], [sigmay, sigmay], [sigmaz, sigmaz]]
-    terms_str = [["X", "X"], ["Y", "Y"], ["Z", "Z"]]
-    symbreak_term = [sigmaz]
-    symbreak_term_str = ["Z"]
+    terms = [[X, X], [Y, Y], [Z, Z]]
+    disordering_term = [Z]
 
     base_hamiltonian = construct_base_ham(terms, coeffs, num_qubits; periodic=periodic)
 
@@ -148,20 +122,18 @@ function find_ideal_heisenberg(num_qubits::Int64,
     p = Progress(length(seeds))
     @showprogress dt=1 desc="Finding ideal hamiltonian..." for seed in seeds
         Random.seed!(seed)
-        # symbreak_coeffs = 2.0 .* rand(num_qubits) .- 1.0
-        symbreak_coeffs = rand(num_qubits)
-        # display(symbreak_coeffs)
-        symbreak_ham = construct_symbreak_terms(symbreak_term, symbreak_coeffs, num_qubits)
+        disordering_coeffs = rand(num_qubits)
+        disordering_ham = construct_disordering_terms(disordering_term, disordering_coeffs, num_qubits)
 
-        symbroken_ham = base_hamiltonian + symbreak_ham
-        rescaling_factor, shift = rescaling_and_shift_factors(symbroken_ham)
+        disordered_ham = base_hamiltonian + disordering_ham
+        rescaling_factor, shift = rescaling_and_shift_factors(disordered_ham)
 
-        rescaled_hamiltonian::Hermitian{ComplexF64, Matrix{ComplexF64}} = symbroken_ham / rescaling_factor + 
+        rescaled_hamiltonian::Hermitian{ComplexF64, Matrix{ComplexF64}} = disordered_ham / rescaling_factor + 
                                                                                         shift * I(2^num_qubits)
 
         rescaled_eigvals, rescaled_eigvecs = eigen(rescaled_hamiltonian)
         rescaled_base_coeffs = coeffs / rescaling_factor
-        rescaled_symbreak_coeffs = symbreak_coeffs / rescaling_factor
+        rescaled_disordering_coeffs = disordering_coeffs / rescaling_factor
         # Check all differences between consecutive eigenvalues
         smallest_bohr_freq = minimum(diff(rescaled_eigvals))
         if smallest_bohr_freq > best_smallest_bohr_freq
@@ -169,8 +141,8 @@ function find_ideal_heisenberg(num_qubits::Int64,
             hamiltonian.data = rescaled_hamiltonian
             hamiltonian.base_terms = terms_str
             hamiltonian.base_coeffs = rescaled_base_coeffs
-            hamiltonian.symbreak_terms = symbreak_term_str
-            hamiltonian.symbreak_coeffs = rescaled_symbreak_coeffs
+            hamiltonian.disordering_term = disordering_term
+            hamiltonian.disordering_coeffs = rescaled_disordering_coeffs
             hamiltonian.eigvals = rescaled_eigvals
             hamiltonian.eigvecs = rescaled_eigvecs
             hamiltonian.nu_min = smallest_bohr_freq
@@ -204,34 +176,19 @@ function construct_base_ham(terms::Vector{Vector{Matrix{ComplexF64}}}, coeffs::V
     return Hermitian(Matrix(hamiltonian))
 end
 
-function construct_symbreak_terms(symbreak_term::Vector{Matrix{ComplexF64}}, 
-    num_qubits::Int64; rand_seed::Int64 = 666, periodic::Bool = true)
+function construct_disordering_terms(term::Vector{Matrix{ComplexF64}}, 
+    coeffs::Vector{Float64}, num_qubits::Int64)
 
-    # set random seed
-    Random.seed!(rand_seed)
-    symbreak_coeffs = 2.0 .* rand(num_qubits) .- 1.0
+    if length(coeffs) != num_qubits
+        throw(ArgumentError("The number of disordering coeffs must be equal to the number of qubits"))
+    end
 
-    symbreak_hamiltonian::SparseMatrixCSC{ComplexF64} = spzeros(2^num_qubits, 2^num_qubits)
+    disordering_hamiltonian::SparseMatrixCSC{ComplexF64} = spzeros(2^num_qubits, 2^num_qubits)
     for q in 1:num_qubits
-        symbreak_hamiltonian += symbreak_coeffs[q] * pad_term(symbreak_term, num_qubits, q; periodic=periodic)
+        disordering_hamiltonian += coeffs[q] * pad_term(term, num_qubits, q)
     end
 
-    return Hermitian(Matrix(symbreak_hamiltonian))
-end
-
-function construct_symbreak_terms(symbreak_term::Vector{Matrix{ComplexF64}}, 
-    symbreak_coeffs::Vector{Float64}, num_qubits::Int64)
-
-    if length(symbreak_coeffs) != num_qubits
-        throw(ArgumentError("The number of symmetry breaking coeffs must be equal to the number of qubits"))
-    end
-
-    symbreak_hamiltonian::SparseMatrixCSC{ComplexF64} = spzeros(2^num_qubits, 2^num_qubits)
-    for q in 1:num_qubits
-        symbreak_hamiltonian += symbreak_coeffs[q] * pad_term(symbreak_term, num_qubits, q)
-    end
-
-    return Hermitian(Matrix(symbreak_hamiltonian))
+    return Hermitian(Matrix(disordering_hamiltonian))
 end
 
 function pad_term(terms::Vector{Matrix{ComplexF64}}, num_qubits::Int64, position::Int; periodic::Bool = true)
@@ -275,6 +232,54 @@ function rescaling_and_shift_factors(hamiltonian::Hermitian{ComplexF64, Matrix{C
 
 end
 
+
+# function create_hamham(terms::Vector{Vector{String}}, coeffs::Vector{Float64}, num_qubits::Int64; 
+#     periodic::Bool = true)
+#     """Creates a HamHam object from terms and coefficients. Only for NN terms for now."""
+
+#     sigmax::Matrix{ComplexF64} = [0 1; 1 0]
+#     sigmay::Matrix{ComplexF64} = [0.0 -im; im 0.0]
+#     sigmaz::Matrix{ComplexF64} = [1 0; 0 -1]
+#     pauli_dict = Dict("X" => sigmax, "Y" => sigmay, "Z" => sigmaz, "I" => Matrix(I(2)))
+
+#     terms_matrices::Vector{Vector{Matrix{ComplexF64}}} = []
+#     for term in terms
+#         push!(terms_matrices, [])
+#         for pauli_str in term
+#             push!(terms_matrices[end], pauli_dict[pauli_str])
+#         end
+#     end
+
+#     base_hamiltonian = construct_base_ham(terms_matrices, coeffs, num_qubits; periodic=periodic)
+
+#     rescaling_factor, shift = rescaling_and_shift_factors(base_hamiltonian)
+#     rescaled_hamiltonian::Hermitian{ComplexF64, Matrix{ComplexF64}} = base_hamiltonian / rescaling_factor + 
+#                                                                                     shift * I(2^num_qubits)
+
+#     rescaled_eigvals, rescaled_eigvecs = eigen(rescaled_hamiltonian)
+#     rescaled_base_coeffs = coeffs / rescaling_factor
+#     smallest_bohr_freq = minimum(diff(rescaled_eigvals))
+
+#    hamiltonian = HamHam(
+#     rescaled_hamiltonian,
+#     nothing,  # bohr_freqs is added later
+#     nothing,
+#     terms,
+#     rescaled_base_coeffs,
+#     nothing,  # disordering_terms absent
+#     nothing,  # disordering coeffs absent
+#     rescaled_eigvals,
+#     rescaled_eigvecs,
+#     smallest_bohr_freq,
+#     shift,
+#     rescaling_factor,
+#     periodic,
+#     Hermitian(zeros(ComplexF64, 1, 1))
+#    )
+
+#     return hamiltonian
+# end
+
 #* --- Testing
 # hamiltonian = find_ideal_heisenberg(num_qubits, fill(1.0, 3); batch_size=100)
 # hamiltonian_terms = [["X", "X"], ["Y", "Y"], ["Z", "Z"]]
@@ -291,9 +296,9 @@ end
 # coeffs = fill(1.0, 3)
 # hamiltonian = construct_base_ham(terms, coeffs, num_qubits)
 
-# symbreak_ham = construct_symbreak_terms([sigmaz], fill(1.0, num_qubits), num_qubits)
+# disordering_ham = construct_disordering_terms([sigmaz], fill(1.0, num_qubits), num_qubits)
 
-# symbroken_ham = hamiltonian + symbreak_ham
+# symbroken_ham = hamiltonian + disordering_ham
 
 # rescaling_factor, shift = rescaling_and_shift_factors(symbroken_ham)
 

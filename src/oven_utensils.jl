@@ -1,15 +1,15 @@
-function precompute_labels(::BohrPicture, config::Union{LiouvConfig, ThermalizeConfig})
+function precompute_labels(::BohrDomain, config::Union{LiouvConfig, ThermalizeConfig})
     return ()# Bohr needs no labels
 end
 
-function precompute_labels(::EnergyPicture, config::Union{LiouvConfig, ThermalizeConfig})
+function precompute_labels(::EnergyDomain, config::Union{LiouvConfig, ThermalizeConfig})
     energy_labels = create_energy_labels(config.num_energy_bits, config.w0)
     truncated_energy_labels = truncate_energy_labels(energy_labels, config.beta, config.a, config.b, 
     config.with_linear_combination)
     return (truncated_energy_labels,)  # Energy labels
 end
 
-function precompute_labels(::Union{TimePicture, TrotterPicture}, config::Union{LiouvConfig, ThermalizeConfig})
+function precompute_labels(::Union{TimeDomain, TrotterDomain}, config::Union{LiouvConfig, ThermalizeConfig})
     energy_labels = create_energy_labels(config.num_energy_bits, config.w0)
     truncated_energy_labels = truncate_energy_labels(energy_labels, config.beta, config.a, config.b, 
     config.with_linear_combination)
@@ -17,15 +17,15 @@ function precompute_labels(::Union{TimePicture, TrotterPicture}, config::Union{L
     return (truncated_energy_labels, time_labels) # Energy and time labels
 end  
 
-function precompute_data(::BohrPicture, config::Union{LiouvConfig, ThermalizeConfig})
+function precompute_data(::BohrDomain, config::Union{LiouvConfig, ThermalizeConfig})
     alpha = pick_alpha(config)
     return (
         alpha = alpha
     )
 end
 
-function precompute_data(::EnergyPicture, config::Union{LiouvConfig, ThermalizeConfig})
-    energy_labels, = precompute_labels(config.picture, config)
+function precompute_data(::EnergyDomain, config::Union{LiouvConfig, ThermalizeConfig})
+    energy_labels, = precompute_labels(config.domain, config)
     w0 = abs(energy_labels[2] - energy_labels[1])
     transition = pick_transition(config.beta, config.a, config.b, config.with_linear_combination)
     return (
@@ -35,8 +35,8 @@ function precompute_data(::EnergyPicture, config::Union{LiouvConfig, ThermalizeC
     )
 end
 
-function precompute_data(::Union{TimePicture, TrotterPicture}, config::Union{LiouvConfig, ThermalizeConfig})
-    energy_labels, time_labels = precompute_labels(config.picture, config)
+function precompute_data(::Union{TimeDomain, TrotterDomain}, config::Union{LiouvConfig, ThermalizeConfig})
+    energy_labels, time_labels = precompute_labels(config.domain, config)
     oft_time_labels = truncate_time_labels_for_oft(time_labels, config.beta)
     w0 = abs(energy_labels[2] - energy_labels[1])
     t0 = abs(time_labels[2] - time_labels[1])

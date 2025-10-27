@@ -103,7 +103,7 @@ function coherent_bohr(hamiltonian::HamHam, jump::JumpOp, config::Union{LiouvCon
     dim = size(hamiltonian.data, 1)
     unique_freqs = keys(hamiltonian.bohr_dict)
 
-    f = pick_f(config)  # Picks rates for B in Bohr picture
+    f = pick_f(config)  # Picks rates for B in Bohr domain
 
     B = zeros(ComplexF64, dim, dim)
     f_A_nu_1 = zeros(ComplexF64, dim, dim)

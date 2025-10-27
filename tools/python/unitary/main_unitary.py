@@ -39,8 +39,8 @@ jump_ops = [Operator(Pauli('X'))]
 hamiltonian = find_ideal_heisenberg(num_qubits, bohr_bound, eps, signed=False, for_oft=True)
 rescaled_coeff = hamiltonian.rescaled_coeffs
 # Corresponding Trotter step circuit
-hamiltonian.trotter_step_circ = trotter_step_heisenberg(num_qubits, coeffs=rescaled_coeff, symbreak=True)
-hamiltonian.inverse_trotter_step_circ = inverse_trotter_step_heisenberg(num_qubits, coeffs=rescaled_coeff, symbreak=True)
+hamiltonian.trotter_step_circ = trotter_step_heisenberg(num_qubits, coeffs=rescaled_coeff, disordering=True)
+hamiltonian.inverse_trotter_step_circ = inverse_trotter_step_heisenberg(num_qubits, coeffs=rescaled_coeff, disordering=True)
 
 # Initial state = eigenstate
 initial_state = hamiltonian.eigenstates[:, eig_index]

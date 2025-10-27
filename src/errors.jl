@@ -51,7 +51,7 @@ function compute_trotter_B_quadrature_error()
 end
 
 #* Quadrature errors
-# energy_labels, time_labels = precompute_labels(config.picture, config)
+# energy_labels, time_labels = precompute_labels(config.domain, config)
 # f_minus = compute_truncated_f(compute_f_minus, time_labels, config.beta)
 # # f_plus_metro = compute_truncated_f(compute_f_plus_metro, time_labels, config.beta, config.eta)
 # f_plus_eh = compute_truncated_f(compute_f_plus_eh, time_labels, config.beta, config.a, config.b)

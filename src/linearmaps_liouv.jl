@@ -6,11 +6,11 @@
 #     dim = size(hamiltonian.data, 1)
 #     validate_config!(config)
 #     print_press(config)
-#     picture_name = replace(string(typeof(config.picture)), "Picture" => "")
+#     picture_name = replace(string(typeof(config.domain)), "Picture" => "")
 #     println("Creating Linear Map for ($(picture_name))")
 
-#     if config.picture isa TrotterPicture
-#         @assert trotter !== nothing "A Trotter object must be provided for the TrotterPicture"
+#     if config.domain isa TrotterDomain
+#         @assert trotter !== nothing "A Trotter object must be provided for the TrotterDomain"
 #         ham_or_trott = trotter
 #     else
 #         ham_or_trott = hamiltonian
@@ -19,7 +19,7 @@
 #     # Transition rate gamma
 #     transition = pick_transition(config.beta, config.a, config.b, config.with_linear_combination)
 #     # Functions for B
-#     f_minus, f_plus = if config.with_coherent && config.picture isa Union{TimePicture, TrotterPicture}
+#     f_minus, f_plus = if config.with_coherent && config.domain isa Union{TimeDomain, TrotterDomain}
 #         _f_minus = compute_truncated_f(compute_f_minus, time_labels, config.beta)
 
 #         f_plus_calculator, f_plus_args = select_f_plus_calculator(config)
@@ -41,9 +41,9 @@
 #         oft_time_labels = nothing
 #         )
 
-#     if !isa(config.picture, BohrPicture)
+#     if !isa(config.domain, BohrDomain)
 #         # Labels
-#         labels = precompute_labels(config.picture, config)
+#         labels = precompute_labels(config.domain, config)
 #         energy_labels = labels[1]
 #         w0 = abs(energy_labels[2] - energy_labels[1])
 #         precomputed_data.w0 = w0
@@ -51,7 +51,7 @@
 #         precomputed_data.energy_labels = energy_labels
 #     end
 
-#     if isa(config.picture, TimePicture) || isa(config.picture, TrotterPicture)
+#     if isa(config.domain, TimeDomain) || isa(config.domain, TrotterDomain)
 #         time_labels = labels[2]
 #         t0 = abs(time_labels[2] - time_labels[1])
 #         oft_time_labels = truncate_time_labels_for_oft(time_labels, config.beta)
@@ -73,7 +73,7 @@
 
 #         fill!(d_rho, 0.0)
 #         for jump in jumps
-#             jump_contribution!(d_rho, config.picture, rho, jump, ham_or_trott, config, precomputed_data, caches)
+#             jump_contribution!(d_rho, config.domain, rho, jump, ham_or_trott, config, precomputed_data, caches)
 #         end
 
 #         copyto!(dv_vec, vec(d_rho))
@@ -96,7 +96,7 @@
 
 # with_coherent = true
 # with_linear_combination = true
-# picture = BohrPicture()
+# domain = BohrDomain()
 # num_energy_bits = 11
 # w0 = 0.05
 # max_E = w0 * 2^num_energy_bits / 2
@@ -107,7 +107,7 @@
 #         num_qubits = num_qubits, 
 #         with_coherent = with_coherent,
 #         with_linear_combination = with_linear_combination, 
-#         picture = picture,
+#         domain = domain,
 #         beta = beta,
 #         a = a,
 #         b = b,
