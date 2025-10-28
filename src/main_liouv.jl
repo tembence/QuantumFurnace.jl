@@ -1,4 +1,3 @@
-using QuantumFurnace
 using Distributed
 
 if "SLURM_JOB_ID" in keys(ENV)
@@ -18,7 +17,7 @@ end
 
 println("Loading QuantumFurnace on all $(nworkers()) workers...")
 @everywhere using QuantumFurnace
-@everywhere using Pkg, LinearAlgebra, Random, Printf, SparseArrays, JLD2, BSON, Arpack
+# @everywhere using Pkg, LinearAlgebra, Random, Printf, SparseArrays, BSON, Arpack
 
 function main()
         #* Config
@@ -85,11 +84,11 @@ function main()
         # Hamiltonian path
         project_root = Pkg.project().path |> dirname
         data_dir = joinpath(project_root, "hamiltonians")
-        output_filename = join(["heis", "disordered", "periodic", "n=$num_qubits"], "_") * ".jld2"
+        output_filename = join(["heis", "disordered", "periodic", "n$num_qubits"], "_") * ".bson"
         ham_path = joinpath(data_dir, output_filename)
 
         # Load Hamiltonian
-        jld_ham_data = JLD2.load(ham_path)
+        jld_ham_data = BSON.load(ham_path)
         hamiltonian = jld_ham_data["hamiltonian"]
         @printf("Hamiltonian is loaded.\n")
         hamiltonian.bohr_freqs = hamiltonian.eigvals .- transpose(hamiltonian.eigvals)

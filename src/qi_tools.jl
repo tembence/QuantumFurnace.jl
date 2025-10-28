@@ -2,7 +2,6 @@ using LinearAlgebra
 using SparseArrays
 using Random
 using Printf
-using JLD2
 
 # Computes C .+= alpha .* kron(A, B) completely in-place, without allocating
 # the result of the Kronecker product. This is the key to memory efficiency.
@@ -125,9 +124,6 @@ function vectorize_liouvillian_coherent(coherent_term::AbstractMatrix{ComplexF64
 
     return vectorized_coherent_part
 end
-
-
-
 
 function trace_distance_h(rho::Union{Hermitian{<:Real}, Hermitian{<:Complex}}, 
     sigma::Union{Hermitian{<:Real}, Hermitian{<:Complex}})

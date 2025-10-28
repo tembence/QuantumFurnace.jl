@@ -48,9 +48,9 @@ function precompute_data(::Union{TimeDomain, TrotterDomain}, config::Union{Liouv
     #     _f_plus = compute_truncated_func(chosen_f_plus, time_labels, config.beta, f_plus_args...)
     #     (_f_minus, _f_plus)
     b_minus, b_plus = if config.with_coherent
-        _b_minus = compute_truncated_func(compute_b_minus, time_labels, config.beta)
+        _b_minus = compute_truncated_func(compute_b_minus, time_labels)
         chosen_b_plus, b_plus_args = select_b_plus_calculator(config)
-        _b_plus = compute_truncated_func(chosen_b_plus, time_labels, config.beta, b_plus_args...)
+        _b_plus = compute_truncated_func(chosen_b_plus, time_labels, b_plus_args...)
         (_b_minus, _b_plus)
     else
         (nothing, nothing)

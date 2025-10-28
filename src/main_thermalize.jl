@@ -1,5 +1,4 @@
 #TODO: I haven't debugged this since changing f -> b. (liouvillian one was debugged.)
-using QuantumFurnace
 using Distributed
 
 if "SLURM_JOB_ID" in keys(ENV)
@@ -19,7 +18,7 @@ end
 
 println("Loading QuantumFurnace on all $(nworkers()) workers...")
 @everywhere using QuantumFurnace
-@everywhere using Pkg, LinearAlgebra, Random, Printf, SparseArrays, JLD2, BSON, Arpack
+# @everywhere using Pkg, LinearAlgebra, Random, Printf, SparseArrays, BSON, Arpack
 
 function main()
     #* Config
@@ -68,16 +67,15 @@ function main()
     X::Matrix{ComplexF64} = [0 1; 1 0]
     Y::Matrix{ComplexF64} = [0.0 -im; im 0.0]
     Z::Matrix{ComplexF64} = [1 0; 0 -1]
-    id::Matrix{ComplexF64} = I(2)
     
     # Hamiltonian path
     project_root = Pkg.project().path |> dirname
     data_dir = joinpath(project_root, "hamiltonians")
-    output_filename = join(["heis", "disordered", "periodic", "n=$num_qubits"], "_") * ".jld2"
+    output_filename = join(["heis", "disordered", "periodic", "n$num_qubits"], "_") * ".bson"
     ham_path = joinpath(data_dir, output_filename)
-    jld_ham_data = JLD2.load(ham_path)  # Load Hamiltonian
+    bson_hamiltonian_data = BSON.load(ham_path)
+    hamiltonian = bson_hamiltonian_data[:hamiltonian]
 
-    hamiltonian = jld_ham_data["hamiltonian"]
     hamiltonian.bohr_freqs = hamiltonian.eigvals .- transpose(hamiltonian.eigvals)
     hamiltonian.bohr_dict = create_bohr_dict(hamiltonian)
     hamiltonian.gibbs = Hermitian(gibbs_state_in_eigen(hamiltonian, beta))
@@ -86,10 +84,10 @@ function main()
     @assert norm(initial_dm - initial_dm') < 1e-15 "Not Hermitian"
 
     #* Trotter
-    trotter = create_trotter(hamiltonian, t0, num_trotter_steps_per_t0)
-    trotter_error_T = compute_trotter_error(hamiltonian, trotter, 2^num_energy_bits * t0 / 2)
-    gibbs_in_trotter = Hermitian(trotter.eigvecs' * gibbs_state(hamiltonian, beta) * trotter.eigvecs)
-    @printf("Trotter is created.\n")
+    # trotter = create_trotter(hamiltonian, t0, num_trotter_steps_per_t0)
+    # trotter_error_T = compute_trotter_error(hamiltonian, trotter, 2^num_energy_bits * t0 / 2)
+    # gibbs_in_trotter = Hermitian(trotter.eigvecs' * gibbs_state(hamiltonian, beta) * trotter.eigvecs)
+    # @printf("Trotter is created.\n")
 
     #* Jumps
     jump_paulis = [[X], [Y], [Z]]
@@ -112,7 +110,7 @@ function main()
     end
 
     #* Thermalization
-    alg_results = @time run_thermalization(jumps, config, initial_dm, hamiltonian; trotter=trotter)
+    alg_results = @time run_thermalization(jumps, config, initial_dm, hamiltonian)#; trotter=trotter)
     @printf("\n Last distance to Gibbs: %s\n", alg_results.distances_to_gibbs[end])
     @printf("Number of steps taken: %s\n", length(alg_results.time_steps))
     # plot(alg_results.time_steps, alg_results.distances_to_gibbs, label="Distance to Gibbs", xlabel="Time", ylabel="Distance", title="Distance to Gibbs over time")

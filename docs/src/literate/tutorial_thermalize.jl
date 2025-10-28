@@ -6,25 +6,26 @@
 # 
 # In summary, `run_thermalization` takes in a basic set of configurations (number of qubits, temperature, etc.),
 # the Hamiltonian $H$ that describes the system, an initial state $\rho_0$ where the evolution starts from and the set of jumps
-# $\{A^a\}$ that prescribe that evolution. It will simulate the [open quantum system evolution](@ref oqs) or Lindbladian evolution 
-# with a [weak-measurement based algorithm](@ref weak). You can read more about them in the Theory section if you follow 
+# $\{A^a\}$ that prescribe that evolution. It will simulate the [open quantum system evolution](theory_oqs_dynamics.md) or Lindbladian evolution 
+# with a [weak-measurement based algorithm](theory_weak_measurement.md). You can read more about them in the Theory section if you follow 
 # the links. Here, it is enough to just think of it as the following process:
 # - Start from an initial density matrix $\rho_0$.
 # - Evolve it for a short $\delta$ amount of time, $\rho_\delta = (\mathds{1} + \delta \mathcal{L})\rho_0 + \mathcal{O}(\delta^2) \simeq e^{\delta \mathcal{L}}(\rho_0)$.
 # - Repeat until $\rho_t$ gets close enough to the target state $\sigma_\beta = e^{-\beta H} / Z$, i.e. the Gibbs state. 
 # Here the magic is still hidden in the generator $\mathcal{L}$, but the crucial property it has is that the dynamics it generates,
-# given by $\e^{t \mathcal{L}}$, has the Gibbs state as its unique fixed point. Thus if we evolve the system for a long enough time
+# given by $e^{t \mathcal{L}}$, has the Gibbs state as its unique fixed point. Thus if we evolve the system for a long enough time
 # all other contribution will decay and the only state that survives is the Gibbs state.
 #
-# Let's go through the main steps of the code:
+# Let us go through the main steps of the code:
 #
 # ## 1. Configure the algorithm parameters
 #
 using QuantumFurnace
+using LinearAlgebra
 
-num_qubits = 4
+num_qubits = 3
 dim = 2^num_qubits
-num_energy_bits = 11
+num_energy_bits = 10
 beta = 10.0
 w0 = 0.05                            # Energy estimating precision
 t0 = 2pi / (2^num_energy_bits * w0)  # Time estimating precision
@@ -55,21 +56,21 @@ config = ThermalizeConfig(
     delta = delta,
 )
 
-# \textbf{Domains}$\quad$ Algorithms are translated to the quantum computer in the form of quantum circuits, a set of unitary 
+# **Domains** $\quad$ Algorithms are translated to the quantum computer in the form of quantum circuits, a set of unitary 
 # quantum gates, that inherently work in the time domain, which is also what we mean by choosing `domain` to be `TimeDomain`. 
 # More realistically, time evolutions are decomposed into a Trotter product, which is also possible to see in our code via 
 # `TrotterDomain`. Though the original mathematical problem of finding a Lindbladian that evolves the system to the thermal 
 # state is formulated in the Bohr and Energy domains, that should pose no problem for us. We can always move from the time 
 # domain to the energy domain with the Fourier transform.
 #
-# \textbf{Coherent term}$\quad$ It has been proven (see [Theory](@ref db)) that by adding a specific coherent term
+# **Coherent term** $\quad$ It has been proven (see [Theory](theory_detailed_balance.md)) that by adding a specific coherent term
 # to the Lindbladian, we can have the Gibbs state as the unique fixed point of the generator. But even if we omit it
 # by setting `with_coherent = false`, we would find an approximately good (or bad) result.
 #
-# \textbf{Linear combinations}$\quad$ A simpler version of the theory is when we don't take a convex combination of 
+# **Linear combinations** $\quad$ A simpler version of the theory is when we don't take a convex combination of 
 # Lindbladians. We can think of this as singling out a thin Gaussian region for which we allow transitions for certain
 # energy differences induced by the jumps. We can also turn on the linear combination option, and thus have more borad 
-# transition while keeping the Gibbs state as the target state (see [Theory](@ref lincomb)).
+# transition while keeping the Gibbs state as the target state (see [Theory](theory_convex_combination.md)).
 #
 # ## 2. Define the system Hamiltonian
 # 
@@ -87,8 +88,8 @@ hamiltonian_coeffs = fill(1.0, length(hamiltonian_terms))
 disordering_term = [Z]
 disordering_coeffs = rand(num_qubits)
 # Generate a 4-qubit chain antiferromagnetic Heisenberg Hamiltonian with a disordering field
-hamiltonian = create_hamham(hamiltonian_terms, hamiltonian_coeffs, 
-    disordering_term, disordering_coeffs, num_qubits)
+hamiltonian = create_hamham(hamiltonian_terms, hamiltonian_coeffs, disordering_term, disordering_coeffs, num_qubits)
+hamiltonian.gibbs = Hermitian(gibbs_state_in_eigen(hamiltonian, beta))
 
 # Note that we added here a disordering field to the Hamiltonian in order to make its spectrum unique. A priori the algorithm
 # should also work with degenerate spectra, but a unique one definitely makes things easier to converge. Nevertheless
@@ -99,10 +100,10 @@ jump_set = [[X], [Y], [Z]]
 
 # 1-site Pauli jumps over each system site
 jumps::Vector{JumpOp} = []
-jump_normalization = sqrt(length(jump_paulis) * num_qubits)
-for jump_A in jump_set
+jump_normalization = sqrt(length(jump_set) * num_qubits)
+for jump_a in jump_set
     for site in 1:num_qubits
-        jump_op = Matrix(pad_term(jump_A, num_qubits, site)) / jump_normalization
+        jump_op = Matrix(pad_term(jump_a, num_qubits, site)) / jump_normalization
         jump_op_in_eigenbasis = hamiltonian.eigvecs' * jump_op * hamiltonian.eigvecs
         orthogonal = (jump_op == transpose(jump_op))
         jump = JumpOp(jump_op, jump_op_in_eigenbasis, orthogonal) 
@@ -127,6 +128,6 @@ initial_dm = Matrix{ComplexF64}(I(dim) / dim)
 # Evolve the system:
 results = run_thermalization(jumps, config, initial_dm, hamiltonian)
 
-@printf("\n Last distance to Gibbs: %s\n", results.distances_to_gibbs[end])
+println("\n Last distance to Gibbs: %s\n", results.distances_to_gibbs[end])
 
 

@@ -1,1 +1,1 @@
-# # Convex Combination of Lindbladians (@label lincomb)
+# # Convex Combination of Lindbladians

@@ -78,29 +78,44 @@ function create_hamham(terms::Vector{Vector{Matrix{ComplexF64}}}, coeffs::Vector
     return hamiltonian
 end
 
-function zeros_hamham(num_qubits::Int64)
-    """Creates a HamHam object with zero data"""
-    hamiltonian = HamHam(
-        zeros(0, 0),
-        nothing,
-        [[""]],
-        zeros(0),
-        nothing,
-        nothing,
-        zeros(0),
-        zeros(0, 0),
-        0.0,
-        0.0,
-        0.0,
-        true
+function init_HamHam(dim::Int; periodic::Bool=false)
+    data = zeros(ComplexF64, dim, dim)
+    bohr_freqs = nothing
+    bohr_dict = nothing
+    base_terms = Vector{Vector{Matrix{ComplexF64}}}()
+    base_coeffs = Float64[]
+    disordering_term = nothing
+    disordering_coeffs = nothing
+    eigvals = zeros(Float64, dim)
+    eigvecs = Matrix{ComplexF64}(I, dim, dim)
+    nu_min = 0.0
+    shift = 0.0
+    rescaling_factor = 1.0
+    gibbs = Hermitian(zeros(ComplexF64, dim, dim))
+    
+    return HamHam(
+        data,
+        bohr_freqs,
+        bohr_dict,
+        base_terms,
+        base_coeffs,
+        disordering_term,
+        disordering_coeffs,
+        eigvals,
+        eigvecs,
+        nu_min,
+        shift,
+        rescaling_factor,
+        periodic,
+        gibbs,
     )
-    return hamiltonian
 end
 
 function find_ideal_heisenberg(num_qubits::Int64,
     coeffs::Vector{Float64}; batch_size::Int64 = 1, periodic::Bool = true)
     """Periodic Heisenberg 1D chain"""
 
+    dim = 2^num_qubits
     X::Matrix{ComplexF64} = [0 1; 1 0]
     Y::Matrix{ComplexF64} = [0.0 -im; im 0.0]
     Z::Matrix{ComplexF64} = [1 0; 0 -1]
@@ -116,8 +131,7 @@ function find_ideal_heisenberg(num_qubits::Int64,
     # Find best config for smallest bohr frequency
     best_smallest_bohr_freq = -1.0
     # initialize undef HamHam object
-    hamiltonian = HamHam(zeros(0, 0), nothing, nothing, [[""]], zeros(0), [""], zeros(0), zeros(0), zeros(0, 0), 
-    0.0, 0.0, 0.0, periodic, Hermitian(zeros(0, 0)))
+    hamiltonian = init_HamHam(dim; periodic=periodic)
 
     p = Progress(length(seeds))
     @showprogress dt=1 desc="Finding ideal hamiltonian..." for seed in seeds
@@ -139,7 +153,7 @@ function find_ideal_heisenberg(num_qubits::Int64,
         if smallest_bohr_freq > best_smallest_bohr_freq
             best_smallest_bohr_freq = smallest_bohr_freq
             hamiltonian.data = rescaled_hamiltonian
-            hamiltonian.base_terms = terms_str
+            hamiltonian.base_terms = terms
             hamiltonian.base_coeffs = rescaled_base_coeffs
             hamiltonian.disordering_term = disordering_term
             hamiltonian.disordering_coeffs = rescaled_disordering_coeffs
@@ -151,7 +165,7 @@ function find_ideal_heisenberg(num_qubits::Int64,
 
             next!(p, showvalues = [(:nu_min, hamiltonian.nu_min)])
         end
-        symbroken_ham = nothing
+        disordered_ham = nothing
     end
     # println("\nBest Bohr frequency:")
     # println(hamiltonian.nu_min)

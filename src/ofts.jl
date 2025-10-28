@@ -5,7 +5,6 @@ using Printf
 using Plots
 using QuadGK
 using Pkg
-using JLD2
 
 function oft(jump::JumpOp, energy::Float64, hamiltonian::HamHam, beta::Float64)
     """sigma_E = 1 / beta. Subnormalized, multiply by sqrt(beta / sqrt(2 * pi))"""

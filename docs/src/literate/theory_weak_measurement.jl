@@ -1,1 +1,1 @@
-# # Weak measurement based Lindbladian evolution (@label weak)
+# # Weak measurement based Lindbladian evolution

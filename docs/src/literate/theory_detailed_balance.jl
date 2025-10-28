@@ -1,1 +1,3 @@
-# # Detailed balanced Lindbladian (@labeld db)
+# # Detailed balanced Lindbladian
+# 
+# 

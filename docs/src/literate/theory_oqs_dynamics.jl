@@ -1,1 +1,1 @@
-# # Open Quantum System Dynamics  (@label oqs)
+# # Open Quantum System Dynamics
