@@ -59,7 +59,8 @@ config = ThermalizeConfig(
     t0 = t0,
     mixing_time = mixing_time_bound,
     delta = delta,
-)
+) ;
+nothing #hide
 ````
 
 **Domains** $\quad$ Algorithms are translated to the quantum computer in the form of quantum circuits, a set of unitary
@@ -93,14 +94,16 @@ Z::Matrix{ComplexF64} = [1 0; 0 -1]
 hamiltonian_terms = [[X, X], [Y, Y], [Z, Z]]
 hamiltonian_coeffs = fill(1.0, length(hamiltonian_terms))
 disordering_term = [Z]
-disordering_coeffs = rand(num_qubits)
+disordering_coeffs = rand(num_qubits) ;
+nothing #hide
 ````
 
 Generate a 4-qubit chain antiferromagnetic Heisenberg Hamiltonian with a disordering field
 
 ````@example tutorial_thermalize
 hamiltonian = create_hamham(hamiltonian_terms, hamiltonian_coeffs, disordering_term, disordering_coeffs, num_qubits)
-hamiltonian.gibbs = Hermitian(gibbs_state_in_eigen(hamiltonian, beta))
+hamiltonian.gibbs = Hermitian(gibbs_state_in_eigen(hamiltonian, beta)) ;
+nothing #hide
 ````
 
 Note that we added here a disordering field to the Hamiltonian in order to make its spectrum unique. A priori the algorithm
@@ -110,10 +113,12 @@ exploring what effects a degenerate spectrum have on the algorithm would be quit
 ## 3. Define the jump operators for the evolution
 
 ````@example tutorial_thermalize
-jump_set = [[X], [Y], [Z]]
+jump_set = [[X], [Y], [Z]] ;
+nothing #hide
 ````
 
-1-site Pauli jumps over each system site
+1-site Pauli jumps are generated over each system site and save their form in the eigenbasis
+we work in for effficiency:
 
 ````@example tutorial_thermalize
 jumps::Vector{JumpOp} = []
@@ -126,7 +131,8 @@ for jump_a in jump_set
         jump = JumpOp(jump_op, jump_op_in_eigenbasis, orthogonal)
         push!(jumps, jump)
     end
-end
+end ;
+nothing #hide
 ````
 
 Even though it seems unassuming, that we use single-site Pauli jump operators, the actual jumps that are
@@ -142,7 +148,8 @@ always a $\delta$ step at a time. The result then will be deviating by $\mathcal
 target Gibbs state.
 
 ````@example tutorial_thermalize
-initial_dm = Matrix{ComplexF64}(I(dim) / dim)
+initial_dm = Matrix{ComplexF64}(I(dim) / dim) ;
+nothing #hide
 ````
 
 Evolve the system:

@@ -54,7 +54,7 @@ config = ThermalizeConfig(
     t0 = t0,
     mixing_time = mixing_time_bound,
     delta = delta,
-)
+) ;
 
 # **Domains** $\quad$ Algorithms are translated to the quantum computer in the form of quantum circuits, a set of unitary 
 # quantum gates, that inherently work in the time domain, which is also what we mean by choosing `domain` to be `TimeDomain`. 
@@ -86,19 +86,22 @@ Z::Matrix{ComplexF64} = [1 0; 0 -1]
 hamiltonian_terms = [[X, X], [Y, Y], [Z, Z]]
 hamiltonian_coeffs = fill(1.0, length(hamiltonian_terms))
 disordering_term = [Z]
-disordering_coeffs = rand(num_qubits)
+disordering_coeffs = rand(num_qubits) ;
+
 # Generate a 4-qubit chain antiferromagnetic Heisenberg Hamiltonian with a disordering field
+
 hamiltonian = create_hamham(hamiltonian_terms, hamiltonian_coeffs, disordering_term, disordering_coeffs, num_qubits)
-hamiltonian.gibbs = Hermitian(gibbs_state_in_eigen(hamiltonian, beta))
+hamiltonian.gibbs = Hermitian(gibbs_state_in_eigen(hamiltonian, beta)) ;
 
 # Note that we added here a disordering field to the Hamiltonian in order to make its spectrum unique. A priori the algorithm
 # should also work with degenerate spectra, but a unique one definitely makes things easier to converge. Nevertheless
 # exploring what effects a degenerate spectrum have on the algorithm would be quite interesting too.
 
 # ## 3. Define the jump operators for the evolution
-jump_set = [[X], [Y], [Z]]
+jump_set = [[X], [Y], [Z]] ;
 
-# 1-site Pauli jumps over each system site
+# 1-site Pauli jumps are generated over each system site and save their form in the eigenbasis
+# we work in for effficiency:
 jumps::Vector{JumpOp} = []
 jump_normalization = sqrt(length(jump_set) * num_qubits)
 for jump_a in jump_set
@@ -109,7 +112,7 @@ for jump_a in jump_set
         jump = JumpOp(jump_op, jump_op_in_eigenbasis, orthogonal) 
         push!(jumps, jump)
     end
-end
+end ;
 
 # Even though it seems unassuming, that we use single-site Pauli jump operators, the actual jumps that are
 # applied to the system are spread out time evolved operators of the form $A(t) = f(t) exp(iHt) A exp(-iHt)$,
@@ -123,7 +126,7 @@ end
 # always a $\delta$ step at a time. The result then will be deviating by $\mathcal{O}(\delta^2)$ errors from the 
 # target Gibbs state.
 
-initial_dm = Matrix{ComplexF64}(I(dim) / dim)
+initial_dm = Matrix{ComplexF64}(I(dim) / dim) ;
 
 # Evolve the system:
 results = run_thermalization(jumps, config, initial_dm, hamiltonian)
