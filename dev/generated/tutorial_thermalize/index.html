@@ -33,29 +33,15 @@ config = ThermalizeConfig(
     t0 = t0,
     mixing_time = mixing_time_bound,
     delta = delta,
-)</code></pre><pre class="documenter-example-output"><code class="nohighlight hljs ansi">ThermalizeConfig(3, true, false, TimeDomain(), 10.0, 0.0, 0.0, 10, 0.1227184630308513, 0.05, -1.0, -1, 10.0, 0.1, false)</code></pre><p><strong>Domains</strong> <span>$\quad$</span> Algorithms are translated to the quantum computer in the form of quantum circuits, a set of unitary quantum gates, that inherently work in the time domain, which is also what we mean by choosing <code>domain</code> to be <code>TimeDomain</code>. More realistically, time evolutions are decomposed into a Trotter product, which is also possible to see in our code via <code>TrotterDomain</code>. Though the original mathematical problem of finding a Lindbladian that evolves the system to the thermal state is formulated in the Bohr and Energy domains, that should pose no problem for us. We can always move from the time domain to the energy domain with the Fourier transform.</p><p><strong>Coherent term</strong> <span>$\quad$</span> It has been proven (see <a href="../theory_detailed_balance/">Theory</a>) that by adding a specific coherent term to the Lindbladian, we can have the Gibbs state as the unique fixed point of the generator. But even if we omit it by setting <code>with_coherent = false</code>, we would find an approximately good (or bad) result.</p><p><strong>Linear combinations</strong> <span>$\quad$</span> A simpler version of the theory is when we don&#39;t take a convex combination of Lindbladians. We can think of this as singling out a thin Gaussian region for which we allow transitions for certain energy differences induced by the jumps. We can also turn on the linear combination option, and thus have more borad transition while keeping the Gibbs state as the target state (see <a href="../theory_convex_combination/">Theory</a>).</p><h2 id="2.-Define-the-system-Hamiltonian"><a class="docs-heading-anchor" href="#2.-Define-the-system-Hamiltonian">2. Define the system Hamiltonian</a><a id="2.-Define-the-system-Hamiltonian-1"></a><a class="docs-heading-anchor-permalink" href="#2.-Define-the-system-Hamiltonian" title="Permalink"></a></h2><p>Next, we will define and construct the Hamiltonian of the subsystem we want to thermalize. We will use the function called <code>create_hamham</code>. If we know how the terms in our Hamiltonian decompose into tensor products of single qubit terms, then this function will generate a Hamiltonian whose spectrum is within [0.0, 0.45] and creates a HamHam object with some other necessary fields in it like its eigenvectors, or its Gibbs state.</p><pre><code class="language-julia hljs">X::Matrix{ComplexF64} = [0 1; 1 0]
+) ;</code></pre><p><strong>Domains</strong> <span>$\quad$</span> Algorithms are translated to the quantum computer in the form of quantum circuits, a set of unitary quantum gates, that inherently work in the time domain, which is also what we mean by choosing <code>domain</code> to be <code>TimeDomain</code>. More realistically, time evolutions are decomposed into a Trotter product, which is also possible to see in our code via <code>TrotterDomain</code>. Though the original mathematical problem of finding a Lindbladian that evolves the system to the thermal state is formulated in the Bohr and Energy domains, that should pose no problem for us. We can always move from the time domain to the energy domain with the Fourier transform.</p><p><strong>Coherent term</strong> <span>$\quad$</span> It has been proven (see <a href="../theory_detailed_balance/">Theory</a>) that by adding a specific coherent term to the Lindbladian, we can have the Gibbs state as the unique fixed point of the generator. But even if we omit it by setting <code>with_coherent = false</code>, we would find an approximately good (or bad) result.</p><p><strong>Linear combinations</strong> <span>$\quad$</span> A simpler version of the theory is when we don&#39;t take a convex combination of Lindbladians. We can think of this as singling out a thin Gaussian region for which we allow transitions for certain energy differences induced by the jumps. We can also turn on the linear combination option, and thus have more borad transition while keeping the Gibbs state as the target state (see <a href="../theory_convex_combination/">Theory</a>).</p><h2 id="2.-Define-the-system-Hamiltonian"><a class="docs-heading-anchor" href="#2.-Define-the-system-Hamiltonian">2. Define the system Hamiltonian</a><a id="2.-Define-the-system-Hamiltonian-1"></a><a class="docs-heading-anchor-permalink" href="#2.-Define-the-system-Hamiltonian" title="Permalink"></a></h2><p>Next, we will define and construct the Hamiltonian of the subsystem we want to thermalize. We will use the function called <code>create_hamham</code>. If we know how the terms in our Hamiltonian decompose into tensor products of single qubit terms, then this function will generate a Hamiltonian whose spectrum is within [0.0, 0.45] and creates a HamHam object with some other necessary fields in it like its eigenvectors, or its Gibbs state.</p><pre><code class="language-julia hljs">X::Matrix{ComplexF64} = [0 1; 1 0]
 Y::Matrix{ComplexF64} = [0.0 -im; im 0.0]
 Z::Matrix{ComplexF64} = [1 0; 0 -1]
 
 hamiltonian_terms = [[X, X], [Y, Y], [Z, Z]]
 hamiltonian_coeffs = fill(1.0, length(hamiltonian_terms))
 disordering_term = [Z]
-disordering_coeffs = rand(num_qubits)</code></pre><pre class="documenter-example-output"><code class="nohighlight hljs ansi">3-element Vector{Float64}:
- 0.9915455625992909
- 0.8488598721959402
- 0.14068639378174608</code></pre><p>Generate a 4-qubit chain antiferromagnetic Heisenberg Hamiltonian with a disordering field</p><pre><code class="language-julia hljs">hamiltonian = create_hamham(hamiltonian_terms, hamiltonian_coeffs, disordering_term, disordering_coeffs, num_qubits)
-hamiltonian.gibbs = Hermitian(gibbs_state_in_eigen(hamiltonian, beta))</code></pre><pre class="documenter-example-output"><code class="nohighlight hljs ansi">8×8 LinearAlgebra.Hermitian{ComplexF64, Matrix{ComplexF64}}:
- 0.392392+0.0im       0.0+0.0im  …         0.0+0.0im         0.0+0.0im
-      0.0-0.0im  0.226762+0.0im            0.0+0.0im         0.0+0.0im
-      0.0-0.0im       0.0-0.0im            0.0+0.0im         0.0+0.0im
-      0.0-0.0im       0.0-0.0im            0.0+0.0im         0.0+0.0im
-      0.0-0.0im       0.0-0.0im            0.0+0.0im         0.0+0.0im
-      0.0-0.0im       0.0-0.0im  …         0.0+0.0im         0.0+0.0im
-      0.0-0.0im       0.0-0.0im     0.00790138+0.0im         0.0+0.0im
-      0.0-0.0im       0.0-0.0im            0.0-0.0im  0.00435908+0.0im</code></pre><p>Note that we added here a disordering field to the Hamiltonian in order to make its spectrum unique. A priori the algorithm should also work with degenerate spectra, but a unique one definitely makes things easier to converge. Nevertheless exploring what effects a degenerate spectrum have on the algorithm would be quite interesting too.</p><h2 id="3.-Define-the-jump-operators-for-the-evolution"><a class="docs-heading-anchor" href="#3.-Define-the-jump-operators-for-the-evolution">3. Define the jump operators for the evolution</a><a id="3.-Define-the-jump-operators-for-the-evolution-1"></a><a class="docs-heading-anchor-permalink" href="#3.-Define-the-jump-operators-for-the-evolution" title="Permalink"></a></h2><pre><code class="language-julia hljs">jump_set = [[X], [Y], [Z]]</code></pre><pre class="documenter-example-output"><code class="nohighlight hljs ansi">3-element Vector{Vector{Matrix{ComplexF64}}}:
- [[0.0 + 0.0im 1.0 + 0.0im; 1.0 + 0.0im 0.0 + 0.0im]]
- [[0.0 + 0.0im 0.0 - 1.0im; 0.0 + 1.0im 0.0 + 0.0im]]
- [[1.0 + 0.0im 0.0 + 0.0im; 0.0 + 0.0im -1.0 + 0.0im]]</code></pre><p>1-site Pauli jumps over each system site</p><pre><code class="language-julia hljs">jumps::Vector{JumpOp} = []
+disordering_coeffs = rand(num_qubits) ;</code></pre><p>Generate a 4-qubit chain antiferromagnetic Heisenberg Hamiltonian with a disordering field</p><pre><code class="language-julia hljs">hamiltonian = create_hamham(hamiltonian_terms, hamiltonian_coeffs, disordering_term, disordering_coeffs, num_qubits)
+hamiltonian.gibbs = Hermitian(gibbs_state_in_eigen(hamiltonian, beta)) ;</code></pre><p>Note that we added here a disordering field to the Hamiltonian in order to make its spectrum unique. A priori the algorithm should also work with degenerate spectra, but a unique one definitely makes things easier to converge. Nevertheless exploring what effects a degenerate spectrum have on the algorithm would be quite interesting too.</p><h2 id="3.-Define-the-jump-operators-for-the-evolution"><a class="docs-heading-anchor" href="#3.-Define-the-jump-operators-for-the-evolution">3. Define the jump operators for the evolution</a><a id="3.-Define-the-jump-operators-for-the-evolution-1"></a><a class="docs-heading-anchor-permalink" href="#3.-Define-the-jump-operators-for-the-evolution" title="Permalink"></a></h2><pre><code class="language-julia hljs">jump_set = [[X], [Y], [Z]] ;</code></pre><p>1-site Pauli jumps are generated over each system site and save their form in the eigenbasis we work in for effficiency:</p><pre><code class="language-julia hljs">jumps::Vector{JumpOp} = []
 jump_normalization = sqrt(length(jump_set) * num_qubits)
 for jump_a in jump_set
     for site in 1:num_qubits
@@ -65,15 +51,7 @@ for jump_a in jump_set
         jump = JumpOp(jump_op, jump_op_in_eigenbasis, orthogonal)
         push!(jumps, jump)
     end
-end</code></pre><p>Even though it seems unassuming, that we use single-site Pauli jump operators, the actual jumps that are applied to the system are spread out time evolved operators of the form <span>$A(t) = f(t) exp(iHt) A exp(-iHt)$</span>, with some Gaussian filter function f(t). Since the time evolutions can be quite large, while the simulable systems quite small, the actual jumps are effectively full system sized in most cases. The jump normalization is required for the block encoding in the algorithm, as the operators should have a norm less than or equal to 1.</p><h2 id="4.-Find-the-thermal-state"><a class="docs-heading-anchor" href="#4.-Find-the-thermal-state">4. Find the thermal state</a><a id="4.-Find-the-thermal-state-1"></a><a class="docs-heading-anchor-permalink" href="#4.-Find-the-thermal-state" title="Permalink"></a></h2><p>Finally we can run the core function, that we will evolve the initial state by approximated Lindbladian evolution, always a <span>$\delta$</span> step at a time. The result then will be deviating by <span>$\mathcal{O}(\delta^2)$</span> errors from the target Gibbs state.</p><pre><code class="language-julia hljs">initial_dm = Matrix{ComplexF64}(I(dim) / dim)</code></pre><pre class="documenter-example-output"><code class="nohighlight hljs ansi">8×8 Matrix{ComplexF64}:
- 0.125+0.0im    0.0+0.0im    0.0+0.0im  …    0.0+0.0im    0.0+0.0im
-   0.0+0.0im  0.125+0.0im    0.0+0.0im       0.0+0.0im    0.0+0.0im
-   0.0+0.0im    0.0+0.0im  0.125+0.0im       0.0+0.0im    0.0+0.0im
-   0.0+0.0im    0.0+0.0im    0.0+0.0im       0.0+0.0im    0.0+0.0im
-   0.0+0.0im    0.0+0.0im    0.0+0.0im       0.0+0.0im    0.0+0.0im
-   0.0+0.0im    0.0+0.0im    0.0+0.0im  …    0.0+0.0im    0.0+0.0im
-   0.0+0.0im    0.0+0.0im    0.0+0.0im     0.125+0.0im    0.0+0.0im
-   0.0+0.0im    0.0+0.0im    0.0+0.0im       0.0+0.0im  0.125+0.0im</code></pre><p>Evolve the system:</p><pre><code class="language-julia hljs">results = run_thermalization(jumps, config, initial_dm, hamiltonian)
+end ;</code></pre><p>Even though it seems unassuming, that we use single-site Pauli jump operators, the actual jumps that are applied to the system are spread out time evolved operators of the form <span>$A(t) = f(t) exp(iHt) A exp(-iHt)$</span>, with some Gaussian filter function f(t). Since the time evolutions can be quite large, while the simulable systems quite small, the actual jumps are effectively full system sized in most cases. The jump normalization is required for the block encoding in the algorithm, as the operators should have a norm less than or equal to 1.</p><h2 id="4.-Find-the-thermal-state"><a class="docs-heading-anchor" href="#4.-Find-the-thermal-state">4. Find the thermal state</a><a id="4.-Find-the-thermal-state-1"></a><a class="docs-heading-anchor-permalink" href="#4.-Find-the-thermal-state" title="Permalink"></a></h2><p>Finally we can run the core function, that we will evolve the initial state by approximated Lindbladian evolution, always a <span>$\delta$</span> step at a time. The result then will be deviating by <span>$\mathcal{O}(\delta^2)$</span> errors from the target Gibbs state.</p><pre><code class="language-julia hljs">initial_dm = Matrix{ComplexF64}(I(dim) / dim) ;</code></pre><p>Evolve the system:</p><pre><code class="language-julia hljs">results = run_thermalization(jumps, config, initial_dm, hamiltonian)
 
 println(&quot;\n Last distance to Gibbs: %s\n&quot;, results.distances_to_gibbs[end])</code></pre><pre class="documenter-example-output"><code class="nohighlight hljs ansi">--- The Press ---
 domain: TimeDomain()
@@ -93,106 +71,106 @@ unravel: false
 Thermalizing (Time)
 Gaussian
 Gaussian
-Dist to Gibbs: 0.43673405891820405
-Dist to Gibbs: 0.430737554419358
-Dist to Gibbs: 0.4249131842981311
-Dist to Gibbs: 0.4191704293324186
-Dist to Gibbs: 0.4135080449923725
-Dist to Gibbs: 0.40792480928299496
-Dist to Gibbs: 0.40241952221728966
-Dist to Gibbs: 0.39699100530523385
-Dist to Gibbs: 0.3916381010579991
-Dist to Gibbs: 0.3863596725068775
-Dist to Gibbs: 0.38115460273639146
-Dist to Gibbs: 0.3760217944310847
-Dist to Gibbs: 0.3709601694355186
-Dist to Gibbs: 0.3659686683270077
-Dist to Gibbs: 0.36104625000065443
-Dist to Gibbs: 0.3561918912662595
-Dist to Gibbs: 0.3514045864566969
-Dist to Gibbs: 0.34668334704736115
-Dist to Gibbs: 0.3420272012863128
-Dist to Gibbs: 0.33743519383475684
-Dist to Gibbs: 0.33290638541750606
-Dist to Gibbs: 0.32843985248309304
-Dist to Gibbs: 0.3240346868732118
-Dist to Gibbs: 0.3196899955011724
-Dist to Gibbs: 0.3154049000390759
-Dist to Gibbs: 0.31117853661341843
-Dist to Gibbs: 0.3070100555088478
-Dist to Gibbs: 0.3028986208798067
-Dist to Gibbs: 0.29884341046980567
-Dist to Gibbs: 0.29484361533807774
-Dist to Gibbs: 0.2908984395933771
-Dist to Gibbs: 0.2870071001346903
-Dist to Gibbs: 0.2831688263986428
-Dist to Gibbs: 0.2793828601133823
-Dist to Gibbs: 0.2756484550587363
-Dist to Gibbs: 0.2719648768324468
-Dist to Gibbs: 0.26833140262228666
-Dist to Gibbs: 0.2647473209838789
-Dist to Gibbs: 0.26121193162403555
-Dist to Gibbs: 0.2577245451894493
-Dist to Gibbs: 0.25428448306057105
-Dist to Gibbs: 0.25089107715051107
-Dist to Gibbs: 0.2475436697088152
-Dist to Gibbs: 0.2442416131299634
-Dist to Gibbs: 0.2409842697664483
-Dist to Gibbs: 0.2377710117462976
-Dist to Gibbs: 0.23460122079490286
-Dist to Gibbs: 0.23147428806102988
-Dist to Gibbs: 0.22838961394688356
-Dist to Gibbs: 0.2253466079421088
-Dist to Gibbs: 0.2223446884616106
-Dist to Gibbs: 0.21938328268708066
-Dist to Gibbs: 0.21646182641212394
-Dist to Gibbs: 0.21357976389088137
-Dist to Gibbs: 0.21073654769004307
-Dist to Gibbs: 0.20793163854416136
-Dist to Gibbs: 0.2051645052141645
-Dist to Gibbs: 0.20243462434898063
-Dist to Gibbs: 0.19974148035018724
-Dist to Gibbs: 0.19708456523959708
-Dist to Gibbs: 0.19446337852970064
-Dist to Gibbs: 0.19187742709688538
-Dist to Gibbs: 0.1893262250573548
-Dist to Gibbs: 0.1868092936456732
-Dist to Gibbs: 0.18432616109586356
-Dist to Gibbs: 0.1818763625249909
-Dist to Gibbs: 0.179459439819162
-Dist to Gibbs: 0.17707494152187703
-Dist to Gibbs: 0.17472242272467237
-Dist to Gibbs: 0.17240144495998944
-Dist to Gibbs: 0.1701115760962147
-Dist to Gibbs: 0.1678523902348328
-Dist to Gibbs: 0.16562346760963642
-Dist to Gibbs: 0.1634243944879401
-Dist to Gibbs: 0.16125476307374795
-Dist to Gibbs: 0.15911417141282297
-Dist to Gibbs: 0.15700222329961033
-Dist to Gibbs: 0.1549185281859689
-Dist to Gibbs: 0.15286270109166294
-Dist to Gibbs: 0.1508343625165733
-Dist to Gibbs: 0.1488331383545822
-Dist to Gibbs: 0.14685865980909202
-Dist to Gibbs: 0.14491056331013902
-Dist to Gibbs: 0.14298849043305964
-Dist to Gibbs: 0.14109208781867605
-Dist to Gibbs: 0.139221007094961
-Dist to Gibbs: 0.13737490480014877
-Dist to Gibbs: 0.13555344230725658
-Dist to Gibbs: 0.13375628574998327
-Dist to Gibbs: 0.1319831059499548
-Dist to Gibbs: 0.13023357834528176
-Dist to Gibbs: 0.12850738292040226
-Dist to Gibbs: 0.1268042041371774
-Dist to Gibbs: 0.12512373086721323
-Dist to Gibbs: 0.1234656563253796
-Dist to Gibbs: 0.12182967800450004
-Dist to Gibbs: 0.12021549761118558
-Dist to Gibbs: 0.11862282100278765
-Dist to Gibbs: 0.11705135812544526
-Dist to Gibbs: 0.11550082295320158
+Dist to Gibbs: 0.46631621514316396
+Dist to Gibbs: 0.46300571583254896
+Dist to Gibbs: 0.4597175815102689
+Dist to Gibbs: 0.4564516731050246
+Dist to Gibbs: 0.45320785247479245
+Dist to Gibbs: 0.4499859823880285
+Dist to Gibbs: 0.44678592650578086
+Dist to Gibbs: 0.44360754936466495
+Dist to Gibbs: 0.44045071636066097
+Dist to Gibbs: 0.4373152937336926
+Dist to Gibbs: 0.43420114855295056
+Dist to Gibbs: 0.4311081487029244
+Dist to Gibbs: 0.42803616287010565
+Dist to Gibbs: 0.4249850605303349
+Dist to Gibbs: 0.42195471193675416
+Dist to Gibbs: 0.41894498810833797
+Dist to Gibbs: 0.4159557608189749
+Dist to Gibbs: 0.41298690258707105
+Dist to Gibbs: 0.4100382866656477
+Dist to Gibbs: 0.40710978703291
+Dist to Gibbs: 0.4042012783832629
+Dist to Gibbs: 0.40131263611874857
+Dist to Gibbs: 0.3984437363408871
+Dist to Gibbs: 0.39559445584289815
+Dist to Gibbs: 0.3927646721022815
+Dist to Gibbs: 0.3899542632737427
+Dist to Gibbs: 0.3871631081824402
+Dist to Gibbs: 0.3843910863175412
+Dist to Gibbs: 0.3816380778260668
+Dist to Gibbs: 0.37890396350701216
+Dist to Gibbs: 0.37618862480572773
+Dist to Gibbs: 0.3734919438085466
+Dist to Gibbs: 0.3708138032376422
+Dist to Gibbs: 0.36815408644610825
+Dist to Gibbs: 0.3655126774132459
+Dist to Gibbs: 0.36288946074004536
+Dist to Gibbs: 0.3602843216448548
+Dist to Gibbs: 0.35769714595922153
+Dist to Gibbs: 0.3551278201239003
+Dist to Gibbs: 0.3525762311850149
+Dist to Gibbs: 0.35004226679036665
+Dist to Gibbs: 0.3475258151858807
+Dist to Gibbs: 0.3450267652121819
+Dist to Gibbs: 0.3425450063012924
+Dist to Gibbs: 0.3400804284734438
+Dist to Gibbs: 0.3376329223339972
+Dist to Gibbs: 0.3352023790704647
+Dist to Gibbs: 0.3327886904496246
+Dist to Gibbs: 0.330391748814727
+Dist to Gibbs: 0.3280114470827816
+Dist to Gibbs: 0.32564767874192463
+Dist to Gibbs: 0.3233003378488559
+Dist to Gibbs: 0.3209693190263498
+Dist to Gibbs: 0.318654517460823
+Dist to Gibbs: 0.3163558288999667
+Dist to Gibbs: 0.31407314965043287
+Dist to Gibbs: 0.31180637657556964
+Dist to Gibbs: 0.30955540709320867
+Dist to Gibbs: 0.3073201391734933
+Dist to Gibbs: 0.3051004713367505
+Dist to Gibbs: 0.30289630265139866
+Dist to Gibbs: 0.3007075327318931
+Dist to Gibbs: 0.2985340617367019
+Dist to Gibbs: 0.2963757903663132
+Dist to Gibbs: 0.29423261986126886
+Dist to Gibbs: 0.29210445200022395
+Dist to Gibbs: 0.28999118909802923
+Dist to Gibbs: 0.28789273400383497
+Dist to Gibbs: 0.2858089900992128
+Dist to Gibbs: 0.28373986129629586
+Dist to Gibbs: 0.2816852520359342
+Dist to Gibbs: 0.27964506728586364
+Dist to Gibbs: 0.27761921253888855
+Dist to Gibbs: 0.2756075938110744
+Dist to Gibbs: 0.2736101176399503
+Dist to Gibbs: 0.27162669108272147
+Dist to Gibbs: 0.2696572217144859
+Dist to Gibbs: 0.26770161762646194
+Dist to Gibbs: 0.26575978742421724
+Dist to Gibbs: 0.2638316402259042
+Dist to Gibbs: 0.2619170856604982
+Dist to Gibbs: 0.2600160338660389
+Dist to Gibbs: 0.2581283954878733
+Dist to Gibbs: 0.2562540816769006
+Dist to Gibbs: 0.2543930040878163
+Dist to Gibbs: 0.25254507487735867
+Dist to Gibbs: 0.25071020670255184
+Dist to Gibbs: 0.24888831271895145
+Dist to Gibbs: 0.24707930657888483
+Dist to Gibbs: 0.24528310242969253
+Dist to Gibbs: 0.24349961491196598
+Dist to Gibbs: 0.24172875915778305
+Dist to Gibbs: 0.23997045078894078
+Dist to Gibbs: 0.23822460591518402
+Dist to Gibbs: 0.23649114113243225
+Dist to Gibbs: 0.23476997352100126
+Dist to Gibbs: 0.23306102064382173
+Dist to Gibbs: 0.23136420054465315
+Dist to Gibbs: 0.22967943174629435
+Dist to Gibbs: 0.22800663324878917
 
  Last distance to Gibbs: %s
-0.11550082295320158</code></pre><hr/><p><em>This page was generated using <a href="https://github.com/fredrikekre/Literate.jl">Literate.jl</a>.</em></p></article><nav class="docs-footer"><a class="docs-footer-prevpage" href="../../">« Home</a><a class="docs-footer-nextpage" href="../tutorial_lindbladian/">Constructing the Detailed Balanced Lindbladian »</a><div class="flexbox-break"></div><p class="footer-message">Powered by <a href="https://github.com/JuliaDocs/Documenter.jl">Documenter.jl</a> and the <a href="https://julialang.org/">Julia Programming Language</a>.</p></nav></div><div class="modal" id="documenter-settings"><div class="modal-background"></div><div class="modal-card"><header class="modal-card-head"><p class="modal-card-title">Settings</p><button class="delete"></button></header><section class="modal-card-body"><p><label class="label">Theme</label><div class="select"><select id="documenter-themepicker"><option value="auto">Automatic (OS)</option><option value="documenter-light">documenter-light</option><option value="documenter-dark">documenter-dark</option><option value="catppuccin-latte">catppuccin-latte</option><option value="catppuccin-frappe">catppuccin-frappe</option><option value="catppuccin-macchiato">catppuccin-macchiato</option><option value="catppuccin-mocha">catppuccin-mocha</option></select></div></p><hr/><p>This document was generated with <a href="https://github.com/JuliaDocs/Documenter.jl">Documenter.jl</a> version 1.15.0 on <span class="colophon-date" title="Tuesday 28 October 2025 15:59">Tuesday 28 October 2025</span>. Using Julia version 1.12.1.</p></section><footer class="modal-card-foot"></footer></div></div></div></body></html>
+0.22800663324878917</code></pre><hr/><p><em>This page was generated using <a href="https://github.com/fredrikekre/Literate.jl">Literate.jl</a>.</em></p></article><nav class="docs-footer"><a class="docs-footer-prevpage" href="../../">« Home</a><a class="docs-footer-nextpage" href="../tutorial_lindbladian/">Constructing the Detailed Balanced Lindbladian »</a><div class="flexbox-break"></div><p class="footer-message">Powered by <a href="https://github.com/JuliaDocs/Documenter.jl">Documenter.jl</a> and the <a href="https://julialang.org/">Julia Programming Language</a>.</p></nav></div><div class="modal" id="documenter-settings"><div class="modal-background"></div><div class="modal-card"><header class="modal-card-head"><p class="modal-card-title">Settings</p><button class="delete"></button></header><section class="modal-card-body"><p><label class="label">Theme</label><div class="select"><select id="documenter-themepicker"><option value="auto">Automatic (OS)</option><option value="documenter-light">documenter-light</option><option value="documenter-dark">documenter-dark</option><option value="catppuccin-latte">catppuccin-latte</option><option value="catppuccin-frappe">catppuccin-frappe</option><option value="catppuccin-macchiato">catppuccin-macchiato</option><option value="catppuccin-mocha">catppuccin-mocha</option></select></div></p><hr/><p>This document was generated with <a href="https://github.com/JuliaDocs/Documenter.jl">Documenter.jl</a> version 1.15.0 on <span class="colophon-date" title="Tuesday 28 October 2025 16:16">Tuesday 28 October 2025</span>. Using Julia version 1.12.1.</p></section><footer class="modal-card-foot"></footer></div></div></div></body></html>
