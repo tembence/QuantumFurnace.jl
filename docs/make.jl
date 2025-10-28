@@ -34,13 +34,6 @@ makedocs(
     format = Documenter.HTML(
         prettyurls=get(ENV, "CI", "false") == "true",
         canonical="https://tembence.github.io/QuantumFurnace.jl/stable/",
-        mathengine = MathJax2(
-            Dict(
-                :TeX => Dict(
-                    :packages => ["base", "ams", "autoload", "dsfont"],
-                ),
-            )
-        ),
         assets=String[],
     ),
     modules = [QuantumFurnace],
