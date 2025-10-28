@@ -1,0 +1,3 @@
+# # Detailed balanced Lindbladian
+# 
+# 

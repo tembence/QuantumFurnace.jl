@@ -1,4 +1,4 @@
-# # Tutorial: Finding a Thermal State
+# # Open Quantum System Evolution
 #
 # In this tutorial, we will walk through the process of finding the steady-state
 # thermal density matrix $\rho_{ss}$ for a system coupled to a thermal bath.
@@ -19,7 +19,7 @@ num_qubits = 2
 # ## Step 2: Define the Environment
 # Next, we define the jump operators `L` and the temperature `T`.
 temperature = 0.5
-picture = TimePicture()
+domain = TimeDomain()
 
 # ## Step 3: Solve for the Thermal State
 # Now, we can call our main solver function.
