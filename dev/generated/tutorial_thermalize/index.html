@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en"><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width, initial-scale=1.0"/><title>Finding a Thermal State · QuantumFurnace.jl</title><meta name="title" content="Finding a Thermal State · QuantumFurnace.jl"/><meta property="og:title" content="Finding a Thermal State · QuantumFurnace.jl"/><meta property="twitter:title" content="Finding a Thermal State · QuantumFurnace.jl"/><meta name="description" content="Documentation for QuantumFurnace.jl."/><meta property="og:description" content="Documentation for QuantumFurnace.jl."/><meta property="twitter:description" content="Documentation for QuantumFurnace.jl."/><meta property="og:url" content="https://tembence.github.io/QuantumFurnace.jl/stable/generated/tutorial_thermalize/"/><meta property="twitter:url" content="https://tembence.github.io/QuantumFurnace.jl/stable/generated/tutorial_thermalize/"/><link rel="canonical" href="https://tembence.github.io/QuantumFurnace.jl/stable/generated/tutorial_thermalize/"/><script data-outdated-warner src="../../assets/warner.js"></script><link href="https://cdnjs.cloudflare.com/ajax/libs/lato-font/3.0.0/css/lato-font.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/juliamono/0.050/juliamono.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/fontawesome.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/solid.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/brands.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.16.8/katex.min.css" rel="stylesheet" type="text/css"/><script>documenterBaseURL="../.."</script><script src="https://cdnjs.cloudflare.com/ajax/libs/require.js/2.3.6/require.min.js" data-main="../../assets/documenter.js"></script><script src="../../search_index.js"></script><script src="../../siteinfo.js"></script><script src="../../../versions.js"></script><link class="docs-theme-link" rel="stylesheet" type="text/css" href="../../assets/themes/catppuccin-mocha.css" data-theme-name="catppuccin-mocha"/><link class="docs-theme-link" rel="stylesheet" type="text/css" href="../../assets/themes/catppuccin-macchiato.css" data-theme-name="catppuccin-macchiato"/><link class="docs-theme-link" rel="stylesheet" type="text/css" href="../../assets/themes/catppuccin-frappe.css" data-theme-name="catppuccin-frappe"/><link class="docs-theme-link" rel="stylesheet" type="text/css" href="../../assets/themes/catppuccin-latte.css" data-theme-name="catppuccin-latte"/><link class="docs-theme-link" rel="stylesheet" type="text/css" href="../../assets/themes/documenter-dark.css" data-theme-name="documenter-dark" data-theme-primary-dark/><link class="docs-theme-link" rel="stylesheet" type="text/css" href="../../assets/themes/documenter-light.css" data-theme-name="documenter-light" data-theme-primary/><script src="../../assets/themeswap.js"></script></head><body><div id="documenter"><nav class="docs-sidebar"><div class="docs-package-name"><span class="docs-autofit"><a href="../../">QuantumFurnace.jl</a></span></div><button class="docs-search-query input is-rounded is-small is-clickable my-2 mx-auto py-1 px-2" id="documenter-search-query">Search docs (Ctrl + /)</button><ul class="docs-menu"><li><a class="tocitem" href="../../">Home</a></li><li><span class="tocitem">Tutorials</span><ul><li class="is-active"><a class="tocitem" href>Finding a Thermal State</a><ul class="internal"><li><a class="tocitem" href="#1.-Configure-the-algorithm-parameters"><span>1. Configure the algorithm parameters</span></a></li><li><a class="tocitem" href="#2.-Define-the-system-Hamiltonian"><span>2. Define the system Hamiltonian</span></a></li><li><a class="tocitem" href="#3.-Define-the-jump-operators-for-the-evolution"><span>3. Define the jump operators for the evolution</span></a></li><li><a class="tocitem" href="#4.-Find-the-thermal-state"><span>4. Find the thermal state</span></a></li></ul></li><li><a class="tocitem" href="../tutorial_lindbladian/">Constructing the Detailed Balanced Lindbladian</a></li><li><a class="tocitem" href="../tutorial_hamiltonian/">Create a Hamiltonian</a></li></ul></li><li><span class="tocitem">Theory</span><ul><li><a class="tocitem" href="../theory_oqs_dynamics/">Open Quantum System Dynamics</a></li><li><a class="tocitem" href="../theory_detailed_balance/">Detailed Balanced Lindbladian</a></li><li><a class="tocitem" href="../theory_weak_measurement/">Weak-measurement based Lindbladian Evolution</a></li><li><a class="tocitem" href="../theory_convex_combination/">Convex Combination of Lindbladians</a></li></ul></li><li><a class="tocitem" href="../../api/">API Reference</a></li></ul><div class="docs-version-selector field has-addons"><div class="control"><span class="docs-label button is-static is-size-7">Version</span></div><div class="docs-selector control is-expanded"><div class="select is-fullwidth is-size-7"><select id="documenter-version-selector"></select></div></div></div></nav><div class="docs-main"><header class="docs-navbar"><a class="docs-sidebar-button docs-navbar-link fa-solid fa-bars is-hidden-desktop" id="documenter-sidebar-button" href="#"></a><nav class="breadcrumb"><ul class="is-hidden-mobile"><li><a class="is-disabled">Tutorials</a></li><li class="is-active"><a href>Finding a Thermal State</a></li></ul><ul class="is-hidden-tablet"><li class="is-active"><a href>Finding a Thermal State</a></li></ul></nav><div class="docs-right"><a class="docs-navbar-link" href="https://github.com/tembence/QuantumFurnace.jl" title="View the repository on GitHub"><span class="docs-icon fa-brands"></span><span class="docs-label is-hidden-touch">GitHub</span></a><a class="docs-navbar-link" href="https://github.com/tembence/QuantumFurnace.jl/blob/main/docs/src/literate/tutorial_thermalize.jl" title="Edit source on GitHub"><span class="docs-icon fa-solid"></span></a><a class="docs-settings-button docs-navbar-link fa-solid fa-gear" id="documenter-settings-button" href="#" title="Settings"></a><a class="docs-article-toggle-button fa-solid fa-chevron-up" id="documenter-article-toggle-button" href="javascript:;" title="Collapse all docstrings"></a></div></header><article class="content" id="documenter-page"><h1 id="Finding-a-Thermal-State"><a class="docs-heading-anchor" href="#Finding-a-Thermal-State">Finding a Thermal State</a><a id="Finding-a-Thermal-State-1"></a><a class="docs-heading-anchor-permalink" href="#Finding-a-Thermal-State" title="Permalink"></a></h1><p>In this tutorial we will give more details on one of the core functions of the software package: on how to drive a given quantum system to the thermal state via a simulated open quantum system evolution. We will see how to set up everything for the function <code>run_thermalization</code> and also what it actually does behind the curtains.</p><p>In summary, <code>run_thermalization</code> takes in a basic set of configurations (number of qubits, temperature, etc.), the Hamiltonian <span>$H$</span> that describes the system, an initial state <span>$\rho_0$</span> where the evolution starts from and the set of jumps <span>$\{A^a\}$</span> that prescribe that evolution. It will simulate the <a href="../theory_oqs_dynamics/">open quantum system evolution</a> or Lindbladian evolution with a <a href="../theory_weak_measurement/">weak-measurement based algorithm</a>. You can read more about them in the Theory section if you follow the links. Here, it is enough to just think of it as the following process:</p><ul><li>Start from an initial density matrix <span>$\rho_0$</span>.</li><li>Evolve it for a short <span>$\delta$</span> amount of time, <span>$\rho_\delta = (\mathds{1} + \delta \mathcal{L})\rho_0 + \mathcal{O}(\delta^2) \simeq e^{\delta \mathcal{L}}(\rho_0)$</span>.</li><li>Repeat until <span>$\rho_t$</span> gets close enough to the target state <span>$\sigma_\beta = e^{-\beta H} / Z$</span>, i.e. the Gibbs state.</li></ul><p>Here the magic is still hidden in the generator <span>$\mathcal{L}$</span>, but the crucial property it has is that the dynamics it generates, given by <span>$e^{t \mathcal{L}}$</span>, has the Gibbs state as its unique fixed point. Thus if we evolve the system for a long enough time all other contribution will decay and the only state that survives is the Gibbs state.</p><p>Let us go through the main steps of the code:</p><h2 id="1.-Configure-the-algorithm-parameters"><a class="docs-heading-anchor" href="#1.-Configure-the-algorithm-parameters">1. Configure the algorithm parameters</a><a id="1.-Configure-the-algorithm-parameters-1"></a><a class="docs-heading-anchor-permalink" href="#1.-Configure-the-algorithm-parameters" title="Permalink"></a></h2><pre><code class="language-julia hljs">using QuantumFurnace
+<html lang="en"><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width, initial-scale=1.0"/><title>Finding a Thermal State · QuantumFurnace.jl</title><meta name="title" content="Finding a Thermal State · QuantumFurnace.jl"/><meta property="og:title" content="Finding a Thermal State · QuantumFurnace.jl"/><meta property="twitter:title" content="Finding a Thermal State · QuantumFurnace.jl"/><meta name="description" content="Documentation for QuantumFurnace.jl."/><meta property="og:description" content="Documentation for QuantumFurnace.jl."/><meta property="twitter:description" content="Documentation for QuantumFurnace.jl."/><meta property="og:url" content="https://tembence.github.io/QuantumFurnace.jl/stable/generated/tutorial_thermalize/"/><meta property="twitter:url" content="https://tembence.github.io/QuantumFurnace.jl/stable/generated/tutorial_thermalize/"/><link rel="canonical" href="https://tembence.github.io/QuantumFurnace.jl/stable/generated/tutorial_thermalize/"/><script data-outdated-warner src="../../assets/warner.js"></script><link href="https://cdnjs.cloudflare.com/ajax/libs/lato-font/3.0.0/css/lato-font.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/juliamono/0.050/juliamono.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/fontawesome.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/solid.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/brands.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.16.8/katex.min.css" rel="stylesheet" type="text/css"/><script>documenterBaseURL="../.."</script><script src="https://cdnjs.cloudflare.com/ajax/libs/require.js/2.3.6/require.min.js" data-main="../../assets/documenter.js"></script><script src="../../search_index.js"></script><script src="../../siteinfo.js"></script><script src="../../../versions.js"></script><link class="docs-theme-link" rel="stylesheet" type="text/css" href="../../assets/themes/catppuccin-mocha.css" data-theme-name="catppuccin-mocha"/><link class="docs-theme-link" rel="stylesheet" type="text/css" href="../../assets/themes/catppuccin-macchiato.css" data-theme-name="catppuccin-macchiato"/><link class="docs-theme-link" rel="stylesheet" type="text/css" href="../../assets/themes/catppuccin-frappe.css" data-theme-name="catppuccin-frappe"/><link class="docs-theme-link" rel="stylesheet" type="text/css" href="../../assets/themes/catppuccin-latte.css" data-theme-name="catppuccin-latte"/><link class="docs-theme-link" rel="stylesheet" type="text/css" href="../../assets/themes/documenter-dark.css" data-theme-name="documenter-dark" data-theme-primary-dark/><link class="docs-theme-link" rel="stylesheet" type="text/css" href="../../assets/themes/documenter-light.css" data-theme-name="documenter-light" data-theme-primary/><script src="../../assets/themeswap.js"></script></head><body><div id="documenter"><nav class="docs-sidebar"><div class="docs-package-name"><span class="docs-autofit"><a href="../../">QuantumFurnace.jl</a></span></div><button class="docs-search-query input is-rounded is-small is-clickable my-2 mx-auto py-1 px-2" id="documenter-search-query">Search docs (Ctrl + /)</button><ul class="docs-menu"><li><a class="tocitem" href="../../">Home</a></li><li><span class="tocitem">Tutorials</span><ul><li class="is-active"><a class="tocitem" href>Finding a Thermal State</a><ul class="internal"><li><a class="tocitem" href="#1.-Configure-the-algorithm-parameters"><span>1. Configure the algorithm parameters</span></a></li><li><a class="tocitem" href="#2.-Define-the-system-Hamiltonian"><span>2. Define the system Hamiltonian</span></a></li><li><a class="tocitem" href="#3.-Define-the-jump-operators-for-the-evolution"><span>3. Define the jump operators for the evolution</span></a></li><li><a class="tocitem" href="#4.-Find-the-thermal-state"><span>4. Find the thermal state</span></a></li></ul></li><li><a class="tocitem" href="../tutorial_lindbladian/">Constructing the Detailed Balanced Lindbladian</a></li><li><a class="tocitem" href="../tutorial_hamiltonian/">Create a Hamiltonian</a></li></ul></li><li><span class="tocitem">Theory</span><ul><li><a class="tocitem" href="../theory_oqs_dynamics/">Open Quantum System Dynamics</a></li><li><a class="tocitem" href="../theory_detailed_balance/">Detailed Balanced Lindbladian</a></li><li><a class="tocitem" href="../theory_weak_measurement/">Weak-measurement based Lindbladian Evolution</a></li><li><a class="tocitem" href="../theory_convex_combination/">Convex Combination of Lindbladians</a></li></ul></li><li><a class="tocitem" href="../../api/">API Reference</a></li></ul><div class="docs-version-selector field has-addons"><div class="control"><span class="docs-label button is-static is-size-7">Version</span></div><div class="docs-selector control is-expanded"><div class="select is-fullwidth is-size-7"><select id="documenter-version-selector"></select></div></div></div></nav><div class="docs-main"><header class="docs-navbar"><a class="docs-sidebar-button docs-navbar-link fa-solid fa-bars is-hidden-desktop" id="documenter-sidebar-button" href="#"></a><nav class="breadcrumb"><ul class="is-hidden-mobile"><li><a class="is-disabled">Tutorials</a></li><li class="is-active"><a href>Finding a Thermal State</a></li></ul><ul class="is-hidden-tablet"><li class="is-active"><a href>Finding a Thermal State</a></li></ul></nav><div class="docs-right"><a class="docs-navbar-link" href="https://github.com/tembence/QuantumFurnace.jl" title="View the repository on GitHub"><span class="docs-icon fa-brands"></span><span class="docs-label is-hidden-touch">GitHub</span></a><a class="docs-navbar-link" href="https://github.com/tembence/QuantumFurnace.jl/blob/main/docs/src/literate/tutorial_thermalize.jl" title="Edit source on GitHub"><span class="docs-icon fa-solid"></span></a><a class="docs-settings-button docs-navbar-link fa-solid fa-gear" id="documenter-settings-button" href="#" title="Settings"></a><a class="docs-article-toggle-button fa-solid fa-chevron-up" id="documenter-article-toggle-button" href="javascript:;" title="Collapse all docstrings"></a></div></header><article class="content" id="documenter-page"><h1 id="Finding-a-Thermal-State"><a class="docs-heading-anchor" href="#Finding-a-Thermal-State">Finding a Thermal State</a><a id="Finding-a-Thermal-State-1"></a><a class="docs-heading-anchor-permalink" href="#Finding-a-Thermal-State" title="Permalink"></a></h1><p>In this tutorial we will give more details on one of the core functions of the software package: on how to drive a given quantum system to the thermal state via a simulated open quantum system evolution. We will see how to set up everything for the function <code>run_thermalization</code> and also what it actually does behind the curtains.</p><p>In summary, <code>run_thermalization</code> takes in a basic set of configurations (number of qubits, temperature, etc.), the Hamiltonian <span>$H$</span> that describes the system, an initial state <span>$\rho_0$</span> where the evolution starts from and the set of jumps <span>$\{A^a\}$</span> that prescribe that evolution. It will simulate the <a href="../theory_oqs_dynamics/">open quantum system evolution</a> or Lindbladian evolution with a <a href="../theory_weak_measurement/">weak-measurement based algorithm</a>. You can read more about them in the Theory section if you follow the links. Here, it is enough to just think of it as the following process:</p><ul><li>Start from an initial density matrix <span>$\rho_0$</span>.</li><li>Evolve it for a short <span>$\delta$</span> amount of time, <span>$\rho_\delta = (\mathbb{1} + \delta \mathcal{L})\rho_0 + \mathcal{O}(\delta^2) \simeq e^{\delta \mathcal{L}}(\rho_0)$</span>.</li><li>Repeat until <span>$\rho_t$</span> gets close enough to the target state <span>$\sigma_\beta = e^{-\beta H} / Z$</span>, i.e. the Gibbs state.</li></ul><p>Here the magic is still hidden in the generator <span>$\mathcal{L}$</span>, but the crucial property it has is that the dynamics it generates, given by <span>$e^{t \mathcal{L}}$</span>, has the Gibbs state as its unique fixed point. Thus if we evolve the system for a long enough time all other contribution will decay and the only state that survives is the Gibbs state.</p><p>Let us go through the main steps of the code:</p><h2 id="1.-Configure-the-algorithm-parameters"><a class="docs-heading-anchor" href="#1.-Configure-the-algorithm-parameters">1. Configure the algorithm parameters</a><a id="1.-Configure-the-algorithm-parameters-1"></a><a class="docs-heading-anchor-permalink" href="#1.-Configure-the-algorithm-parameters" title="Permalink"></a></h2><pre><code class="language-julia hljs">using QuantumFurnace
 using LinearAlgebra
 
 num_qubits = 3
@@ -33,15 +33,15 @@ config = ThermalizeConfig(
     t0 = t0,
     mixing_time = mixing_time_bound,
     delta = delta,
-) ;</code></pre><p><strong>Domains</strong> <span>$\quad$</span> Algorithms are translated to the quantum computer in the form of quantum circuits, a set of unitary quantum gates, that inherently work in the time domain, which is also what we mean by choosing <code>domain</code> to be <code>TimeDomain</code>. More realistically, time evolutions are decomposed into a Trotter product, which is also possible to see in our code via <code>TrotterDomain</code>. Though the original mathematical problem of finding a Lindbladian that evolves the system to the thermal state is formulated in the Bohr and Energy domains, that should pose no problem for us. We can always move from the time domain to the energy domain with the Fourier transform.</p><p><strong>Coherent term</strong> <span>$\quad$</span> It has been proven (see <a href="../theory_detailed_balance/">Theory</a>) that by adding a specific coherent term to the Lindbladian, we can have the Gibbs state as the unique fixed point of the generator. But even if we omit it by setting <code>with_coherent = false</code>, we would find an approximately good (or bad) result.</p><p><strong>Linear combinations</strong> <span>$\quad$</span> A simpler version of the theory is when we don&#39;t take a convex combination of Lindbladians. We can think of this as singling out a thin Gaussian region for which we allow transitions for certain energy differences induced by the jumps. We can also turn on the linear combination option, and thus have more borad transition while keeping the Gibbs state as the target state (see <a href="../theory_convex_combination/">Theory</a>).</p><h2 id="2.-Define-the-system-Hamiltonian"><a class="docs-heading-anchor" href="#2.-Define-the-system-Hamiltonian">2. Define the system Hamiltonian</a><a id="2.-Define-the-system-Hamiltonian-1"></a><a class="docs-heading-anchor-permalink" href="#2.-Define-the-system-Hamiltonian" title="Permalink"></a></h2><p>Next, we will define and construct the Hamiltonian of the subsystem we want to thermalize. We will use the function called <code>create_hamham</code>. If we know how the terms in our Hamiltonian decompose into tensor products of single qubit terms, then this function will generate a Hamiltonian whose spectrum is within [0.0, 0.45] and creates a HamHam object with some other necessary fields in it like its eigenvectors, or its Gibbs state.</p><pre><code class="language-julia hljs">X::Matrix{ComplexF64} = [0 1; 1 0]
+);</code></pre><p><strong>Domains</strong> <span>$\quad$</span> Algorithms are translated to the quantum computer in the form of quantum circuits, a set of unitary quantum gates, that inherently work in the time domain, which is also what we mean by choosing <code>domain</code> to be <code>TimeDomain</code>. More realistically, time evolutions are decomposed into a Trotter product, which is also possible to see in our code via <code>TrotterDomain</code>. Though the original mathematical problem of finding a Lindbladian that evolves the system to the thermal state is formulated in the Bohr and Energy domains, that should pose no problem for us. We can always move from the time domain to the energy domain with the Fourier transform.</p><p><strong>Coherent term</strong> <span>$\quad$</span> It has been proven (see <a href="../theory_detailed_balance/">Theory</a>) that by adding a specific coherent term to the Lindbladian, we can have the Gibbs state as the unique fixed point of the generator. But even if we omit it by setting <code>with_coherent = false</code>, we would find an approximately good (or bad) result.</p><p><strong>Linear combinations</strong> <span>$\quad$</span> A simpler version of the theory is when we don&#39;t take a convex combination of Lindbladians. We can think of this as singling out a thin Gaussian region for which we allow transitions for certain energy differences induced by the jumps. We can also turn on the linear combination option, and thus have more borad transition while keeping the Gibbs state as the target state (see <a href="../theory_convex_combination/">Theory</a>).</p><h2 id="2.-Define-the-system-Hamiltonian"><a class="docs-heading-anchor" href="#2.-Define-the-system-Hamiltonian">2. Define the system Hamiltonian</a><a id="2.-Define-the-system-Hamiltonian-1"></a><a class="docs-heading-anchor-permalink" href="#2.-Define-the-system-Hamiltonian" title="Permalink"></a></h2><p>Next, we will define and construct the Hamiltonian of the subsystem we want to thermalize. We will use the function called <code>create_hamham</code>. If we know how the terms in our Hamiltonian decompose into tensor products of single qubit terms, then this function will generate a Hamiltonian whose spectrum is within [0.0, 0.45] and creates a HamHam object with some other necessary fields in it like its eigenvectors, or its Gibbs state.</p><pre><code class="language-julia hljs">X::Matrix{ComplexF64} = [0 1; 1 0]
 Y::Matrix{ComplexF64} = [0.0 -im; im 0.0]
 Z::Matrix{ComplexF64} = [1 0; 0 -1]
 
 hamiltonian_terms = [[X, X], [Y, Y], [Z, Z]]
 hamiltonian_coeffs = fill(1.0, length(hamiltonian_terms))
 disordering_term = [Z]
-disordering_coeffs = rand(num_qubits) ;</code></pre><p>Generate a 4-qubit chain antiferromagnetic Heisenberg Hamiltonian with a disordering field</p><pre><code class="language-julia hljs">hamiltonian = create_hamham(hamiltonian_terms, hamiltonian_coeffs, disordering_term, disordering_coeffs, num_qubits)
-hamiltonian.gibbs = Hermitian(gibbs_state_in_eigen(hamiltonian, beta)) ;</code></pre><p>Note that we added here a disordering field to the Hamiltonian in order to make its spectrum unique. A priori the algorithm should also work with degenerate spectra, but a unique one definitely makes things easier to converge. Nevertheless exploring what effects a degenerate spectrum have on the algorithm would be quite interesting too.</p><h2 id="3.-Define-the-jump-operators-for-the-evolution"><a class="docs-heading-anchor" href="#3.-Define-the-jump-operators-for-the-evolution">3. Define the jump operators for the evolution</a><a id="3.-Define-the-jump-operators-for-the-evolution-1"></a><a class="docs-heading-anchor-permalink" href="#3.-Define-the-jump-operators-for-the-evolution" title="Permalink"></a></h2><pre><code class="language-julia hljs">jump_set = [[X], [Y], [Z]] ;</code></pre><p>1-site Pauli jumps are generated over each system site and save their form in the eigenbasis we work in for effficiency:</p><pre><code class="language-julia hljs">jumps::Vector{JumpOp} = []
+disordering_coeffs = rand(num_qubits);</code></pre><p>Generate a 4-qubit chain antiferromagnetic Heisenberg Hamiltonian with a disordering field</p><pre><code class="language-julia hljs">hamiltonian = create_hamham(hamiltonian_terms, hamiltonian_coeffs, disordering_term, disordering_coeffs, num_qubits)
+hamiltonian.gibbs = Hermitian(gibbs_state_in_eigen(hamiltonian, beta));</code></pre><p>Note that we added here a disordering field to the Hamiltonian in order to make its spectrum unique. A priori the algorithm should also work with degenerate spectra, but a unique one definitely makes things easier to converge. Nevertheless exploring what effects a degenerate spectrum have on the algorithm would be quite interesting too.</p><h2 id="3.-Define-the-jump-operators-for-the-evolution"><a class="docs-heading-anchor" href="#3.-Define-the-jump-operators-for-the-evolution">3. Define the jump operators for the evolution</a><a id="3.-Define-the-jump-operators-for-the-evolution-1"></a><a class="docs-heading-anchor-permalink" href="#3.-Define-the-jump-operators-for-the-evolution" title="Permalink"></a></h2><pre><code class="language-julia hljs">jump_set = [[X], [Y], [Z]];</code></pre><p>1-site Pauli jumps are generated over each system site and save their form in the eigenbasis we work in for effficiency:</p><pre><code class="language-julia hljs">jumps::Vector{JumpOp} = []
 jump_normalization = sqrt(length(jump_set) * num_qubits)
 for jump_a in jump_set
     for site in 1:num_qubits
@@ -51,7 +51,7 @@ for jump_a in jump_set
         jump = JumpOp(jump_op, jump_op_in_eigenbasis, orthogonal)
         push!(jumps, jump)
     end
-end ;</code></pre><p>Even though it seems unassuming, that we use single-site Pauli jump operators, the actual jumps that are applied to the system are spread out time evolved operators of the form <span>$A(t) = f(t) exp(iHt) A exp(-iHt)$</span>, with some Gaussian filter function f(t). Since the time evolutions can be quite large, while the simulable systems quite small, the actual jumps are effectively full system sized in most cases. The jump normalization is required for the block encoding in the algorithm, as the operators should have a norm less than or equal to 1.</p><h2 id="4.-Find-the-thermal-state"><a class="docs-heading-anchor" href="#4.-Find-the-thermal-state">4. Find the thermal state</a><a id="4.-Find-the-thermal-state-1"></a><a class="docs-heading-anchor-permalink" href="#4.-Find-the-thermal-state" title="Permalink"></a></h2><p>Finally we can run the core function, that we will evolve the initial state by approximated Lindbladian evolution, always a <span>$\delta$</span> step at a time. The result then will be deviating by <span>$\mathcal{O}(\delta^2)$</span> errors from the target Gibbs state.</p><pre><code class="language-julia hljs">initial_dm = Matrix{ComplexF64}(I(dim) / dim) ;</code></pre><p>Evolve the system:</p><pre><code class="language-julia hljs">results = run_thermalization(jumps, config, initial_dm, hamiltonian)
+end</code></pre><p>Even though it seems unassuming, that we use single-site Pauli jump operators, the actual jumps that are applied to the system are spread out time evolved operators of the form <span>$A(t) = f(t) e^{iHt} A e^{-iHt}$</span>, with some Gaussian filter function <span>$f(t)$</span>. Since the time evolutions can be quite large, while the simulable systems quite small, the actual jumps are effectively full system sized in most cases. The jump normalization is required for the block encoding in the algorithm, as the operators should have a norm less than or equal to 1.</p><h2 id="4.-Find-the-thermal-state"><a class="docs-heading-anchor" href="#4.-Find-the-thermal-state">4. Find the thermal state</a><a id="4.-Find-the-thermal-state-1"></a><a class="docs-heading-anchor-permalink" href="#4.-Find-the-thermal-state" title="Permalink"></a></h2><p>Finally we can run the core function, that we will evolve the initial state by approximated Lindbladian evolution, always a <span>$\delta$</span> step at a time. The result then will be deviating by <span>$\mathcal{O}(\delta^2)$</span> errors from the target Gibbs state.</p><pre><code class="language-julia hljs">initial_dm = Matrix{ComplexF64}(I(dim) / dim);</code></pre><p>Evolve the system:</p><pre><code class="language-julia hljs">results = run_thermalization(jumps, config, initial_dm, hamiltonian)
 
 println(&quot;\n Last distance to Gibbs: %s\n&quot;, results.distances_to_gibbs[end])</code></pre><pre class="documenter-example-output"><code class="nohighlight hljs ansi">--- The Press ---
 domain: TimeDomain()
@@ -71,106 +71,106 @@ unravel: false
 Thermalizing (Time)
 Gaussian
 Gaussian
-Dist to Gibbs: 0.46631621514316396
-Dist to Gibbs: 0.46300571583254896
-Dist to Gibbs: 0.4597175815102689
-Dist to Gibbs: 0.4564516731050246
-Dist to Gibbs: 0.45320785247479245
-Dist to Gibbs: 0.4499859823880285
-Dist to Gibbs: 0.44678592650578086
-Dist to Gibbs: 0.44360754936466495
-Dist to Gibbs: 0.44045071636066097
-Dist to Gibbs: 0.4373152937336926
-Dist to Gibbs: 0.43420114855295056
-Dist to Gibbs: 0.4311081487029244
-Dist to Gibbs: 0.42803616287010565
-Dist to Gibbs: 0.4249850605303349
-Dist to Gibbs: 0.42195471193675416
-Dist to Gibbs: 0.41894498810833797
-Dist to Gibbs: 0.4159557608189749
-Dist to Gibbs: 0.41298690258707105
-Dist to Gibbs: 0.4100382866656477
-Dist to Gibbs: 0.40710978703291
-Dist to Gibbs: 0.4042012783832629
-Dist to Gibbs: 0.40131263611874857
-Dist to Gibbs: 0.3984437363408871
-Dist to Gibbs: 0.39559445584289815
-Dist to Gibbs: 0.3927646721022815
-Dist to Gibbs: 0.3899542632737427
-Dist to Gibbs: 0.3871631081824402
-Dist to Gibbs: 0.3843910863175412
-Dist to Gibbs: 0.3816380778260668
-Dist to Gibbs: 0.37890396350701216
-Dist to Gibbs: 0.37618862480572773
-Dist to Gibbs: 0.3734919438085466
-Dist to Gibbs: 0.3708138032376422
-Dist to Gibbs: 0.36815408644610825
-Dist to Gibbs: 0.3655126774132459
-Dist to Gibbs: 0.36288946074004536
-Dist to Gibbs: 0.3602843216448548
-Dist to Gibbs: 0.35769714595922153
-Dist to Gibbs: 0.3551278201239003
-Dist to Gibbs: 0.3525762311850149
-Dist to Gibbs: 0.35004226679036665
-Dist to Gibbs: 0.3475258151858807
-Dist to Gibbs: 0.3450267652121819
-Dist to Gibbs: 0.3425450063012924
-Dist to Gibbs: 0.3400804284734438
-Dist to Gibbs: 0.3376329223339972
-Dist to Gibbs: 0.3352023790704647
-Dist to Gibbs: 0.3327886904496246
-Dist to Gibbs: 0.330391748814727
-Dist to Gibbs: 0.3280114470827816
-Dist to Gibbs: 0.32564767874192463
-Dist to Gibbs: 0.3233003378488559
-Dist to Gibbs: 0.3209693190263498
-Dist to Gibbs: 0.318654517460823
-Dist to Gibbs: 0.3163558288999667
-Dist to Gibbs: 0.31407314965043287
-Dist to Gibbs: 0.31180637657556964
-Dist to Gibbs: 0.30955540709320867
-Dist to Gibbs: 0.3073201391734933
-Dist to Gibbs: 0.3051004713367505
-Dist to Gibbs: 0.30289630265139866
-Dist to Gibbs: 0.3007075327318931
-Dist to Gibbs: 0.2985340617367019
-Dist to Gibbs: 0.2963757903663132
-Dist to Gibbs: 0.29423261986126886
-Dist to Gibbs: 0.29210445200022395
-Dist to Gibbs: 0.28999118909802923
-Dist to Gibbs: 0.28789273400383497
-Dist to Gibbs: 0.2858089900992128
-Dist to Gibbs: 0.28373986129629586
-Dist to Gibbs: 0.2816852520359342
-Dist to Gibbs: 0.27964506728586364
-Dist to Gibbs: 0.27761921253888855
-Dist to Gibbs: 0.2756075938110744
-Dist to Gibbs: 0.2736101176399503
-Dist to Gibbs: 0.27162669108272147
-Dist to Gibbs: 0.2696572217144859
-Dist to Gibbs: 0.26770161762646194
-Dist to Gibbs: 0.26575978742421724
-Dist to Gibbs: 0.2638316402259042
-Dist to Gibbs: 0.2619170856604982
-Dist to Gibbs: 0.2600160338660389
-Dist to Gibbs: 0.2581283954878733
-Dist to Gibbs: 0.2562540816769006
-Dist to Gibbs: 0.2543930040878163
-Dist to Gibbs: 0.25254507487735867
-Dist to Gibbs: 0.25071020670255184
-Dist to Gibbs: 0.24888831271895145
-Dist to Gibbs: 0.24707930657888483
-Dist to Gibbs: 0.24528310242969253
-Dist to Gibbs: 0.24349961491196598
-Dist to Gibbs: 0.24172875915778305
-Dist to Gibbs: 0.23997045078894078
-Dist to Gibbs: 0.23822460591518402
-Dist to Gibbs: 0.23649114113243225
-Dist to Gibbs: 0.23476997352100126
-Dist to Gibbs: 0.23306102064382173
-Dist to Gibbs: 0.23136420054465315
-Dist to Gibbs: 0.22967943174629435
-Dist to Gibbs: 0.22800663324878917
+Dist to Gibbs: 0.4404583140697833
+Dist to Gibbs: 0.43482137727535636
+Dist to Gibbs: 0.4292586072602503
+Dist to Gibbs: 0.42376895023934175
+Dist to Gibbs: 0.4183513703353423
+Dist to Gibbs: 0.4130048491711814
+Dist to Gibbs: 0.4077283854747922
+Dist to Gibbs: 0.40252099469584346
+Dist to Gibbs: 0.39738170863397526
+Dist to Gibbs: 0.39230957507812164
+Dist to Gibbs: 0.3873036574565157
+Dist to Gibbs: 0.3823630344969938
+Dist to Gibbs: 0.3774867998972272
+Dist to Gibbs: 0.37267406200452885
+Dist to Gibbs: 0.36792394350489366
+Dist to Gibbs: 0.36323558112094834
+Dist to Gibbs: 0.35860812531849534
+Dist to Gibbs: 0.3540407400213531
+Dist to Gibbs: 0.34953260233420036
+Dist to Gibbs: 0.34508290227315125
+Dist to Gibbs: 0.3406908425037919
+Dist to Gibbs: 0.33635563808642316
+Dist to Gibbs: 0.33207651622826434
+Dist to Gibbs: 0.32785271604238003
+Dist to Gibbs: 0.3236834883131028
+Dist to Gibbs: 0.3195680952677329
+Dist to Gibbs: 0.315505810354305
+Dist to Gibbs: 0.31149591802521825
+Dist to Gibbs: 0.30753771352653525
+Dist to Gibbs: 0.3036305026927623
+Dist to Gibbs: 0.29977360174693163
+Dist to Gibbs: 0.29596633710580794
+Dist to Gibbs: 0.2922080451900573
+Dist to Gibbs: 0.28849807223921203
+Dist to Gibbs: 0.2848357741312799
+Dist to Gibbs: 0.2812205162068471
+Dist to Gibbs: 0.27765167309752975
+Dist to Gibbs: 0.27412862855863757
+Dist to Gibbs: 0.27065077530591397
+Dist to Gibbs: 0.2672175148562251
+Dist to Gibbs: 0.26382825737207305
+Dist to Gibbs: 0.26048242150981454
+Dist to Gibbs: 0.25717943427146767
+Dist to Gibbs: 0.25391873085999916
+Dist to Gibbs: 0.25069975453798177
+Dist to Gibbs: 0.24752195648951936
+Dist to Gibbs: 0.24438479568534155
+Dist to Gibbs: 0.2412877387509711
+Dist to Gibbs: 0.23823025983786894
+Dist to Gibbs: 0.23521184049747285
+Dist to Gibbs: 0.23223196955803804
+Dist to Gibbs: 0.2292901430042005
+Dist to Gibbs: 0.22638586385918102
+Dist to Gibbs: 0.22351864206955205
+Dist to Gibbs: 0.22068799439249584
+Dist to Gibbs: 0.2178934442854768
+Dist to Gibbs: 0.21513452179826265
+Dist to Gibbs: 0.21241076346722662
+Dist to Gibbs: 0.20972171221186323
+Dist to Gibbs: 0.2070669172334587
+Dist to Gibbs: 0.20444593391585203
+Dist to Gibbs: 0.2018583237282315
+Dist to Gibbs: 0.19930365412990778
+Dist to Gibbs: 0.19678149847701137
+Dist to Gibbs: 0.19429143593105885
+Dist to Gibbs: 0.19183305136934062
+Dist to Gibbs: 0.18940593529707841
+Dist to Gibbs: 0.18700968376130492
+Dist to Gibbs: 0.18464389826642316
+Dist to Gibbs: 0.18230818569139579
+Dist to Gibbs: 0.18000215820852608
+Dist to Gibbs: 0.17772543320378748
+Dist to Gibbs: 0.17547763319866003
+Dist to Gibbs: 0.17325838577343827
+Dist to Gibbs: 0.17106732349196957
+Dist to Gibbs: 0.168904083827789
+Dist to Gibbs: 0.16676830909161472
+Dist to Gibbs: 0.16465964636016983
+Dist to Gibbs: 0.16257774740629755
+Dist to Gibbs: 0.16052226863033922
+Dist to Gibbs: 0.15849287099274204
+Dist to Gibbs: 0.15648921994786888
+Dist to Gibbs: 0.15451098537897986
+Dist to Gibbs: 0.15255784153435778
+Dist to Gibbs: 0.15062946696455162
+Dist to Gibbs: 0.14872554446070912
+Dist to Gibbs: 0.14684576099397653
+Dist to Gibbs: 0.14498980765593703
+Dist to Gibbs: 0.1431573796000671
+Dist to Gibbs: 0.1413481759841853
+Dist to Gibbs: 0.13956189991387252
+Dist to Gibbs: 0.13779825838684087
+Dist to Gibbs: 0.1360569622382302
+Dist to Gibbs: 0.13433772608681271
+Dist to Gibbs: 0.13264026828208333
+Dist to Gibbs: 0.13096431085221982
+Dist to Gibbs: 0.1293095794528903
+Dist to Gibbs: 0.1276758033168929
+Dist to Gibbs: 0.12606271520460807
+Dist to Gibbs: 0.12447005135524625
 
  Last distance to Gibbs: %s
-0.22800663324878917</code></pre><hr/><p><em>This page was generated using <a href="https://github.com/fredrikekre/Literate.jl">Literate.jl</a>.</em></p></article><nav class="docs-footer"><a class="docs-footer-prevpage" href="../../">« Home</a><a class="docs-footer-nextpage" href="../tutorial_lindbladian/">Constructing the Detailed Balanced Lindbladian »</a><div class="flexbox-break"></div><p class="footer-message">Powered by <a href="https://github.com/JuliaDocs/Documenter.jl">Documenter.jl</a> and the <a href="https://julialang.org/">Julia Programming Language</a>.</p></nav></div><div class="modal" id="documenter-settings"><div class="modal-background"></div><div class="modal-card"><header class="modal-card-head"><p class="modal-card-title">Settings</p><button class="delete"></button></header><section class="modal-card-body"><p><label class="label">Theme</label><div class="select"><select id="documenter-themepicker"><option value="auto">Automatic (OS)</option><option value="documenter-light">documenter-light</option><option value="documenter-dark">documenter-dark</option><option value="catppuccin-latte">catppuccin-latte</option><option value="catppuccin-frappe">catppuccin-frappe</option><option value="catppuccin-macchiato">catppuccin-macchiato</option><option value="catppuccin-mocha">catppuccin-mocha</option></select></div></p><hr/><p>This document was generated with <a href="https://github.com/JuliaDocs/Documenter.jl">Documenter.jl</a> version 1.15.0 on <span class="colophon-date" title="Tuesday 28 October 2025 16:16">Tuesday 28 October 2025</span>. Using Julia version 1.12.1.</p></section><footer class="modal-card-foot"></footer></div></div></div></body></html>
+0.12447005135524625</code></pre><hr/><p><em>This page was generated using <a href="https://github.com/fredrikekre/Literate.jl">Literate.jl</a>.</em></p></article><nav class="docs-footer"><a class="docs-footer-prevpage" href="../../">« Home</a><a class="docs-footer-nextpage" href="../tutorial_lindbladian/">Constructing the Detailed Balanced Lindbladian »</a><div class="flexbox-break"></div><p class="footer-message">Powered by <a href="https://github.com/JuliaDocs/Documenter.jl">Documenter.jl</a> and the <a href="https://julialang.org/">Julia Programming Language</a>.</p></nav></div><div class="modal" id="documenter-settings"><div class="modal-background"></div><div class="modal-card"><header class="modal-card-head"><p class="modal-card-title">Settings</p><button class="delete"></button></header><section class="modal-card-body"><p><label class="label">Theme</label><div class="select"><select id="documenter-themepicker"><option value="auto">Automatic (OS)</option><option value="documenter-light">documenter-light</option><option value="documenter-dark">documenter-dark</option><option value="catppuccin-latte">catppuccin-latte</option><option value="catppuccin-frappe">catppuccin-frappe</option><option value="catppuccin-macchiato">catppuccin-macchiato</option><option value="catppuccin-mocha">catppuccin-mocha</option></select></div></p><hr/><p>This document was generated with <a href="https://github.com/JuliaDocs/Documenter.jl">Documenter.jl</a> version 1.15.0 on <span class="colophon-date" title="Tuesday 28 October 2025 16:41">Tuesday 28 October 2025</span>. Using Julia version 1.12.1.</p></section><footer class="modal-card-foot"></footer></div></div></div></body></html>

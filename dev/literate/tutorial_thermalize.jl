@@ -10,7 +10,7 @@
 # with a [weak-measurement based algorithm](theory_weak_measurement.md). You can read more about them in the Theory section if you follow 
 # the links. Here, it is enough to just think of it as the following process:
 # - Start from an initial density matrix $\rho_0$.
-# - Evolve it for a short $\delta$ amount of time, $\rho_\delta = (\mathds{1} + \delta \mathcal{L})\rho_0 + \mathcal{O}(\delta^2) \simeq e^{\delta \mathcal{L}}(\rho_0)$.
+# - Evolve it for a short $\delta$ amount of time, $\rho_\delta = (\mathbb{1} + \delta \mathcal{L})\rho_0 + \mathcal{O}(\delta^2) \simeq e^{\delta \mathcal{L}}(\rho_0)$.
 # - Repeat until $\rho_t$ gets close enough to the target state $\sigma_\beta = e^{-\beta H} / Z$, i.e. the Gibbs state. 
 # Here the magic is still hidden in the generator $\mathcal{L}$, but the crucial property it has is that the dynamics it generates,
 # given by $e^{t \mathcal{L}}$, has the Gibbs state as its unique fixed point. Thus if we evolve the system for a long enough time
@@ -54,7 +54,7 @@ config = ThermalizeConfig(
     t0 = t0,
     mixing_time = mixing_time_bound,
     delta = delta,
-) ;
+);
 
 # **Domains** $\quad$ Algorithms are translated to the quantum computer in the form of quantum circuits, a set of unitary 
 # quantum gates, that inherently work in the time domain, which is also what we mean by choosing `domain` to be `TimeDomain`. 
@@ -86,19 +86,19 @@ Z::Matrix{ComplexF64} = [1 0; 0 -1]
 hamiltonian_terms = [[X, X], [Y, Y], [Z, Z]]
 hamiltonian_coeffs = fill(1.0, length(hamiltonian_terms))
 disordering_term = [Z]
-disordering_coeffs = rand(num_qubits) ;
+disordering_coeffs = rand(num_qubits);
 
 # Generate a 4-qubit chain antiferromagnetic Heisenberg Hamiltonian with a disordering field
 
 hamiltonian = create_hamham(hamiltonian_terms, hamiltonian_coeffs, disordering_term, disordering_coeffs, num_qubits)
-hamiltonian.gibbs = Hermitian(gibbs_state_in_eigen(hamiltonian, beta)) ;
+hamiltonian.gibbs = Hermitian(gibbs_state_in_eigen(hamiltonian, beta));
 
 # Note that we added here a disordering field to the Hamiltonian in order to make its spectrum unique. A priori the algorithm
 # should also work with degenerate spectra, but a unique one definitely makes things easier to converge. Nevertheless
 # exploring what effects a degenerate spectrum have on the algorithm would be quite interesting too.
 
 # ## 3. Define the jump operators for the evolution
-jump_set = [[X], [Y], [Z]] ;
+jump_set = [[X], [Y], [Z]];
 
 # 1-site Pauli jumps are generated over each system site and save their form in the eigenbasis
 # we work in for effficiency:
@@ -112,11 +112,11 @@ for jump_a in jump_set
         jump = JumpOp(jump_op, jump_op_in_eigenbasis, orthogonal) 
         push!(jumps, jump)
     end
-end ;
+end
 
 # Even though it seems unassuming, that we use single-site Pauli jump operators, the actual jumps that are
-# applied to the system are spread out time evolved operators of the form $A(t) = f(t) exp(iHt) A exp(-iHt)$,
-# with some Gaussian filter function f(t). Since the time evolutions can be quite large, while the simulable systems
+# applied to the system are spread out time evolved operators of the form $A(t) = f(t) e^{iHt} A e^{-iHt}$,
+# with some Gaussian filter function $f(t)$. Since the time evolutions can be quite large, while the simulable systems
 # quite small, the actual jumps are effectively full system sized in most cases.
 # The jump normalization is required for the block encoding in the algorithm, as the operators should have a norm
 # less than or equal to 1. 
@@ -126,7 +126,7 @@ end ;
 # always a $\delta$ step at a time. The result then will be deviating by $\mathcal{O}(\delta^2)$ errors from the 
 # target Gibbs state.
 
-initial_dm = Matrix{ComplexF64}(I(dim) / dim) ;
+initial_dm = Matrix{ComplexF64}(I(dim) / dim);
 
 # Evolve the system:
 results = run_thermalization(jumps, config, initial_dm, hamiltonian)
