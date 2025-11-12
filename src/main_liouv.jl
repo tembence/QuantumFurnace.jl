@@ -5,7 +5,7 @@ if "SLURM_JOB_ID" in keys(ENV)
     using ClusterManagers
     num_tasks = parse(Int, ENV["SLURM_NTASKS"])
     addprocs(SlurmManager(num_tasks))
-    println("Slurm environment detected. Added $(nworkers()) workers.")
+    println("Slurm environment. Added $(nworkers()) workers.")
 else
     # For local testing
     if nprocs() == 1
@@ -88,8 +88,8 @@ function main()
         ham_path = joinpath(data_dir, output_filename)
 
         # Load Hamiltonian
-        jld_ham_data = BSON.load(ham_path)
-        hamiltonian = jld_ham_data["hamiltonian"]
+        bson_ham_data = BSON.load(ham_path)
+        hamiltonian = bson_ham_data[:hamiltonian]
         @printf("Hamiltonian is loaded.\n")
         hamiltonian.bohr_freqs = hamiltonian.eigvals .- transpose(hamiltonian.eigvals)
         hamiltonian.bohr_dict = create_bohr_dict(hamiltonian)

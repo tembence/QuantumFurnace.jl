@@ -14,7 +14,7 @@ $\{A^a\}$ that prescribe that evolution. It will simulate the [open quantum syst
 with a [weak-measurement based algorithm](theory_weak_measurement.md). You can read more about them in the Theory section if you follow
 the links. Here, it is enough to just think of it as the following process:
 - Start from an initial density matrix $\rho_0$.
-- Evolve it for a short $\delta$ amount of time, $\rho_\delta = (\mathds{1} + \delta \mathcal{L})\rho_0 + \mathcal{O}(\delta^2) \simeq e^{\delta \mathcal{L}}(\rho_0)$.
+- Evolve it for a short $\delta$ amount of time, $\rho_\delta = (\mathbb{1} + \delta \mathcal{L})\rho_0 + \mathcal{O}(\delta^2) \simeq e^{\delta \mathcal{L}}(\rho_0)$.
 - Repeat until $\rho_t$ gets close enough to the target state $\sigma_\beta = e^{-\beta H} / Z$, i.e. the Gibbs state.
 Here the magic is still hidden in the generator $\mathcal{L}$, but the crucial property it has is that the dynamics it generates,
 given by $e^{t \mathcal{L}}$, has the Gibbs state as its unique fixed point. Thus if we evolve the system for a long enough time
@@ -59,7 +59,7 @@ config = ThermalizeConfig(
     t0 = t0,
     mixing_time = mixing_time_bound,
     delta = delta,
-) ;
+);
 nothing #hide
 ````
 
@@ -94,7 +94,7 @@ Z::Matrix{ComplexF64} = [1 0; 0 -1]
 hamiltonian_terms = [[X, X], [Y, Y], [Z, Z]]
 hamiltonian_coeffs = fill(1.0, length(hamiltonian_terms))
 disordering_term = [Z]
-disordering_coeffs = rand(num_qubits) ;
+disordering_coeffs = rand(num_qubits);
 nothing #hide
 ````
 
@@ -102,7 +102,7 @@ Generate a 4-qubit chain antiferromagnetic Heisenberg Hamiltonian with a disorde
 
 ````@example tutorial_thermalize
 hamiltonian = create_hamham(hamiltonian_terms, hamiltonian_coeffs, disordering_term, disordering_coeffs, num_qubits)
-hamiltonian.gibbs = Hermitian(gibbs_state_in_eigen(hamiltonian, beta)) ;
+hamiltonian.gibbs = Hermitian(gibbs_state_in_eigen(hamiltonian, beta));
 nothing #hide
 ````
 
@@ -113,7 +113,7 @@ exploring what effects a degenerate spectrum have on the algorithm would be quit
 ## 3. Define the jump operators for the evolution
 
 ````@example tutorial_thermalize
-jump_set = [[X], [Y], [Z]] ;
+jump_set = [[X], [Y], [Z]];
 nothing #hide
 ````
 
@@ -131,13 +131,12 @@ for jump_a in jump_set
         jump = JumpOp(jump_op, jump_op_in_eigenbasis, orthogonal)
         push!(jumps, jump)
     end
-end ;
-nothing #hide
+end
 ````
 
 Even though it seems unassuming, that we use single-site Pauli jump operators, the actual jumps that are
-applied to the system are spread out time evolved operators of the form $A(t) = f(t) exp(iHt) A exp(-iHt)$,
-with some Gaussian filter function f(t). Since the time evolutions can be quite large, while the simulable systems
+applied to the system are spread out time evolved operators of the form $A(t) = f(t) e^{iHt} A e^{-iHt}$,
+with some Gaussian filter function $f(t)$. Since the time evolutions can be quite large, while the simulable systems
 quite small, the actual jumps are effectively full system sized in most cases.
 The jump normalization is required for the block encoding in the algorithm, as the operators should have a norm
 less than or equal to 1.
@@ -148,7 +147,7 @@ always a $\delta$ step at a time. The result then will be deviating by $\mathcal
 target Gibbs state.
 
 ````@example tutorial_thermalize
-initial_dm = Matrix{ComplexF64}(I(dim) / dim) ;
+initial_dm = Matrix{ComplexF64}(I(dim) / dim);
 nothing #hide
 ````
 
