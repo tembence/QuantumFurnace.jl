@@ -205,33 +205,6 @@ function construct_disordering_terms(term::Vector{Matrix{ComplexF64}},
     return Hermitian(Matrix(disordering_hamiltonian))
 end
 
-function pad_term(terms::Vector{Matrix{ComplexF64}}, num_qubits::Int64, position::Int; periodic::Bool = true)
-    
-    term_length = length(terms)
-    terms = [sparse(term) for term in terms]
-    last_position = position + term_length - 1
-    # Drop boundary overstepping terms for aperiodic boundary condition 
-    if (!(periodic) && last_position > num_qubits)
-        return zeros(2^num_qubits, 2^num_qubits)
-    end
-
-    if last_position <= num_qubits
-        id_before = sparse(I, 2^(position - 1), 2^(position - 1))
-        id_after = sparse(I, 2^(num_qubits - last_position), 2^(num_qubits - last_position))
-        padded_tensor_list = [id_before, terms..., id_after]
-    else
-        id_between = sparse(I, 2^(num_qubits - term_length), 2^(num_qubits - term_length))
-        not_overflown_terms = terms[1:num_qubits - position + 1]
-        overflown_terms = terms[num_qubits - position + 2:end]
-        # println("Overflown terms:")
-        # display(overflown_terms)
-        padded_tensor_list = [overflown_terms..., id_between, not_overflown_terms...]
-    end
-
-    padded_term::SparseMatrixCSC{ComplexF64} = kron(padded_tensor_list...)
-    return padded_term
-end
-
 function rescaling_and_shift_factors(hamiltonian::Hermitian{ComplexF64, Matrix{ComplexF64}})
     """Computes rescaling and shifting factors for a Hamiltonian, s.t. the spectrum is in ``[0, 0.5*(1-ϵ)]`` """
 
@@ -245,54 +218,6 @@ function rescaling_and_shift_factors(hamiltonian::Hermitian{ComplexF64, Matrix{C
     return rescaling_factor, shift
 
 end
-
-
-# function create_hamham(terms::Vector{Vector{String}}, coeffs::Vector{Float64}, num_qubits::Int64; 
-#     periodic::Bool = true)
-#     """Creates a HamHam object from terms and coefficients. Only for NN terms for now."""
-
-#     sigmax::Matrix{ComplexF64} = [0 1; 1 0]
-#     sigmay::Matrix{ComplexF64} = [0.0 -im; im 0.0]
-#     sigmaz::Matrix{ComplexF64} = [1 0; 0 -1]
-#     pauli_dict = Dict("X" => sigmax, "Y" => sigmay, "Z" => sigmaz, "I" => Matrix(I(2)))
-
-#     terms_matrices::Vector{Vector{Matrix{ComplexF64}}} = []
-#     for term in terms
-#         push!(terms_matrices, [])
-#         for pauli_str in term
-#             push!(terms_matrices[end], pauli_dict[pauli_str])
-#         end
-#     end
-
-#     base_hamiltonian = construct_base_ham(terms_matrices, coeffs, num_qubits; periodic=periodic)
-
-#     rescaling_factor, shift = rescaling_and_shift_factors(base_hamiltonian)
-#     rescaled_hamiltonian::Hermitian{ComplexF64, Matrix{ComplexF64}} = base_hamiltonian / rescaling_factor + 
-#                                                                                     shift * I(2^num_qubits)
-
-#     rescaled_eigvals, rescaled_eigvecs = eigen(rescaled_hamiltonian)
-#     rescaled_base_coeffs = coeffs / rescaling_factor
-#     smallest_bohr_freq = minimum(diff(rescaled_eigvals))
-
-#    hamiltonian = HamHam(
-#     rescaled_hamiltonian,
-#     nothing,  # bohr_freqs is added later
-#     nothing,
-#     terms,
-#     rescaled_base_coeffs,
-#     nothing,  # disordering_terms absent
-#     nothing,  # disordering coeffs absent
-#     rescaled_eigvals,
-#     rescaled_eigvecs,
-#     smallest_bohr_freq,
-#     shift,
-#     rescaling_factor,
-#     periodic,
-#     Hermitian(zeros(ComplexF64, 1, 1))
-#    )
-
-#     return hamiltonian
-# end
 
 #* --- Testing
 # hamiltonian = find_ideal_heisenberg(num_qubits, fill(1.0, 3); batch_size=100)

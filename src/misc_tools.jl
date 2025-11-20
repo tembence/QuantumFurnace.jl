@@ -295,3 +295,36 @@ function pauli_string_to_matrix(paulistring::Vector{String})
     end
     return pauli_matrices
 end
+
+function expm_pauli_padded(pauli_list::Vector{Matrix{ComplexF64}}, coeff::Float64, num_qubits::Int64, position::Int64)
+    """Arg e.g. NN terms: [X, X], and it pads it with identities in the rest of the sites. Then creates the expm."""
+
+    padded_term = pad_term(pauli_list, num_qubits, position)
+    expm = cos(coeff) * I(2^num_qubits) + 1im * sin(coeff) * padded_term
+    return expm
+end
+
+function pad_term(terms::Vector{Matrix{ComplexF64}}, num_qubits::Int64, position::Int; periodic::Bool = true)
+    
+    term_length = length(terms)
+    terms = [sparse(term) for term in terms]
+    last_position = position + term_length - 1
+    # Drop boundary overstepping terms for aperiodic boundary condition 
+    if (!(periodic) && last_position > num_qubits)
+        return zeros(2^num_qubits, 2^num_qubits)
+    end
+
+    if last_position <= num_qubits
+        id_before = sparse(I, 2^(position - 1), 2^(position - 1))
+        id_after = sparse(I, 2^(num_qubits - last_position), 2^(num_qubits - last_position))
+        padded_tensor_list = [id_before, terms..., id_after]
+    else
+        id_between = sparse(I, 2^(num_qubits - term_length), 2^(num_qubits - term_length))
+        not_overflown_terms = terms[1:num_qubits - position + 1]
+        overflown_terms = terms[num_qubits - position + 2:end]
+        padded_tensor_list = [overflown_terms..., id_between, not_overflown_terms...]
+    end
+
+    padded_term::SparseMatrixCSC{ComplexF64} = kron(padded_tensor_list...)
+    return padded_term
+end
