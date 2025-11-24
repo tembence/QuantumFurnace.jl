@@ -16,10 +16,12 @@ function create_hamham(terms::Vector{Vector{Matrix{ComplexF64}}}, coeffs::Vector
         @assert ishermitian(rescaled_hamiltonian) "The resulting matrix is not Hermitian!"
     end
 
+    bohr_freqs = rescaled_eigvals .- transpose(rescaled_eigvals)
+
     hamiltonian = HamHam(
         rescaled_hamiltonian,
-        nothing,  # bohr_freqs is added later
-        nothing,
+        bohr_freqs,
+        create_bohr_dict(bohr_freqs),
         terms,
         rescaled_base_coeffs,
         nothing,  # disordering_terms absent
@@ -30,7 +32,7 @@ function create_hamham(terms::Vector{Vector{Matrix{ComplexF64}}}, coeffs::Vector
         shift,
         rescaling_factor,
         periodic,
-        Hermitian(zeros(ComplexF64, 1, 1))
+        nothing
    )
 
     return hamiltonian
@@ -58,10 +60,12 @@ function create_hamham(terms::Vector{Vector{Matrix{ComplexF64}}}, coeffs::Vector
         @assert ishermitian(rescaled_hamiltonian) "The resulting matrix is not Hermitian!"
     end
 
+    bohr_freqs = rescaled_eigvals .- transpose(rescaled_eigvals)
+
     hamiltonian = HamHam(
         rescaled_hamiltonian,
-        nothing,  # bohr_freqs is added later
-        nothing,
+        bohr_freqs,
+        create_bohr_dict(bohr_freqs),
         terms,
         rescaled_base_coeffs,
         disordering_terms,
@@ -72,15 +76,40 @@ function create_hamham(terms::Vector{Vector{Matrix{ComplexF64}}}, coeffs::Vector
         shift,
         rescaling_factor,
         periodic,
-        Hermitian(zeros(ComplexF64, 1, 1))
+        nothing
    )
 
     return hamiltonian
 end
 
+"""find_ideal_heisenberg(num_qubits::Int, coeffs::Vector{Float64}; 
+    batch_size::Int=1, periodic::Bool=true) -> HamHam
+
+    Constructs and optimizes a disordered 1D Heisenberg Hamiltonian to maximize the minimum level spacing (smallest Bohr frequency).
+
+    The function generates `batch_size` random realizations of a disordering ``Z``-field. For each realization, it constructs the Hamiltonian:
+    ```math
+    H = H_{base} + H_{disorder}
+    ```
+    where ``H_{base}`` is the Heisenberg chain defined by `coeffs` (XX, YY, ZZ interaction strengths) and ``H_{disorder}`` is a site-dependent ``Z`` term with random coefficients.
+
+    The Hamiltonian is rescaled and shifted to ensure the spectrum fits within specific bounds.
+
+    # Arguments
+    - `num_qubits`: The number of sites on the spin chain.
+    - `coeffs`: A vector of the uniform interaction strengths for ``\\sigma_x \\sigma_x``, ``\\sigma_y \\sigma_y``, and ``\\sigma_z \\sigma_z`` terms respectively.
+
+    # Keywords
+    - `batch_size`: The number of random disorder configurations to sample (default: 1).
+    - `periodic`: If `true`, applies periodic boundary conditions to the chain.
+
+    # Returns
+    - `HamHam`: A container holding the optimized Hamiltonian data, spectral decomposition, and Bohr frequencies, etc.
+    **Note**: The `gibbs` field of the returned struct is set to `nothing`. Use [`add_gibbs_to_hamham`](@ref) to calculate the thermal state once the temperature is decided.
+"""
 function find_ideal_heisenberg(num_qubits::Int64,
     coeffs::Vector{Float64}; batch_size::Int64 = 1, periodic::Bool = true)
-    """Periodic Heisenberg 1D chain"""
+
 
     dim = 2^num_qubits
     terms = [[X, X], [Y, Y], [Z, Z]]
@@ -218,38 +247,3 @@ function add_gibbs_to_hamham(hamiltonian::HamHam, beta::Float64)::HamHam
     )
     
 end
-
-#* --- Testing
-# hamiltonian = find_ideal_heisenberg(num_qubits, fill(1.0, 3); batch_size=100)
-# hamiltonian_terms = [["X", "X"], ["Y", "Y"], ["Z", "Z"]]
-# hamiltonian_coeffs = fill(1.0, length(hamiltonian_terms))
-# hamiltonian = create_hamham(hamiltonian_terms, hamiltonian_coeffs, num_qubits)
-
-# num_qubits = 11
-
-# sigmax::Matrix{ComplexF64} = [0 1; 1 0]
-# sigmay::Matrix{ComplexF64} = [0 -im; im 0]
-# sigmaz::Matrix{ComplexF64} = [1 0; 0 -1]
-
-# terms = [[sigmax, sigmax], [sigmay, sigmay], [sigmaz, sigmaz]]
-# coeffs = fill(1.0, 3)
-# hamiltonian = construct_base_ham(terms, coeffs, num_qubits)
-
-# disordering_ham = construct_disordering_terms([sigmaz], fill(1.0, num_qubits), num_qubits)
-
-# symbroken_ham = hamiltonian + disordering_ham
-
-# rescaling_factor, shift = rescaling_and_shift_factors(symbroken_ham)
-
-# @time begin
-# ideal_ham::HamHam = find_ideal_heisenberg(num_qubits, coeffs; batch_size=100)
-# end
-
-# @save "/Users/bence/code/liouvillian_metro/julia/data/hamiltonian_n11.jld" ideal_ham
-
-# load jld
-# ideal_ham = load("/Users/bence/code/liouvillian_metro/julia/data/hamiltonian_n11.jld")["ideal_ham"]
-# display(ideal_ham.nu_min)
-
-# ideal_r = ceil(Int64, log2(1 / ideal_ham.nu_min))
-# @printf("Ideal r: %d\n", ideal_r)
