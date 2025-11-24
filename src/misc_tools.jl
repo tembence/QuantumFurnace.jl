@@ -248,7 +248,6 @@ function print_press(config::ThermalizeConfig)
         ("num_trotter_steps_per_t0", config.num_trotter_steps_per_t0),
         ("mixing time", config.mixing_time),
         ("delta", config.delta),
-        ("unravel", config.unravel)
     ]
     provided = filter(p -> p[2] != -1.0, params)
     if isempty(provided)

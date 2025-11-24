@@ -18,7 +18,7 @@ end
 
 println("Loading QuantumFurnace on all $(nworkers()) workers...")
 @everywhere using QuantumFurnace
-# @everywhere using Pkg, LinearAlgebra, Random, Printf, SparseArrays, BSON, Arpack
+@everywhere using Pkg, LinearAlgebra, Random, Printf, SparseArrays, BSON, Arpack
 
 function main()
     #* Config
@@ -43,7 +43,6 @@ function main()
     # Thermalizing configs:
     mixing_time = 10.0
     delta = 0.1
-    unravel = false
 
     config = ThermalizeConfig(
         num_qubits = num_qubits, 
@@ -60,14 +59,9 @@ function main()
         num_trotter_steps_per_t0 = num_trotter_steps_per_t0, 
         mixing_time = mixing_time,
         delta = delta,
-        unravel = unravel
     )
 
-    #* Hamiltonian
-    X::Matrix{ComplexF64} = [0 1; 1 0]
-    Y::Matrix{ComplexF64} = [0.0 -im; im 0.0]
-    Z::Matrix{ComplexF64} = [1 0; 0 -1]
-    
+    #* Hamiltonian    
     # Hamiltonian path
     project_root = Pkg.project().path |> dirname
     data_dir = joinpath(project_root, "hamiltonians")
@@ -76,9 +70,11 @@ function main()
     bson_hamiltonian_data = BSON.load(ham_path)
     hamiltonian = bson_hamiltonian_data[:hamiltonian]
 
-    hamiltonian.bohr_freqs = hamiltonian.eigvals .- transpose(hamiltonian.eigvals)
-    hamiltonian.bohr_dict = create_bohr_dict(hamiltonian)
-    hamiltonian.gibbs = Hermitian(gibbs_state_in_eigen(hamiltonian, beta))
+    # hamiltonian.bohr_freqs = hamiltonian.eigvals .- transpose(hamiltonian.eigvals)
+    # hamiltonian.bohr_dict = create_bohr_dict(hamiltonian)
+    # hamiltonian.gibbs = Hermitian(gibbs_state_in_eigen(hamiltonian, beta))
+    hamiltonian = add_gibbs_to_hamham(hamiltonian, beta)
+    
     initial_dm = Matrix{ComplexF64}(I(dim) / dim)
     @assert norm(real(tr(initial_dm)) - 1.) < 1e-15 "Trace is not 1.0"
     @assert norm(initial_dm - initial_dm') < 1e-15 "Not Hermitian"

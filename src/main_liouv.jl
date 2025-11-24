@@ -105,11 +105,6 @@ function main()
         @printf("Trotter is created.\n")
 
         #* Jumps
-        X::Matrix{ComplexF64} = [0 1; 1 0]
-        Y::Matrix{ComplexF64} = [0.0 -im; im 0.0]
-        Z::Matrix{ComplexF64} = [1 0; 0 -1]
-        H::Matrix{ComplexF64} = [1 1; 1 -1] / sqrt(2)
-        id::Matrix{ComplexF64} = I(2)
         jump_paulis = [[X], [Y], [Z]]
 
         num_of_jumps = length(jump_paulis) * num_qubits

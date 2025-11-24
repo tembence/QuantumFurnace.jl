@@ -78,98 +78,76 @@ function create_hamham(terms::Vector{Vector{Matrix{ComplexF64}}}, coeffs::Vector
     return hamiltonian
 end
 
-function init_HamHam(dim::Int; periodic::Bool=false)
-    data = zeros(ComplexF64, dim, dim)
-    bohr_freqs = nothing
-    bohr_dict = nothing
-    base_terms = Vector{Vector{Matrix{ComplexF64}}}()
-    base_coeffs = Float64[]
-    disordering_term = nothing
-    disordering_coeffs = nothing
-    eigvals = zeros(Float64, dim)
-    eigvecs = Matrix{ComplexF64}(I, dim, dim)
-    nu_min = 0.0
-    shift = 0.0
-    rescaling_factor = 1.0
-    gibbs = Hermitian(zeros(ComplexF64, dim, dim))
-    
-    return HamHam(
-        data,
-        bohr_freqs,
-        bohr_dict,
-        base_terms,
-        base_coeffs,
-        disordering_term,
-        disordering_coeffs,
-        eigvals,
-        eigvecs,
-        nu_min,
-        shift,
-        rescaling_factor,
-        periodic,
-        gibbs,
-    )
-end
-
 function find_ideal_heisenberg(num_qubits::Int64,
     coeffs::Vector{Float64}; batch_size::Int64 = 1, periodic::Bool = true)
     """Periodic Heisenberg 1D chain"""
 
     dim = 2^num_qubits
-    X::Matrix{ComplexF64} = [0 1; 1 0]
-    Y::Matrix{ComplexF64} = [0.0 -im; im 0.0]
-    Z::Matrix{ComplexF64} = [1 0; 0 -1]
-
     terms = [[X, X], [Y, Y], [Z, Z]]
     disordering_term = [Z]
 
     base_hamiltonian = construct_base_ham(terms, coeffs, num_qubits; periodic=periodic)
 
-    # Create a bacth of random seeds
-    seeds = rand(1:batch_size, batch_size)
-
     # Find best config for smallest bohr frequency
-    best_smallest_bohr_freq = -1.0
-    # initialize undef HamHam object
-    hamiltonian = init_HamHam(dim; periodic=periodic)
+    best_nu_min = -1.0
+    best_ham_matrix = Matrix{ComplexF64}(undef, 0, 0)
+    best_eigvals = Float64[]
+    best_eigvecs = Matrix{ComplexF64}(undef, 0, 0)
+    best_shift = 0.0
+    best_rescaling_factor = 1.0
+    best_disordering_coeffs = Float64[]
+    disordering_coeffs = zeros(Float64, num_qubits)
 
-    p = Progress(length(seeds))
-    @showprogress dt=1 desc="Finding ideal hamiltonian..." for seed in seeds
-        Random.seed!(seed)
-        disordering_coeffs = rand(num_qubits)
+    p = Progress(batch_size; desc="Optimizing Heisenberg Hamiltonian...")
+    for _ in 1:batch_size
+        rand!(disordering_coeffs)
         disordering_ham = construct_disordering_terms(disordering_term, disordering_coeffs, num_qubits)
 
-        disordered_ham = base_hamiltonian + disordering_ham
-        rescaling_factor, shift = rescaling_and_shift_factors(disordered_ham)
+        total_ham = base_hamiltonian + disordering_ham
+        rescaling_factor, shift = rescaling_and_shift_factors(total_ham)
 
-        rescaled_hamiltonian::Hermitian{ComplexF64, Matrix{ComplexF64}} = disordered_ham / rescaling_factor + 
-                                                                                        shift * I(2^num_qubits)
+        rescaled_ham = (total_ham ./ rescaling_factor) + shift * I 
 
-        rescaled_eigvals, rescaled_eigvecs = eigen(rescaled_hamiltonian)
-        rescaled_base_coeffs = coeffs / rescaling_factor
-        rescaled_disordering_coeffs = disordering_coeffs / rescaling_factor
+        rescaled_eigvals, rescaled_eigvecs = eigen(Hermitian(rescaled_ham))
         # Check all differences between consecutive eigenvalues
-        smallest_bohr_freq = minimum(diff(rescaled_eigvals))
-        if smallest_bohr_freq > best_smallest_bohr_freq
-            best_smallest_bohr_freq = smallest_bohr_freq
-            hamiltonian.data = rescaled_hamiltonian
-            hamiltonian.base_terms = terms
-            hamiltonian.base_coeffs = rescaled_base_coeffs
-            hamiltonian.disordering_term = disordering_term
-            hamiltonian.disordering_coeffs = rescaled_disordering_coeffs
-            hamiltonian.eigvals = rescaled_eigvals
-            hamiltonian.eigvecs = rescaled_eigvecs
-            hamiltonian.nu_min = smallest_bohr_freq
-            hamiltonian.shift = shift
-            hamiltonian.rescaling_factor = rescaling_factor
+        nu_min = minimum(diff(rescaled_eigvals))
+        if nu_min > best_nu_min
+            best_nu_min = nu_min
+            best_ham_matrix = copy(rescaled_ham)
+            best_disordering_coeffs = copy(disordering_coeffs)
+            best_eigvals = rescaled_eigvals
+            best_eigvecs = rescaled_eigvecs
+            best_shift = shift
+            best_rescaling_factor = rescaling_factor
 
-            next!(p, showvalues = [(:nu_min, hamiltonian.nu_min)])
+            next!(p, showvalues = [(:nu_min, best_nu_min)])
+        else
+            next!(p)
         end
-        disordered_ham = nothing
     end
-    # println("\nBest Bohr frequency:")
-    # println(hamiltonian.nu_min)
-    return hamiltonian
+
+    if best_nu_min < 0
+        error("Optimization failed to find a valid Hamiltonian")
+    end
+
+    best_bohr_freqs = best_eigvals .- transpose(best_eigvals)
+
+    return HamHam(
+        best_ham_matrix,
+        best_bohr_freqs,
+        create_bohr_dict(best_bohr_freqs),
+        terms,
+        coeffs ./ best_rescaling_factor,
+        disordering_term,
+        best_disordering_coeffs ./ best_rescaling_factor,
+        best_eigvals,
+        best_eigvecs,
+        best_nu_min,
+        best_shift,
+        best_rescaling_factor,
+        periodic,
+        nothing
+    )
 end
 
 function construct_base_ham(terms::Vector{Vector{Matrix{ComplexF64}}}, coeffs::Vector{Float64},
@@ -216,7 +194,29 @@ function rescaling_and_shift_factors(hamiltonian::Hermitian{ComplexF64, Matrix{C
     rescaling_factor = (largest_eigval - smallest_eigval) * (2 / (1 - eps))
     shift = - (largest_eigval - smallest_eigval * eps) / (2 * (largest_eigval - smallest_eigval)) + 0.5
     return rescaling_factor, shift
+end
 
+function add_gibbs_to_hamham(hamiltonian::HamHam, beta::Float64)::HamHam
+    gibbs_in_eigen = Hermitian(gibbs_state_in_eigen(hamiltonian, beta))
+
+    # Create a new HamHam with gibbs, it copies only the pointers to previous fields, not the data themselves.
+    return HamHam(
+        hamiltonian.data,
+        hamiltonian.bohr_freqs,
+        hamiltonian.bohr_dict,
+        hamiltonian.base_terms,
+        hamiltonian.base_coeffs,
+        hamiltonian.disordering_term,
+        hamiltonian.disordering_coeffs,
+        hamiltonian.eigvals,
+        hamiltonian.eigvecs,
+        hamiltonian.nu_min,
+        hamiltonian.shift,
+        hamiltonian.rescaling_factor,
+        hamiltonian.periodic,
+        gibbs_in_eigen
+    )
+    
 end
 
 #* --- Testing

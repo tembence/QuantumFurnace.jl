@@ -429,17 +429,17 @@ function check_alpha_skew_symmetry(alpha::Function, nu_1::Float64, nu_2::Float64
     @assert norm(alpha(nu_1, nu_2) - alpha(-nu_2, -nu_1) * exp(-beta * (nu_1 + nu_2) / 2)) < 1e-14
 end
 
-function create_bohr_dict(hamiltonian::HamHam)
+function create_bohr_dict(bohr_freqs::Matrix{Float64})
     """Creates a dictionary, where the keys are the Bohr frequencies, and the values are a list of their sparse indices 
     in the Bohr matrix. (With special care on the diagonal elements, that are identically 0.)"""
 
     bohr_dict = DefaultDict{Float64, Vector{CartesianIndex{2}}}(() -> CartesianIndex{2}[])
-    dim = size(hamiltonian.data, 1)
+    dim = size(bohr_freqs, 1)
     bohr_dict[0.0] = CartesianIndex{2}.(1:dim, 1:dim) # nu = 0.0 is the diagonal and might be other offdiags
     for j in 1:dim
         for i in 1:(j - 1)
-            push!(bohr_dict[hamiltonian.bohr_freqs[i, j]], CartesianIndex{2}(i, j))
-            push!(bohr_dict[-hamiltonian.bohr_freqs[i, j]], CartesianIndex{2}(j, i))
+            push!(bohr_dict[bohr_freqs[i, j]], CartesianIndex{2}(i, j))
+            push!(bohr_dict[-bohr_freqs[i, j]], CartesianIndex{2}(j, i))
         end
     end
     return bohr_dict
