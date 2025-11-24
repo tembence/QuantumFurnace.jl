@@ -1,24 +1,46 @@
 #TODO: I haven't debugged this since changing f -> b. (liouvillian one was debugged.)
-using Distributed
+# using Distributed
+# using Revise
 
-if "SLURM_JOB_ID" in keys(ENV)
-    # For HPC environments
-    using ClusterManagers
-    num_tasks = parse(Int, ENV["SLURM_NTASKS"])
-    addprocs(SlurmManager(num_tasks))
-    println("Slurm environment detected. Added $(nworkers()) workers.")
-else
-    # For local testing
-    if nprocs() == 1
-        println("No external workers detected. Adding 4 local workers for testing...")
-        addprocs(4)
-        println("Workers available: ", workers())
-    end
+# if "SLURM_JOB_ID" in keys(ENV)
+#     # For HPC environments
+#     using ClusterManagers
+#     num_tasks = parse(Int, ENV["SLURM_NTASKS"])
+#     addprocs(SlurmManager(num_tasks))
+#     println("Slurm environment detected. Added $(nworkers()) workers.")
+# else
+#     # For local testing
+#     if nprocs() == 1
+#         println("No external workers detected. Adding 4 local workers for testing...")
+#         addprocs(4)
+#         println("Workers available: ", workers())
+#     end
+# end
+
+# println("Loading QuantumFurnace on all $(nworkers()) workers...")
+
+# @everywhere using QuantumFurnace
+# @everywhere using Pkg, LinearAlgebra, Random, Printf, SparseArrays, BSON, Arpack
+
+using Distributed
+using Revise
+
+if nprocs() == 1
+    addprocs(4, exeflags="--project")  # Add workers
 end
 
-println("Loading QuantumFurnace on all $(nworkers()) workers...")
-@everywhere using QuantumFurnace
-@everywhere using Pkg, LinearAlgebra, Random, Printf, SparseArrays, BSON, Arpack
+if !isdefined(Main, :QuantumFurnace)
+    includet("../src/QuantumFurnace.jl")
+end
+using .QuantumFurnace
+using Pkg, LinearAlgebra, Random, Printf, SparseArrays, BSON, Arpack
+
+@everywhere begin
+    if !isdefined(Main, :QuantumFurnace)
+        using QuantumFurnace
+    end
+    using Pkg, LinearAlgebra, Random, Printf, SparseArrays, BSON, Arpack
+end
 
 function main()
     #* Config
@@ -69,28 +91,27 @@ function main()
     ham_path = joinpath(data_dir, output_filename)
     bson_hamiltonian_data = BSON.load(ham_path)
     hamiltonian = bson_hamiltonian_data[:hamiltonian]
-
-    # hamiltonian.bohr_freqs = hamiltonian.eigvals .- transpose(hamiltonian.eigvals)
-    # hamiltonian.bohr_dict = create_bohr_dict(hamiltonian)
-    # hamiltonian.gibbs = Hermitian(gibbs_state_in_eigen(hamiltonian, beta))
-    hamiltonian = add_gibbs_to_hamham(hamiltonian, beta)
+    hamiltonian = finalize_hamham(hamiltonian, beta)
     
     initial_dm = Matrix{ComplexF64}(I(dim) / dim)
     @assert norm(real(tr(initial_dm)) - 1.) < 1e-15 "Trace is not 1.0"
     @assert norm(initial_dm - initial_dm') < 1e-15 "Not Hermitian"
 
     #* Trotter
-    # trotter = create_trotter(hamiltonian, t0, num_trotter_steps_per_t0)
-    # trotter_error_T = compute_trotter_error(hamiltonian, trotter, 2^num_energy_bits * t0 / 2)
-    # gibbs_in_trotter = Hermitian(trotter.eigvecs' * gibbs_state(hamiltonian, beta) * trotter.eigvecs)
-    # @printf("Trotter is created.\n")
+    if domain == TrotterDomain()
+        trotter = create_trotter(hamiltonian, t0, num_trotter_steps_per_t0)
+        trotter_error_T = compute_trotter_error(hamiltonian, trotter, 2^num_energy_bits * t0 / 2)
+        gibbs_in_trotter = Hermitian(trotter.eigvecs' * gibbs_state(hamiltonian, beta) * trotter.eigvecs)
+        @printf("Trotter is created.\n")
+    else
+        trotter = nothing
+    end
 
     #* Jumps
     jump_paulis = [[X], [Y], [Z]]
 
     num_of_jumps = length(jump_paulis) * num_qubits
     jump_normalization = sqrt(num_of_jumps)
-    # jump_normalization = 1.0
     jumps::Vector{JumpOp} = []
     for pauli in jump_paulis
             for site in 1:num_qubits
@@ -106,7 +127,7 @@ function main()
     end
 
     #* Thermalization
-    alg_results = @time run_thermalization(jumps, config, initial_dm, hamiltonian)#; trotter=trotter)
+    alg_results = @time run_thermalization(jumps, config, initial_dm, hamiltonian; trotter=trotter)
     @printf("\n Last distance to Gibbs: %s\n", alg_results.distances_to_gibbs[end])
     @printf("Number of steps taken: %s\n", length(alg_results.time_steps))
     # plot(alg_results.time_steps, alg_results.distances_to_gibbs, label="Distance to Gibbs", xlabel="Time", ylabel="Distance", title="Distance to Gibbs over time")

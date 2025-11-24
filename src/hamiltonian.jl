@@ -16,12 +16,10 @@ function create_hamham(terms::Vector{Vector{Matrix{ComplexF64}}}, coeffs::Vector
         @assert ishermitian(rescaled_hamiltonian) "The resulting matrix is not Hermitian!"
     end
 
-    bohr_freqs = rescaled_eigvals .- transpose(rescaled_eigvals)
-
     hamiltonian = HamHam(
         rescaled_hamiltonian,
-        bohr_freqs,
-        create_bohr_dict(bohr_freqs),
+        nothing,
+        nothing,
         terms,
         rescaled_base_coeffs,
         nothing,  # disordering_terms absent
@@ -60,12 +58,10 @@ function create_hamham(terms::Vector{Vector{Matrix{ComplexF64}}}, coeffs::Vector
         @assert ishermitian(rescaled_hamiltonian) "The resulting matrix is not Hermitian!"
     end
 
-    bohr_freqs = rescaled_eigvals .- transpose(rescaled_eigvals)
-
     hamiltonian = HamHam(
         rescaled_hamiltonian,
-        bohr_freqs,
-        create_bohr_dict(bohr_freqs),
+        nothing,
+        nothing,
         terms,
         rescaled_base_coeffs,
         disordering_terms,
@@ -159,12 +155,10 @@ function find_ideal_heisenberg(num_qubits::Int64,
         error("Optimization failed to find a valid Hamiltonian")
     end
 
-    best_bohr_freqs = best_eigvals .- transpose(best_eigvals)
-
     return HamHam(
         best_ham_matrix,
-        best_bohr_freqs,
-        create_bohr_dict(best_bohr_freqs),
+        nothing,
+        nothing,
         terms,
         coeffs ./ best_rescaling_factor,
         disordering_term,
@@ -224,15 +218,20 @@ function rescaling_and_shift_factors(hamiltonian::Hermitian{ComplexF64, Matrix{C
     shift = - (largest_eigval - smallest_eigval * eps) / (2 * (largest_eigval - smallest_eigval)) + 0.5
     return rescaling_factor, shift
 end
+"""
+    Creates a new HamHam struct from an old one with `bohr_freqs`, `bohr_dict`, and `gibbs`
+    It copies only the pointers to previous fields, not the data themselves
+"""
+function finalize_hamham(hamiltonian::HamHam, beta::Float64)::HamHam
 
-function add_gibbs_to_hamham(hamiltonian::HamHam, beta::Float64)::HamHam
     gibbs_in_eigen = Hermitian(gibbs_state_in_eigen(hamiltonian, beta))
 
-    # Create a new HamHam with gibbs, it copies only the pointers to previous fields, not the data themselves.
+    bohr_freqs = hamiltonian.eigvals .- transpose(hamiltonian.eigvals)
+    
     return HamHam(
         hamiltonian.data,
-        hamiltonian.bohr_freqs,
-        hamiltonian.bohr_dict,
+        bohr_freqs,
+        create_bohr_dict(bohr_freqs),
         hamiltonian.base_terms,
         hamiltonian.base_coeffs,
         hamiltonian.disordering_term,

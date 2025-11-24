@@ -1,3 +1,4 @@
+#TODO: Moved to new folder, correct paths
 #!/bin/bash -l
 #SBATCH --job-name=quantum_oven
 #SBATCH --output=slurm_out/job-%j.out

@@ -129,8 +129,8 @@ end
 """
 struct HamHam
     data::Matrix{ComplexF64}
-    bohr_freqs::Matrix{Float64}
-    bohr_dict::Dict{Float64, Vector{CartesianIndex{2}}}
+    bohr_freqs::Union{Matrix{Float64}, Nothing}
+    bohr_dict::Union{Dict{Float64, Vector{CartesianIndex{2}}}, Nothing}
     base_terms::Vector{Vector{Matrix{ComplexF64}}}
     base_coeffs::Vector{Float64}
     disordering_term::Union{Vector{Matrix{ComplexF64}}, Nothing}
