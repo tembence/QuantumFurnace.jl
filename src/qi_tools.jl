@@ -15,7 +15,7 @@ function kron!(
     m_b, n_b = size(B)
     
     # This check is good for debugging but can be removed for performance
-    @assert size(C) == (m_a * m_b, n_a * n_b) "Output matrix C has incorrect dimensions."
+    # @assert size(C) == (m_a * m_b, n_a * n_b) "Output matrix C has incorrect dimensions."
 
     for j in 1:n_a
         for i in 1:m_a
@@ -28,10 +28,11 @@ function kron!(
             c_col_offset = (j - 1) * n_b
             
             # Iterate over the B matrix
+            val = alpha * a_ij
             for l in 1:n_b
                 for k in 1:m_b
                     # C[block_row, block_col] += alpha * A[i,j] * B[k,l]
-                    @inbounds C[c_row_offset + k, c_col_offset + l] += alpha * a_ij * B[k, l]
+                    @inbounds C[c_row_offset + k, c_col_offset + l] += val * B[k, l]
                 end
             end
         end
@@ -52,13 +53,13 @@ function vectorize_liouv_diss_and_add!(
     scalar::Number
 )
     dim = size(jump, 1)
-    spI = sparse(I, dim, dim)
+    Id = Matrix{ComplexF64}(I, dim, dim)
 
     kron!(L_target, jump, conj(jump), scalar)
 
     jump_dag_jump = jump' * jump
-    kron!(L_target, jump_dag_jump, spI, -0.5 * scalar)
-    kron!(L_target, spI, transpose(jump_dag_jump), -0.5 * scalar)
+    kron!(L_target, jump_dag_jump, Id, -0.5 * scalar)
+    kron!(L_target, Id, transpose(jump_dag_jump), -0.5 * scalar)
     
     return L_target
 end
@@ -70,13 +71,13 @@ function vectorize_liouv_diss_and_add!(
     scalar::Number
 )
     dim = size(jump_1, 1)
-    spI = sparse(I, dim, dim)
+    Id = Matrix{ComplexF64}(I, dim, dim)
 
     kron!(L_target, jump_1, transpose(jump_2), scalar)
 
     jump_2_jump_1 = jump_2 * jump_1
-    kron!(L_target, jump_2_jump_1, spI, -0.5 * scalar)
-    kron!(L_target, spI, transpose(jump_2_jump_1), -0.5 * scalar)
+    kron!(L_target, jump_2_jump_1, Id, -0.5 * scalar)
+    kron!(L_target, Id, transpose(jump_2_jump_1), -0.5 * scalar)
     
     return L_target
 end
@@ -86,45 +87,47 @@ function vectorize_liouvillian_coherent!(
     coherent_term::AbstractMatrix{ComplexF64})
 
     dim = size(coherent_term)[1]
-    spI = sparse(I, dim, dim)
+    Id = Matrix{ComplexF64}(I, dim, dim)
 
-    kron!(L_target, coherent_term, spI, -1im)
-    kron!(L_target, spI, transpose(coherent_term), +1im)
+    kron!(L_target, coherent_term, Id, -1im)
+    kron!(L_target, Id, transpose(coherent_term), +1im)
     return L_target
 end
 
 function vectorize_liouvillian_diss(jump::AbstractMatrix{ComplexF64})
     dim = size(jump, 1)
-    spI = sparse(I, dim, dim)
+    Id = Matrix{ComplexF64}(I, dim, dim)
 
     vectorized_liouv = zeros(ComplexF64, dim^2, dim^2)
     jump_dag_jump = jump' * jump
 
     # Watrous
-    vectorized_liouv .+= kron(jump, conj(jump)) - 0.5 * (kron(jump_dag_jump, spI) + kron(spI, transpose(jump_dag_jump))) 
+    vectorized_liouv .+= kron(jump, conj(jump)) - 0.5 * (kron(jump_dag_jump, Id) + kron(Id, transpose(jump_dag_jump))) 
     return vectorized_liouv
 end
 
 function vectorize_liouvillian_diss(jump_1::AbstractMatrix{ComplexF64}, jump_2::AbstractMatrix{ComplexF64})
     dim = size(jump_1, 1)
-    spI = sparse(I, dim, dim)
+    Id = Matrix{ComplexF64}(I, dim, dim)
 
     vectorized_liouv = zeros(ComplexF64, dim^2, dim^2)
     jump_2_jump_1 = jump_2 * jump_1
 
     # Watrous
-    vectorized_liouv .+= kron(jump_1, transpose(jump_2)) - 0.5 * (kron(jump_2_jump_1, spI) + kron(spI, transpose(jump_2_jump_1))) 
+    vectorized_liouv .+= kron(jump_1, transpose(jump_2)) - 0.5 * (kron(jump_2_jump_1, Id) + kron(Id, transpose(jump_2_jump_1))) 
     return vectorized_liouv
 end
 
 function vectorize_liouvillian_coherent(coherent_term::AbstractMatrix{ComplexF64})
     dim = size(coherent_term)[1]
-    spI = sparse(I, dim, dim)
-    vectorized_coherent_part = -1im *(kron(coherent_term, spI) - kron(spI, transpose(coherent_term)))
+    Id = Matrix{ComplexF64}(I, dim, dim)
+
+    vectorized_coherent_part = -1im *(kron(coherent_term, Id) - kron(Id, transpose(coherent_term)))
 
     return vectorized_coherent_part
 end
 
+### ----------------------------- 
 function trace_distance_h(rho::Union{Hermitian{<:Real}, Hermitian{<:Complex}}, 
     sigma::Union{Hermitian{<:Real}, Hermitian{<:Complex}})
     """Qutip apparently uses some sparse eigval solver, but let's go with the dense one for now."""

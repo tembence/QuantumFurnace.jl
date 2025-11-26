@@ -22,6 +22,8 @@ export run_liouvillian, run_thermalization
 export generate_filename, validate_config!, create_trotter, compute_trotter_error, gibbs_state, gibbs_state_in_eigen,
        create_bohr_dict, pad_term, pick_transition, create_hamham, find_ideal_heisenberg, create_alpha, expm_pauli_padded, 
        finalize_hamham
+       add_gibbs_to_hamham
+export KrausFramework, build_krausframework
 export X, Y, Z, id, Had
 
 # --- Internal Implementation ---
@@ -39,6 +41,7 @@ include("energy_domain.jl")
 include("time_domain.jl")
 include("timelike_tools.jl")
 include("trotter_domain.jl")
+include("trajectories.jl")
 include("oven_utensils.jl")
 include("oven.jl")
 
