@@ -68,11 +68,14 @@ export Workspace, LiouvillianScratch, ThermalizeScratch, KrylovScratch
 export AbstractResults, save_result, load_result
 export BohrDomain, EnergyDomain, TimeDomain, TrotterDomain
 export HamHam, AbstractTrotter, TrottTrott, TrotterTriple, JumpOp
+export LocalTerm1D, LocalHamiltonian1D, LocalJump1D, LocalDLLBlock1D
 export trace_distance_h, trace_distance_nh, trace_norm_h, trace_norm_nh,
        fidelity, is_density_matrix, random_density_matrix,
        hermitianize!, validate_jump_pairing
 export gibbs_state, gibbs_state_in_eigen,
-       build_heis_1d, build_tfim_2d, load_hamiltonian,
+       build_heis_1d, build_local_heis_1d, build_tfim_2d, load_hamiltonian,
+       materialize_local_hamiltonian, materialize_local_jump,
+       local_pauli_jumps_1d, validate_local_dll_tensor_network,
        create_bohr_dict, compute_trotter_error, make_trotter_for_config
 # Physical and algorithm-side inverse-temperature conversion.
 export beta_alg, beta_phys
@@ -159,6 +162,7 @@ include("bohr_domain.jl")
 include("coherent.jl")
 include("dll.jl")
 include("dll_multichannel.jl")
+include("local_models_1d.jl")
 include("config_validation.jl")
 include("jump_workers.jl")
 include("channel_construction.jl")

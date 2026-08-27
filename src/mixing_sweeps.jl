@@ -974,12 +974,11 @@ function sweep_channel_mixing(
     return results
 end
 
-# Build the standard normalised CKG Pauli jump set in a chosen working basis.
+# Materialise the standard normalised local Pauli sources in a chosen basis.
 function _jumps_in_basis(num_qubits::Integer, basis_eigvecs::AbstractMatrix)
     jumps = JumpOp[]
-    jump_norm = sqrt(3 * num_qubits)
-    for pauli in (X, Y, Z), site in 1:num_qubits
-        op = Matrix(pad_term([pauli], num_qubits, site)) ./ jump_norm
+    for local_jump in local_pauli_jumps_1d(num_qubits)
+        op = Matrix(materialize_local_jump(local_jump))
         op_eb = basis_eigvecs' * op * basis_eigvecs
         push!(jumps, JumpOp(op, op_eb, op == transpose(op), op == op'))
     end

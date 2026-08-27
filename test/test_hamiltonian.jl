@@ -78,6 +78,8 @@ using Statistics: median
     @testset "build_heis_1d: returns a valid raw NamedTuple" begin
         raw = build_heis_1d(3, [1.0, 1.0, 1.0]; seed=20260515,
             disordering_terms=Vector{Matrix{ComplexF64}}[[Z]], disorder_strength=1.0)
+        local_ham = build_local_heis_1d(3, [1.0, 1.0, 1.0]; seed=20260515,
+            disordering_terms=Vector{Matrix{ComplexF64}}[[Z]], disorder_strength=1.0)
         @test raw.nu_min > 0
         @test size(raw.matrix) == (8, 8)
         @test size(raw.eigvecs) == (8, 8)
@@ -91,6 +93,10 @@ using Statistics: median
         @test minimum(raw.eigvals) ≥ -1e-10
         @test maximum(raw.eigvals) ≤ 0.45 + 1e-10
         @test isapprox(raw.matrix, raw.matrix'; atol=1e-12)
+        @test local_ham isa LocalHamiltonian1D{Float64}
+        @test local_ham.coordinate_frame == :physical
+        @test !hasfield(typeof(local_ham), :matrix)
+        @test !hasfield(typeof(local_ham), :eigvals)
     end
 
     @testset "build_heis_1d: HamHam wrap end-to-end (extra fields ignored)" begin

@@ -108,8 +108,16 @@ end
             Random.seed!(91)
             raw_obc = build_heis_1d(n, HEIS_COEFFS; seed=91, 
                 disordering_terms=dis_terms, disorder_strength=1.0, periodic=false)
+            local_pbc = build_local_heis_1d(n, HEIS_COEFFS; seed=91,
+                disordering_terms=dis_terms, disorder_strength=1.0, periodic=true)
+            local_obc = build_local_heis_1d(n, HEIS_COEFFS; seed=91,
+                disordering_terms=dis_terms, disorder_strength=1.0, periodic=false)
             @test raw_pbc.periodic === true
             @test raw_obc.periodic === false
+            @test local_pbc.boundary == :periodic
+            @test local_obc.boundary == :open
+            @test any(term -> term.wraps_boundary, local_pbc.terms)
+            @test all(term -> !term.wraps_boundary, local_obc.terms)
             @test !isapprox(raw_pbc.matrix, raw_obc.matrix; atol=1e-8)
             # Both must be Hermitian rescaled Hamiltonians
             @test isapprox(raw_pbc.matrix, raw_pbc.matrix'; atol=1e-12)

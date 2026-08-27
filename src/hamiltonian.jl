@@ -501,28 +501,21 @@ function build_heis_1d(num_qubits::Int, coeffs::Vector{Float64};
         periodic::Bool=true,
         disordering_terms::Vector{Vector{Matrix{ComplexF64}}}=Vector{Matrix{ComplexF64}}[[Z], [Z, Z]],
         disorder_strength::Float64=0.1)
-
-    num_qubits >= 2 || throw(ArgumentError(
-        "build_heis_1d requires at least two qubits, got $num_qubits."))
-    length(coeffs) == 3 || throw(ArgumentError(
-        "build_heis_1d requires exactly [J_x, J_y, J_z], got $(length(coeffs)) coefficients."))
-    all(isfinite, coeffs) || throw(ArgumentError("Heisenberg couplings must be finite."))
-    isfinite(disorder_strength) && disorder_strength >= 0 || throw(ArgumentError(
-        "disorder_strength must be finite and >= 0."))
-    _validate_local_terms(disordering_terms, num_qubits;
-        max_support=2, require_involution=true)
-
-    base_terms = Vector{Matrix{ComplexF64}}[[X, X], [Y, Y], [Z, Z]]
-    base_hamiltonian = _construct_base_ham(base_terms, coeffs, num_qubits; periodic=periodic)
-
-    rng = MersenneTwister(seed)
-    sample_coeffs = [zeros(Float64, num_qubits) for _ in disordering_terms]
-    for dc in sample_coeffs
-        rand!(rng, dc)
-        dc .*= disorder_strength
-    end
-    disordering_ham = _construct_disordering_terms(disordering_terms, sample_coeffs, num_qubits;
-        periodic=periodic)
+    specification = _build_local_heis_1d_specification(
+        num_qubits,
+        coeffs;
+        seed=seed,
+        periodic=periodic,
+        disordering_terms=disordering_terms,
+        disorder_strength=disorder_strength,
+    )
+    local_hamiltonian = specification.hamiltonian
+    base_term_count = specification.base_term_count
+    local_terms = _local_terms(local_hamiltonian)
+    base_hamiltonian = _materialize_local_terms_1d(
+        local_terms[1:base_term_count], num_qubits, 2)
+    disordering_ham = _materialize_local_terms_1d(
+        local_terms[(base_term_count + 1):end], num_qubits, 2)
 
     total_ham = Hermitian(Matrix(base_hamiltonian) + Matrix(disordering_ham))
     rescaled_hamiltonian, rescaling_factor, shift = _rescale_hamiltonian(total_ham)
@@ -532,10 +525,10 @@ function build_heis_1d(num_qubits::Int, coeffs::Vector{Float64};
 
     return (
         matrix = rescaled_ham,
-        terms = base_terms,
+        terms = specification.base_patterns,
         base_coeffs = coeffs ./ rescaling_factor,
-        disordering_terms = disordering_terms,
-        disordering_coeffs = [dc ./ rescaling_factor for dc in sample_coeffs],
+        disordering_terms = specification.disordering_terms,
+        disordering_coeffs = [dc ./ rescaling_factor for dc in specification.disordering_coeffs],
         eigvals = rescaled_eigvals,
         eigvecs = rescaled_eigvecs,
         nu_min = nu_min,
