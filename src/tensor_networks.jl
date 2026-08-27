@@ -39,6 +39,16 @@ Core declares the function without importing a backend package.
 function build_dll_parent end
 
 """
+    build_dll_bohr_mpo(args...; kwargs...)
+
+Build the backend-specific Bohr functional-calculus data used to assemble a
+DLL parent. Core declares the function without importing a tensor-network
+package; supported targets and approximation guarantees are determined by the
+loaded backend method.
+"""
+function build_dll_bohr_mpo end
+
+"""
     prepare_gibbs_purification(args...; kwargs...)
 
 Prepare an equilibrium purification independently of the DLL parent through

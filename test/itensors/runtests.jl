@@ -136,3 +136,4 @@ end
 include("test_conventions.jl")
 include("test_exact_dll_parent.jl")
 include("test_exact_dll_dmrg.jl")
+include("test_bohr_mpo.jl")

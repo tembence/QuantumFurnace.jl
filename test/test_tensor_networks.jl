@@ -64,6 +64,7 @@
         @test !("ITensors" in loaded_packages)
         @test !("ITensorMPS" in loaded_packages)
         @test length(methods(build_dll_parent)) == 0
+        @test length(methods(build_dll_bohr_mpo)) == 0
         @test length(methods(prepare_gibbs_purification)) == 0
         @test length(methods(solve_dll_parent_gap)) == 0
         @test length(methods(verify_dll_parent)) == 0

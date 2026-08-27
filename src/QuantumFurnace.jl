@@ -79,8 +79,9 @@ export DLLParentBundle, DLLParentLowEnergyState, DLLParentDiagnostics,
        DLLTensorNetworkResult
 export DLL_PARENT_TARGET_LABELS, DLL_PARENT_GAP_LABELS,
        DLL_KERNEL_EVIDENCE_LABELS, PARENT_ERROR_EVIDENCE_LABELS
-export build_dll_parent, prepare_gibbs_purification, solve_dll_parent_gap,
-       verify_dll_parent, validate_dll_tensor_network, dll_parent_provenance
+export build_dll_parent, build_dll_bohr_mpo, prepare_gibbs_purification,
+       solve_dll_parent_gap, verify_dll_parent, validate_dll_tensor_network,
+       dll_parent_provenance
 export dll_gaussian_chebyshev_data, evaluate_bohr_chebyshev,
        apply_bohr_chebyshev, apply_dll_gaussian_chebyshev,
        exact_dll_bohr_patch, approximate_dll_bohr_patch
