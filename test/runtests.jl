@@ -54,6 +54,7 @@ const SANDBOX_FILES = String[
     "test_dll_kms_db.jl",
     "test_dll_kms_db_sandbox.jl",
     "test_discriminant.jl",
+    "test_dll_parent.jl",
     "test_superop_distance.jl",
     "test_slow_subspace_distance.jl",
     "test_sweep_channel_mixing.jl",

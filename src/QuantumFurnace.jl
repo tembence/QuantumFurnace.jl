@@ -46,10 +46,12 @@ export EigenDecompositionResult, FixedPointResult, DefectResult, OverlapResult,
 export SpectralModeDiagnostics, spectral_mode_diagnostics
 
 # --- Discriminant ---
-export DiscriminantBuffers, gibbs_fractional_powers, apply_discriminant!
-export materialize_discriminant, materialize_discriminant!,
+export DiscriminantBuffers, gibbs_fractional_powers,
+       apply_discriminant!, apply_kms_parent!
+export materialize_discriminant, materialize_discriminant!, materialize_kms_parent,
        hermitian_antihermitian_split, hermitian_antihermitian_split!
 export DiscriminantSpectrum, discriminant_spectrum
+export KMSParentSpectrum, kms_parent_spectrum
 export DBVerificationResult, verify_detailed_balance
 
 # --- KMS geometry diagnostics ---
@@ -104,6 +106,10 @@ export dll_coherent_op_bohr, dll_coherent_op_time
 
 # --- DLL Kossakowski representation ---
 export dll_kossakowski_bohr
+
+# --- Exact dense DLL parent reference ---
+export DenseDLLParentBlock, DLLIrreducibilityResult, DenseDLLParent
+export dense_dll_parent_block, dense_dll_irreducibility, dense_dll_parent
 
 # --- Lindbladian integration ---
 export lindblad_action_integrate, discriminant_action_integrate, integrate_to_gibbs, sweep_mixing_times
@@ -163,6 +169,7 @@ include("krylov_matvec.jl")
 include("krylov_eigsolve.jl")
 include("diagnostics.jl")
 include("discriminant.jl")
+include("dll_parent.jl")
 include("kms_geometry.jl")
 include("lindblad_dynamics.jl")
 include("krylov_dynamics.jl")

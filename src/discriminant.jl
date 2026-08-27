@@ -166,6 +166,33 @@ function apply_discriminant!(
 end
 
 """
+    apply_kms_parent!(out, X, lindblad_action!, sigma_quarter,
+                      sigma_inv_quarter, buffers)
+
+Apply the positive KMS parent `K = -D` without materialising a
+superoperator. The implementation delegates to [`apply_discriminant!`](@ref)
+and applies one global minus sign to its output.
+
+# Returns
+`out`.
+"""
+function apply_kms_parent!(
+    out::AbstractMatrix{T},
+    X::AbstractMatrix{T},
+    lindblad_action!::F,
+    sigma_quarter::AbstractVector{<:Real},
+    sigma_inv_quarter::AbstractVector{<:Real},
+    buffers::DiscriminantBuffers{T},
+) where {T<:Complex, F}
+    apply_discriminant!(
+        out, X, lindblad_action!, sigma_quarter, sigma_inv_quarter, buffers)
+    @inbounds for index in eachindex(out)
+        out[index] = -out[index]
+    end
+    return out
+end
+
+"""
     materialize_discriminant!(D, L, sigma_quarter, sigma_inv_quarter)
     materialize_discriminant!(D, L, gibbs)
 
@@ -240,6 +267,27 @@ function materialize_discriminant(
 end
 
 """
+    materialize_kms_parent(L, gibbs; atol=nothing, rtol=nothing) -> Matrix
+
+Allocate and return the positive KMS parent `K = -D` associated with a dense
+Lindbladian. This is a sign-safe wrapper around
+[`materialize_discriminant`](@ref); it does not independently reimplement the
+Gibbs similarity transform.
+"""
+function materialize_kms_parent(
+    L::AbstractMatrix{T},
+    gibbs::AbstractMatrix{<:Number};
+    atol::Union{Nothing, Real} = nothing,
+    rtol::Union{Nothing, Real} = nothing,
+) where {T<:Complex}
+    parent = materialize_discriminant(L, gibbs; atol = atol, rtol = rtol)
+    @inbounds for index in eachindex(parent)
+        parent[index] = -parent[index]
+    end
+    return parent
+end
+
+"""
     hermitian_antihermitian_split(D::AbstractMatrix) -> (H, A)
     hermitian_antihermitian_split!(H, A, D)
 
@@ -295,6 +343,120 @@ struct DiscriminantSpectrum
     H_eigenvalues::Vector{Float64}
     H_gap::Float64
     n_modes::Int
+end
+
+"""
+    KMSParentSpectrum{T<:AbstractFloat}
+
+Complete dense diagnostics for a positive KMS parent.
+
+# Fields
+- `eigenvalues`: All eigenvalues of the Hermitian part, in ascending order.
+- `kernel_tolerance`: Absolute tolerance used to identify the numerical kernel.
+- `hermiticity_tolerance`: Dimensionless tolerance for `hermiticity_defect`.
+- `kernel_count`: Complete numerical kernel dimension at that tolerance.
+- `first_positive_eigenvalue`: Smallest eigenvalue above the kernel tolerance,
+  or `nothing` when no positive eigenvalue is present.
+- `hermiticity_defect`: Relative operator-norm defect
+  `opnorm(K-K') / (2opnorm(K))`.
+- `minimum_eigenvalue`: Smallest eigenvalue of the Hermitian part.
+- `gibbs_residual`: `norm(K * vec(sqrt(gibbs)))`.
+- `primitivity_established`: Whether an independent irreducibility witness was
+  supplied and the dense kernel, positivity, Hermiticity, and Gibbs-residual
+  gates all pass.
+"""
+struct KMSParentSpectrum{T<:AbstractFloat}
+    eigenvalues::Vector{T}
+    kernel_tolerance::T
+    hermiticity_tolerance::T
+    kernel_count::Int
+    first_positive_eigenvalue::Union{Nothing, T}
+    hermiticity_defect::T
+    minimum_eigenvalue::T
+    gibbs_residual::T
+    primitivity_established::Bool
+end
+
+"""
+    kms_parent_spectrum(parent, gibbs;
+                        kernel_tolerance=nothing,
+                        hermiticity_tolerance=nothing,
+                        irreducibility_established=false) -> KMSParentSpectrum
+
+Compute the complete small-system spectrum and kernel diagnostics of a dense
+KMS parent. `irreducibility_established=true` must come from an independent
+finite-size certificate, such as [`dense_dll_irreducibility`](@ref); the flag
+alone cannot override a degenerate numerical kernel or failed structural gate.
+"""
+function kms_parent_spectrum(
+    parent::AbstractMatrix{Complex{T}},
+    gibbs::AbstractMatrix{<:Number};
+    kernel_tolerance::Union{Nothing, Real} = nothing,
+    hermiticity_tolerance::Union{Nothing, Real} = nothing,
+    irreducibility_established::Bool = false,
+) where {T<:AbstractFloat}
+    n = size(parent, 1)
+    size(parent, 2) == n || throw(ArgumentError("parent must be square."))
+    d = size(gibbs, 1)
+    size(gibbs, 2) == d || throw(ArgumentError("Gibbs state must be square."))
+    n == d^2 || throw(ArgumentError(
+        "parent must have size ($(d^2), $(d^2)) for Gibbs dimension $d, " *
+        "got $(size(parent))."))
+    all(isfinite, parent) || throw(ArgumentError(
+        "parent must contain only finite values."))
+
+    powers = gibbs_fractional_powers(gibbs)
+    parent_norm = T(opnorm(parent))
+    scale = max(parent_norm, one(T))
+    tolerance = if kernel_tolerance === nothing
+        T(100) * T(n) * eps(T) * scale
+    else
+        value = T(kernel_tolerance)
+        isfinite(value) && value >= zero(T) || throw(ArgumentError(
+            "kernel_tolerance must be finite and >= 0."))
+        value
+    end
+    hermiticity_tol = if hermiticity_tolerance === nothing
+        T(100) * T(n) * eps(T)
+    else
+        value = T(hermiticity_tolerance)
+        isfinite(value) && value >= zero(T) || throw(ArgumentError(
+            "hermiticity_tolerance must be finite and >= 0."))
+        value
+    end
+
+    hermiticity_defect = T(opnorm(parent - parent')) /
+                          max(T(2) * parent_norm, eps(T))
+    hermitian_parent = Hermitian((parent + parent') / T(2))
+    eigenvalues = Vector{T}(eigvals(hermitian_parent))
+    kernel_count = count(value -> abs(value) <= tolerance, eigenvalues)
+    positive_indices = findall(value -> value > tolerance, eigenvalues)
+    first_positive = isempty(positive_indices) ? nothing :
+                     eigenvalues[first(positive_indices)]
+
+    witness = zeros(Complex{T}, n)
+    @inbounds for index in 1:d
+        witness[(index - 1) * d + index] = T(powers.sigma_half[index])
+    end
+    gibbs_residual = T(norm(parent * witness))
+    minimum_eigenvalue = first(eigenvalues)
+    primitivity_established = irreducibility_established &&
+                              kernel_count == 1 &&
+                              hermiticity_defect <= hermiticity_tol &&
+                              minimum_eigenvalue >= -tolerance &&
+                              gibbs_residual <= tolerance
+
+    return KMSParentSpectrum{T}(
+        eigenvalues,
+        tolerance,
+        hermiticity_tol,
+        kernel_count,
+        first_positive,
+        hermiticity_defect,
+        minimum_eigenvalue,
+        gibbs_residual,
+        primitivity_established,
+    )
 end
 
 """

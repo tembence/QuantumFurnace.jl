@@ -406,7 +406,7 @@ summing the operators first would introduce cross terms.
 function dll_lindblad_op_bohr(
     jump::JumpOp,
     hamiltonian::HamHam{T},
-    filter::DLLMultiChannelFilter{T},
+    filter::DLLMultiChannelFilter,
 ) where {T<:AbstractFloat}
     _require_admissible_dll_filter(filter)
     return [dll_lindblad_op_bohr(jump, hamiltonian, c) for c in filter.channels]
@@ -441,7 +441,7 @@ Construct the sum of the channels' Bohr-domain coherent operators.
 function dll_coherent_op_bohr(
     jumps::AbstractVector{<:JumpOp},
     hamiltonian::HamHam{T},
-    filter::DLLMultiChannelFilter{T},
+    filter::DLLMultiChannelFilter,
     beta::Real,
 ) where {T<:AbstractFloat}
     _require_admissible_dll_filter(filter; beta=beta)

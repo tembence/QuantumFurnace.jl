@@ -97,6 +97,38 @@ using LinearAlgebra: mul!
         @test isapprox(out, ref_h; atol=TOL_EXACT, rtol=TOL_EXACT)
     end
 
+    @testset "apply_kms_parent! applies exactly the parent sign" begin
+        config = make_config(Lindbladian(), BohrDomain();
+                             num_qubits=3, construction=KMS())
+        L_dense = Matrix{ComplexF64}(
+            construct_lindbladian(N3_JUMPS, config, N3_HAM))
+        powers = gibbs_fractional_powers(N3_GIBBS)
+        function lindblad_action!(out_mat, in_mat)
+            mul!(vec(out_mat), L_dense, vec(in_mat))
+            return out_mat
+        end
+
+        rng = MersenneTwister(0x51A6)
+        X = randn(rng, ComplexF64, N3_DIM, N3_DIM)
+        out = similar(X)
+        buffers = DiscriminantBuffers(N3_DIM)
+        returned = apply_kms_parent!(
+            out,
+            X,
+            lindblad_action!,
+            powers.sigma_quarter,
+            powers.sigma_inv_quarter,
+            buffers,
+        )
+        reference = -reshape(
+            materialize_discriminant(L_dense, N3_GIBBS) * vec(X),
+            N3_DIM,
+            N3_DIM,
+        )
+        @test returned === out
+        @test isapprox(out, reference; atol=TOL_EXACT, rtol=TOL_EXACT)
+    end
+
     # -----------------------------------------------------------------------
     # apply_discriminant!: zero allocations in the body itself
     # -----------------------------------------------------------------------
@@ -140,11 +172,40 @@ using LinearAlgebra: mul!
         D_new = materialize_discriminant(L_dense, N3_GIBBS)
         @test isapprox(D_new, D_ref; atol=TOL_EXACT, rtol=TOL_EXACT)
 
+        K = materialize_kms_parent(L_dense, N3_GIBBS)
+        @test isapprox(K, -D_new; atol=TOL_EXACT, rtol=TOL_EXACT)
+        parent_spec = kms_parent_spectrum(K, N3_GIBBS)
+        @test parent_spec isa KMSParentSpectrum{Float64}
+        @test parent_spec.kernel_count == 1
+        @test parent_spec.first_positive_eigenvalue !== nothing
+        @test parent_spec.hermiticity_defect <= parent_spec.hermiticity_tolerance
+        @test parent_spec.minimum_eigenvalue >= -parent_spec.kernel_tolerance
+        @test parent_spec.gibbs_residual <= parent_spec.kernel_tolerance
+        @test !parent_spec.primitivity_established
+
         # In-place form writes into the supplied buffer.
         D_buf = similar(L_dense)
         materialize_discriminant!(D_buf, L_dense, N3_GIBBS)
         @test D_buf === materialize_discriminant!(D_buf, L_dense, N3_GIBBS)
         @test isapprox(D_buf, D_ref; atol=TOL_EXACT, rtol=TOL_EXACT)
+    end
+
+    @testset "parent Hermiticity gate is scale independent" begin
+        gibbs = Matrix{ComplexF64}(I, 2, 2) / 2
+        witness = ComplexF64[inv(sqrt(2)), 0, 0, inv(sqrt(2))]
+        complement = Matrix{ComplexF64}(I, 4, 4) - witness * witness'
+        # The large clock makes the absolute kernel tolerance O(10^2), while
+        # the anti-Hermitian defect remains a dimensionless O(10^-2).
+        nonhermitian = 1e14 .* ((1 + 0.05im) .* complement)
+        result = kms_parent_spectrum(
+            nonhermitian,
+            gibbs;
+            irreducibility_established=true,
+        )
+        @test result.kernel_count == 1
+        @test result.hermiticity_defect > 0.04
+        @test result.hermiticity_defect > result.hermiticity_tolerance
+        @test !result.primitivity_established
     end
 
     # -----------------------------------------------------------------------
