@@ -31,6 +31,8 @@ const SANDBOX_FILES = String[
     "test_boundary_conditions.jl",
     "test_local_models_1d.jl",
     "test_tensor_networks.jl",
+    "test_bohr_functional_calculus.jl",
+    "test_dll_parent_patches.jl",
     "test_trotter_caches.jl",
     "test_cptp.jl",
     "test_dm_detailed_balance.jl",
