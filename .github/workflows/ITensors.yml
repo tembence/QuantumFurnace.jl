@@ -1,0 +1,58 @@
+name: ITensors Extension
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: itensors-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Julia ${{ matrix.julia-version }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        julia-version: ['1.10', '1.12']
+    env:
+      JULIA_NUM_THREADS: 4
+      JULIA_NUM_PRECOMPILE_TASKS: 1
+      OPENBLAS_NUM_THREADS: 1
+    steps:
+      - uses: actions/checkout@v4
+      - uses: julia-actions/setup-julia@v2
+        with:
+          version: ${{ matrix.julia-version }}
+      - uses: julia-actions/cache@v2
+      - name: Select dependencies for this Julia version
+        run: rm -f Manifest.toml test/itensors/Manifest.toml
+      - name: Verify core optional-dependency isolation
+        run: >-
+          julia --project --startup-file=no -e
+          'using Pkg, UUIDs;
+          Pkg.instantiate();
+          dependencies = Pkg.dependencies();
+          @assert !haskey(dependencies, UUID("9136182c-28ba-11e9-034c-db9fb085ebd5"));
+          @assert !haskey(dependencies, UUID("0d1a4710-d33b-49a5-8f18-73bdf49b47e2"));
+          using QuantumFurnace;
+          @assert Base.get_extension(QuantumFurnace, :QuantumFurnaceITensorsExt) === nothing;
+          loaded = Set(package.name for package in keys(Base.loaded_modules));
+          @assert !("ITensors" in loaded);
+          @assert !("ITensorMPS" in loaded)'
+      - name: Instantiate optional test environment
+        run: >-
+          julia --project=test/itensors --startup-file=no -e
+          'using Pkg;
+          Pkg.develop(PackageSpec(path=pwd()));
+          Pkg.instantiate()'
+      - name: Run ITensors extension tests
+        run: >-
+          julia --project=test/itensors --startup-file=no
+          test/itensors/runtests.jl

@@ -2,7 +2,7 @@
 
 julia_version = "1.12.5"
 manifest_format = "2.0"
-project_hash = "bd85c66a739750f94b303d6653f13c67dcc71677"
+project_hash = "046bbc90c5df02adb424649aba44e0e94d4a00d3"
 
 [[deps.ADTypes]]
 git-tree-sha1 = "f7304359109c768cf32dc5fa2d371565bb63b68a"
@@ -653,6 +653,13 @@ deps = ["Arpack", "BSON", "BenchmarkTools", "DataStructures", "Dates", "FINUFFT"
 path = "."
 uuid = "572f92bd-4202-48dc-8017-a9da11cbf84d"
 version = "0.1.0"
+
+    [deps.QuantumFurnace.extensions]
+    QuantumFurnaceITensorsExt = ["ITensors", "ITensorMPS"]
+
+    [deps.QuantumFurnace.weakdeps]
+    ITensorMPS = "0d1a4710-d33b-49a5-8f18-73bdf49b47e2"
+    ITensors = "9136182c-28ba-11e9-034c-db9fb085ebd5"
 
 [[deps.Random]]
 deps = ["SHA"]
