@@ -217,6 +217,7 @@ function validate_config!(
 
     # --- Domain-Specific Validation ---
     _collect_config_errors!(errors, config)
+    _collect_simulation_errors!(errors, config)
 
     # --- Common Validation Logic ---
     # GNS coherent check removed: type system enforces with_coherent(::GNS) = false via trait.
@@ -342,6 +343,27 @@ function validate_config!(
     return nothing
 end
 
+_collect_simulation_errors!(::Vector{String}, ::Config) = nothing
+
+function _collect_simulation_errors!(
+    errors::Vector{String},
+    config::Config{TensorNetworkSpectrum},
+)
+    config.domain isa BohrDomain || push!(errors,
+        "TensorNetworkSpectrum requires BohrDomain as the exact mathematical target.")
+    config.construction isa DLL || push!(errors,
+        "TensorNetworkSpectrum currently supports only the DLL construction.")
+    with_coherent(config.construction) || push!(errors,
+        "TensorNetworkSpectrum requires the complete coherent correction.")
+    config.beta_phys === nothing && push!(errors,
+        "TensorNetworkSpectrum requires beta_phys so physical and algorithm frames are both explicit.")
+    config.mixing_time === nothing || push!(errors,
+        "TensorNetworkSpectrum does not accept mixing_time; it solves a parent spectrum, not a trajectory.")
+    config.delta === nothing || push!(errors,
+        "TensorNetworkSpectrum does not accept delta; it solves a parent spectrum, not a channel.")
+    return nothing
+end
+
 """
     validate_config!(config::Config, ham::HamHam; atol=1e-12, rtol=1e-10)
 
@@ -394,6 +416,41 @@ function validate_config!(
                 "ham.gibbs was cached at a beta_alg different from config.beta=$(config.beta). " *
                 "Reconstruct HamHam with the same beta before building dynamics."))
     end
+    return nothing
+end
+
+"""
+    validate_config!(config::Config{TensorNetworkSpectrum}, hamiltonian::LocalHamiltonian1D)
+
+Validate the tensor-network configuration against a backend-neutral local
+Hamiltonian. Both inverse temperatures are mandatory. A physical-frame
+`LocalHamiltonian1D` uses the physical Hamiltonian as the active calculation
+coordinate and therefore has `rescaling_factor == 1` and
+`beta_alg == beta_phys`. A nontrivial physical-to-algorithm scale is represented
+by converting the local Hamiltonian to algorithm coordinates, where
+`beta_alg == beta_phys * rescaling_factor`.
+"""
+function validate_config!(
+    config::Config{TensorNetworkSpectrum},
+    hamiltonian::LocalHamiltonian1D;
+    atol::Real = 1e-12,
+    rtol::Real = 1e-10,
+)
+    validate_config!(config)
+    _validate_local_hamiltonian_integrity(hamiltonian)
+    config.num_qubits == hamiltonian.num_sites || throw(ArgumentError(
+        "config.num_qubits=$(config.num_qubits) does not match the local chain " *
+        "length $(hamiltonian.num_sites)."))
+
+    beta_phys_value = config.beta_phys
+    beta_phys_value === nothing && throw(ArgumentError(
+        "TensorNetworkSpectrum requires beta_phys."))
+    expected_beta_alg = beta_phys_value * hamiltonian.rescaling_factor
+    isapprox(config.beta, expected_beta_alg; atol=atol, rtol=rtol) ||
+        throw(ArgumentError(
+            "Inconsistent tensor-network temperature frames: beta_phys=$(beta_phys_value) " *
+            "and rescaling_factor=$(hamiltonian.rescaling_factor) imply " *
+            "beta_alg=$(expected_beta_alg), but Config.beta=$(config.beta)."))
     return nothing
 end
 

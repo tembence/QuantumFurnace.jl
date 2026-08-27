@@ -18,6 +18,8 @@ struct Lindbladian    <: AbstractSimulation end
 struct Thermalize     <: AbstractSimulation end
 """Matrix-free Krylov spectral mode."""
 struct KrylovSpectrum <: AbstractSimulation end
+"""Tensor-network parent-spectrum simulation mode."""
+struct TensorNetworkSpectrum <: AbstractSimulation end
 
 """Supertype for detailed-balance constructions."""
 abstract type AbstractConstruction end

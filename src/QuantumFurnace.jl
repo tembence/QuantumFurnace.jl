@@ -62,13 +62,23 @@ export dissipator_one_to_one_norm_bound, dissipator_trace_alpha, hs_operator_nor
 export hs_operator_norm_krylov
 
 # --- Common ---
-export Config, AbstractSimulation, Lindbladian, Thermalize, KrylovSpectrum
+export Config, AbstractSimulation, Lindbladian, Thermalize, KrylovSpectrum,
+       TensorNetworkSpectrum
 export AbstractConstruction, KMS, GNS, DLL, with_coherent
 export Workspace, LiouvillianScratch, ThermalizeScratch, KrylovScratch
 export AbstractResults, save_result, load_result
 export BohrDomain, EnergyDomain, TimeDomain, TrotterDomain
 export HamHam, AbstractTrotter, TrottTrott, TrotterTriple, JumpOp
 export LocalTerm1D, LocalHamiltonian1D, LocalJump1D, LocalDLLBlock1D
+export BohrMPOControls, GibbsMPSControls, ParentGapControls
+export ParentErrorBound, ParentErrorLedger
+export DLLFilterFrame, GeneratorClock, DLLParentProvenance
+export DLLParentBundle, DLLParentLowEnergyState, DLLParentDiagnostics,
+       DLLTensorNetworkResult
+export DLL_PARENT_TARGET_LABELS, DLL_PARENT_GAP_LABELS,
+       DLL_KERNEL_EVIDENCE_LABELS, PARENT_ERROR_EVIDENCE_LABELS
+export build_dll_parent, prepare_gibbs_purification, solve_dll_parent_gap,
+       verify_dll_parent, validate_dll_tensor_network, dll_parent_provenance
 export trace_distance_h, trace_distance_nh, trace_norm_h, trace_norm_nh,
        fidelity, is_density_matrix, random_density_matrix,
        hermitianize!, validate_jump_pairing
@@ -164,6 +174,7 @@ include("dll.jl")
 include("dll_multichannel.jl")
 include("local_models_1d.jl")
 include("config_validation.jl")
+include("tensor_networks.jl")
 include("jump_workers.jl")
 include("channel_construction.jl")
 include("furnace_utensils.jl")
