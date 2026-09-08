@@ -40,8 +40,8 @@ function prepare_filter_transform(f::AbstractFilter; window=nothing,
     breakpoints=Real[], rtol::Real=1e-12, atol::Real=1e-13,
     maxevals::Int=200000, max_panels::Int=4096, analytic::Bool=true,
     coherent::NamedTuple=(;))
-    f isa Union{DLLMultiChannelFilter,PreparedFilterTransform} && throw(ArgumentError(
-        "Prepare a single unprepared filter; numerical channel families require separate compilation (T14)."))
+    f isa Union{DLLMultiChannelFilter,DLLSourceFilters,PreparedFilterTransform} && throw(ArgumentError(
+        "Prepare a single unprepared filter; prepare each channel separately before grouping."))
     T = typeof(real(zero(eltype(f))))
     support = _transform_support(f)
     radius = support === nothing ? window : support

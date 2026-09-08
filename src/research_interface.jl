@@ -61,7 +61,7 @@ function _gibbs_preflight(H; beta_phys=nothing,temperature=nothing,
     _collect_dll_filter_errors!(errors,physical,T(beta);label="physical filter")
     isempty(errors) || throw(ArgumentError(join(errors,"; ")))
     physical = _physical_dll_filter(physical,one(T),T(beta))
-    channels = length(_flatten_local_dll_channels((physical,)))
+    channels = length(_dll_provenance_channels(physical))
     nt = if domain isa TimeDomain
         time_step isa Real && isfinite(time_step) && time_step > 0 &&
             num_energy_bits isa Integer && 0 < num_energy_bits < 63 ||
@@ -75,8 +75,9 @@ function _gibbs_preflight(H; beta_phys=nothing,temperature=nothing,
     # Includes Hamiltonian spectral copies/Bohr caches, owned input/filtered
     # sources, per-thread matvec storage, and Time pair-grid temporaries.
     coherent_bytes=big(0)
-    if domain isa TimeDomain && physical isa PreparedFilterTransform
-        c=physical.controls.coherent
+    for channel in _dll_provenance_channels(physical)
+        domain isa TimeDomain && channel isa PreparedFilterTransform || continue
+        c=channel.controls.coherent
         c.backend==:finufft && !(T in (Float32,Float64)) && throw(ArgumentError("FINUFFT uses Float64; select coherent.backend=:direct."))
         if c.method==:time
             dt=c.time_step===nothing ? time_step : c.time_step
@@ -85,7 +86,7 @@ function _gibbs_preflight(H; beta_phys=nothing,temperature=nothing,
             largest_time=c.refine ? 2points-1 : points
             largest_freq=c.refine ? 2big(c.frequency_grid_size)-1 : big(c.frequency_grid_size)
             max(largest_time,largest_freq)<=c.max_points || throw(ArgumentError("Coherent controls/refinements exceed max_points=$(c.max_points)."))
-            coherent_bytes=big(128)*(largest_time^2+largest_freq^2)
+            coherent_bytes+=big(128)*(largest_time^2+largest_freq^2)
         end
     end
     bytes = big(16)*d^2*(80+12source_bound*channels+20Threads.nthreads()) + big(64)*nt^2 + coherent_bytes

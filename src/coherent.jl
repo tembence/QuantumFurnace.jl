@@ -56,6 +56,9 @@ function _precompute_coherent_B(
     config::Config{<:AbstractSimulation, BohrDomain, DLL},
     precomputed_data,
     )
+    if hasproperty(precomputed_data,:source_data)
+        return sum(k->_precompute_coherent_B(JumpOp[jumps[k]],hamiltonian,config,precomputed_data.source_data[k]),eachindex(jumps))
+    end
     (; filter) = precomputed_data
     return dll_coherent_op_bohr(jumps, hamiltonian, filter, config.beta)
 end
@@ -66,16 +69,7 @@ function _precompute_coherent_B(
     config::Config{<:AbstractSimulation, TimeDomain, DLL},
     precomputed_data,
     )
-    (; filter, time_labels, t0) = precomputed_data
-    if filter isa PreparedFilterTransform
-        T=eltype(hamiltonian.eigvals)
-        R=zeros(Complex{T},size(hamiltonian.data))
-        for jump in jumps, L in _dll_workspace_lindblads(jump,hamiltonian,precomputed_data,TimeDomain())
-            R .+= L'*L
-        end
-        return _prepared_dll_coherent(jumps,hamiltonian,filter,time_labels,t0;loss=R).B
-    end
-    return dll_coherent_op_time(jumps, hamiltonian, time_labels, filter, config.beta, t0)
+    return _dll_time_compilation(jumps,hamiltonian,config,precomputed_data).B
 end
 
 """

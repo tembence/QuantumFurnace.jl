@@ -128,16 +128,17 @@ function _collect_dll_filter_errors!(
     config_beta::T;
     label::String = string(nameof(typeof(filter))),
 ) where {T<:AbstractFloat}
-    if filter isa DLLMultiChannelFilter
+    if filter isa Union{DLLMultiChannelFilter,DLLSourceFilters}
         beta_rtol = T(10) * eps(T)
         if !isfinite(filter.beta) ||
            !isapprox(filter.beta, config_beta;
-                     atol = zero(T), rtol = beta_rtol)
+                     atol = zero(T), rtol = max(beta_rtol, 10eps(typeof(filter.beta))))
             push!(errors, "$label.beta must match Config.beta.")
         end
-        isempty(filter.channels) &&
+        channels = filter isa DLLSourceFilters ? filter.assignments : filter.channels
+        isempty(channels) &&
             push!(errors, "$label must have at least one channel.")
-        for (channel_index, channel) in enumerate(filter.channels)
+        for (channel_index, channel) in enumerate(channels)
             _collect_dll_filter_errors!(
                 errors, channel, config_beta;
                 label = "$label channel $channel_index ($(nameof(typeof(channel))))",
@@ -161,7 +162,7 @@ function _collect_dll_filter_errors!(
     beta_rtol = T(10) * eps(T)
     if !hasproperty(filter, :beta) || !isfinite(filter.beta) ||
        !isapprox(filter.beta, config_beta;
-                 atol = zero(T), rtol = beta_rtol)
+                 atol = zero(T), rtol = max(beta_rtol, 10eps(typeof(filter.beta))))
         push!(errors, "$label.beta must match Config.beta.")
     end
 
@@ -455,8 +456,22 @@ function _physical_dll_filter(f::ShiftedSymmetricFilter, R::T, beta::T) where {T
         T(f.shift / R), T(f.weight))
 end
 function _physical_dll_filter(f::DLLMultiChannelFilter, R::T, beta::T) where {T}
-    return DLLMultiChannelFilter([_physical_dll_filter(c, R, beta) for c in f.channels], beta)
+    return DLLMultiChannelFilter(map(c -> _physical_dll_filter(c, R, beta), f.channels), beta)
 end
+function _physical_dll_filter(f::DLLSourceFilters, R::T, beta::T) where {T}
+    cache=IdDict()
+    converted=map(c->_physical_dll_filter_shared(c,R,beta,cache),f.assignments)
+    return DLLSourceFilters(converted,beta)
+end
+function _physical_dll_filter_shared(f,R,beta,cache)
+    return get!(cache,f) do
+        f isa DLLMultiChannelFilter ?
+            DLLMultiChannelFilter(map(c->_physical_dll_filter_shared(c,R,beta,cache),f.channels),beta) :
+            _physical_dll_filter(f,R,beta)
+    end
+end
+_dll_provenance_channels(f::DLLSourceFilters)=Tuple(c for a in f.assignments for c in _flatten_local_dll_channels((a,)))
+_dll_provenance_channels(f::AbstractFilter)=_flatten_local_dll_channels((f,))
 _physical_dll_filter(f::AbstractFilter, R, beta) = throw(ArgumentError(
     "Physical conversion is implemented only for built-in DLL filters; got $(typeof(f))."))
 
@@ -537,6 +552,14 @@ function prepare_gibbs_inputs(H; beta_phys::Union{Nothing,Real}=nothing,
         "Filter must match beta_phys at Hamiltonian precision: " * join(filter_errors, "; ")))
     physical_filter = _physical_dll_filter(physical_filter, one(T), physical_beta)
     algorithm_filter = _physical_dll_filter(physical_filter, ham.rescaling_factor, algorithm_beta)
+    prepared = prepare_jumps(jumps, ham; basis, rates, complete_adjoint)
+    if physical_filter isa DLLSourceFilters
+        length(physical_filter.assignments)==prepared.provenance.input_count || throw(ArgumentError("One DLL filter assignment is required per input source."))
+        ids=prepared.provenance.source_indices
+        physical_filter=DLLSourceFilters(Tuple(physical_filter.assignments[i] for i in ids),physical_beta)
+        algorithm_filter=DLLSourceFilters(Tuple(algorithm_filter.assignments[i] for i in ids),algorithm_beta)
+        _validate_dll_source_assignments(algorithm_filter,prepared.jumps)
+    end
     cfg = Config(; sim=Lindbladian(), domain, construction,
         num_qubits=trailing_zeros(size(ham.data,1)), with_linear_combination=false,
         beta=algorithm_beta, beta_phys=physical_beta,
@@ -550,14 +573,13 @@ function prepare_gibbs_inputs(H; beta_phys::Union{Nothing,Real}=nothing,
             H.bohr_dict == ham.bohr_dict || throw(ArgumentError(
                 "Prebuilt Hamiltonian Bohr caches are stale; reconstruct HamHam explicitly."))
     end
-    prepared = prepare_jumps(jumps, ham; basis, rates, complete_adjoint)
     multiplier = clock === nothing ? one(T) : T(clock.multiplier)
     isfinite(multiplier) && multiplier > 0 && isfinite(inv(multiplier)) || throw(ArgumentError(
         "Clock multiplier must be representable, finite and positive."))
     compiled_jumps = clock === nothing ? prepared.jumps :
         prepare_jumps(prepared.jumps, ham; rates=multiplier).jumps
-    physical_channels = _flatten_local_dll_channels((physical_filter,))
-    algorithm_channels = _flatten_local_dll_channels((algorithm_filter,))
+    physical_channels = _dll_provenance_channels(physical_filter)
+    algorithm_channels = _dll_provenance_channels(algorithm_filter)
     provenance = (; beta_phys=physical_beta, beta_alg=algorithm_beta,
         input_beta_phys=beta_phys, working_precision=T,
         spectral_preparation=H isa AbstractMatrix ? :diagonalised : :validated_cached,
@@ -573,6 +595,10 @@ function prepare_gibbs_inputs(H; beta_phys::Union{Nothing,Real}=nothing,
         physical_filter, algorithm_filter,
         filter_evidence=Tuple(filter_evidence(c) for c in physical_channels),
         sources=prepared.provenance,
+        source_filter_assignments=algorithm_filter isa DLLSourceFilters ?
+            (;partners=_validate_dll_source_assignments(algorithm_filter,compiled_jumps),
+              channel_counts=map(a->length(_flatten_local_dll_channels((a,))),algorithm_filter.assignments),
+              order=:input_source_then_channel,repetitions=:add_rates) : nothing,
         physical_time_step=time_step === nothing ? nothing : T(time_step),
         algorithm_time_step=cfg.t0_D, clock_label=clock === nothing ? :raw_generator : clock.label,
         generator_multiplier=multiplier, time_multiplier=inv(multiplier), derived_clock=clock,

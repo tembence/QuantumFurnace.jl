@@ -119,7 +119,7 @@ export AbstractFilter, GaussianFilter, DLLGaussianFilter, DLLMetropolisFilter
 export time_kernel, freq_kernel, filter_time_cutoff
 
 # --- Multi-channel DLL ---
-export DLLMultiChannelFilter, ShiftedSymmetricFilter, dll_multichannel_translates
+export DLLSourceFilters, DLLMultiChannelFilter, ShiftedSymmetricFilter, dll_multichannel_translates
 
 # --- DLL dissipator helpers ---
 export dll_lindblad_op_bohr, dll_lindblad_op_time

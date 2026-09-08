@@ -4,50 +4,96 @@
 # must sum channel contributions without cross terms. All channels share beta.
 
 """
-    DLLMultiChannelFilter{T<:AbstractFloat, F<:AbstractFilter}(channels, beta)
+    DLLMultiChannelFilter(channels, beta)
 
-Group single-channel DLL filters with a common inverse temperature.
-
-# Fields
-- `channels`: Non-empty vector of filters with inverse temperature `beta`.
-- `beta`: Shared algorithm-frame inverse temperature.
-
-The scalar kernel methods are diagnostic sums. Operator constructors instead
-sum per-channel dissipators to avoid spurious cross terms.
+Separate DLL channels at a common inverse temperature. Tuple/vector input is
+owned as a concrete tuple; nested families are flattened in order. Repeated
+channels are intentional rate additions, never merged amplitudes.
 """
-struct DLLMultiChannelFilter{T<:AbstractFloat, F<:AbstractFilter} <: AbstractFilter
-    channels::Vector{F}
+struct DLLMultiChannelFilter{T<:AbstractFloat,C} <: AbstractFilter
+    channels::C
     beta::T
-
-    function DLLMultiChannelFilter{T, F}(channels::Vector{F}, beta::T) where
-            {T<:AbstractFloat, F<:AbstractFilter}
-        if isempty(channels)
-            throw(ArgumentError("DLLMultiChannelFilter requires at least one channel."))
+    function DLLMultiChannelFilter(channels::Union{Tuple,AbstractVector}, beta::T) where {T<:AbstractFloat}
+        flat = _flatten_local_dll_channels(Tuple(channels))
+        isempty(flat) && throw(ArgumentError("DLLMultiChannelFilter requires at least one channel."))
+        isfinite(beta) && beta > 0 || throw(ArgumentError("DLL beta must be finite and positive."))
+        for (k,c) in enumerate(flat)
+            c isa AbstractFilter && (_is_admissible_dll_filter(c) || _is_dll_bohr_spec(c)) ||
+                throw(ArgumentError("Channel $k is not a supported DLL filter."))
+            hasproperty(c,:beta) && isapprox(c.beta,beta;atol=0,rtol=10max(eps(T),eps(typeof(c.beta)))) ||
+                throw(ArgumentError("Channel $k beta must match the family beta."))
         end
-        isfinite(beta) && beta > zero(T) || throw(ArgumentError(
-            "DLLMultiChannelFilter.beta must be finite and > 0."))
-        beta_rtol = T(10) * eps(T)
-        for (ℓ, c) in enumerate(channels)
-            if !_is_admissible_dll_filter(c)
-                throw(ArgumentError("DLLMultiChannelFilter channel $ℓ ($(typeof(c))) " *
-                                    "is not an admissible DLL filter."))
-            end
-            if !hasproperty(c, :beta)
-                throw(ArgumentError("DLLMultiChannelFilter channel $ℓ ($(typeof(c))) " *
-                                    "lacks a `beta` field — only DLL-style filters supported."))
-            end
-            if !isapprox(c.beta, beta; atol = zero(T), rtol = beta_rtol)
-                throw(ArgumentError("DLLMultiChannelFilter channel $ℓ has beta $(c.beta), " *
-                                    "expected $beta (rtol=$beta_rtol)."))
-            end
-        end
-        return new{T, F}(channels, beta)
+        return new{T,typeof(flat)}(flat,beta)
     end
 end
+# Preserve the old explicit vector constructor while resolving concrete storage.
+DLLMultiChannelFilter{T,F}(channels::Vector{F},beta::T) where {T<:AbstractFloat,F<:AbstractFilter} =
+    DLLMultiChannelFilter(channels,beta)
 
-DLLMultiChannelFilter(channels::Vector{F}, beta::T) where
-        {T<:AbstractFloat, F<:AbstractFilter} =
-    DLLMultiChannelFilter{T, F}(channels, beta)
+"""
+    DLLSourceFilters(assignments, beta)
+
+One filter or channel family per source, in the supplied jump order. Alternatively
+pass integer-index pairs; indices must specify 1:n exactly once. Adjoint partners
+must use the same prescription (reuse the same callback/prepared object). Repeated
+channels within an assignment add rates; duplicate source indices are errors.
+"""
+struct DLLSourceFilters{T<:AbstractFloat,C<:Tuple} <: AbstractFilter
+    assignments::C
+    beta::T
+    function DLLSourceFilters(assignments::Union{Tuple,AbstractVector},beta::T) where {T<:AbstractFloat}
+        a=Tuple(assignments)
+        isempty(a) && throw(ArgumentError("Provide one filter assignment per source."))
+        if all(x->x isa Pair,a)
+            ids=first.(a)
+            all(x->x isa Integer,ids) && sort(collect(ids))==collect(1:length(a)) ||
+                throw(ArgumentError("Source indices must specify 1:n exactly once; duplicate assignments are errors."))
+            a=Tuple(last(a[findfirst(==(k),ids)]) for k in 1:length(a))
+        end
+        all(x->x isa AbstractFilter && !(x isa DLLSourceFilters),a) ||
+            throw(ArgumentError("Each source assignment must be a DLL filter or channel family."))
+        foreach(x->DLLMultiChannelFilter((x,),beta),a)
+        return new{T,typeof(a)}(a,beta)
+    end
+end
+Base.eltype(::DLLSourceFilters{T}) where {T}=Complex{T}
+_is_dll_bohr_spec(f::DLLSourceFilters)=all(c->_is_admissible_dll_filter(c)||_is_dll_bohr_spec(c),f.assignments)
+_dll_time_supported(f::DLLSourceFilters)=all(_dll_time_supported,f.assignments)
+filter_evidence(f::DLLSourceFilters)=(;sources=map(filter_evidence,f.assignments),composition=:per_source_separate_dissipators)
+
+# Compare prescriptions, never merely sampled values or callback display names.
+_dll_same_prescription(a,b)=typeof(a)===typeof(b) && isequal(a,b)
+function _dll_same_prescription(a::DLLMultiChannelFilter,b::DLLMultiChannelFilter)
+    length(a.channels)==length(b.channels) || return false
+    matched=falses(length(b.channels))
+    for x in a.channels
+        j=findfirst(k->!matched[k] && _dll_same_prescription(x,b.channels[k]),eachindex(b.channels))
+        j===nothing && return false
+        matched[j]=true
+    end
+    return true
+end
+_dll_same_prescription(a::PreparedFilterTransform,b::PreparedFilterTransform)=
+    a === b || (a.controls==b.controls && _dll_same_prescription(a.base,b.base))
+function _validate_dll_source_assignments(f::DLLSourceFilters,jumps)
+    length(f.assignments)==length(jumps) || throw(ArgumentError("One DLL filter assignment is required per compiled source."))
+    validate_jump_pairing(jumps)
+    matched=falses(length(jumps)); partners=collect(eachindex(jumps))
+    for k in eachindex(jumps)
+        (matched[k] || jumps[k].hermitian) && continue
+        j=findfirst(eachindex(jumps)) do j
+            j!=k && !matched[j] && !jumps[j].hermitian &&
+            _jump_matches(jumps[j].data,jumps[k].data',100eps(typeof(f.beta))) &&
+            _jump_matches(jumps[j].in_eigenbasis,jumps[k].in_eigenbasis',100eps(typeof(f.beta))) &&
+            _dll_same_prescription(f.assignments[k],f.assignments[j])
+        end
+        j===nothing && throw(ArgumentError("Source $k needs an adjoint partner with identical DLL channel prescriptions and multiplicities; reuse the same callback/prepared filter object."))
+        matched[k]=matched[j]=true; partners[k]=j; partners[j]=k
+    end
+    return Tuple(partners)
+end
+_validate_dll_source_assignments(::AbstractFilter,jumps)=nothing
+_dll_source_data(data,k)=hasproperty(data,:source_data) ? data.source_data[k] : data
 
 # Multi-channel time kernels are sums of per-channel `Complex{T}` kernels;
 # `Complex{T}` is the right element type regardless of which sub-filters appear.
@@ -92,10 +138,17 @@ Return the diagnostic sum of the channel frequency kernels.
     return s
 end
 
+_is_dll_bohr_spec(f::DLLMultiChannelFilter) = all(c -> _is_admissible_dll_filter(c) || _is_dll_bohr_spec(c), f.channels)
+function _require_admissible_dll_filter(f::DLLMultiChannelFilter; beta=nothing)
+    foreach(c -> _require_admissible_dll_filter(c; beta), f.channels)
+    return f
+end
+
 function _prepare_dll_bohr_filter(f::DLLMultiChannelFilter, eigvals::AbstractVector{T}; beta=f.beta) where {T<:AbstractFloat}
-    _require_admissible_dll_filter(f; beta)
+    # Raw specifications are validated by sampling each channel below; they are
+    # not structural continuum certificates.
     return DLLMultiChannelFilter(
-        [_prepare_dll_bohr_filter(c, eigvals; beta) for c in f.channels],
+        map(c -> _prepare_dll_bohr_filter(c, eigvals; beta), f.channels),
         eltype(eigvals)(beta))
 end
 

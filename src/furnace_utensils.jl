@@ -111,7 +111,10 @@ function _precompute_data(
     config::Config{Lindbladian, BohrDomain, DLL},
     hamiltonian::HamHam,
 )
-    filter = _prepare_dll_bohr_filter(_resolve_filter(config), hamiltonian.eigvals;
+    return _precompute_dll_bohr_data(_resolve_filter(config),config,hamiltonian)
+end
+function _precompute_dll_bohr_data(filter,config,hamiltonian)
+    filter = _prepare_dll_bohr_filter(filter, hamiltonian.eigvals;
                                       beta=config.beta)
     return (; filter)
 end
@@ -129,17 +132,17 @@ function _precompute_data(
     config::Config{Lindbladian, TimeDomain, DLL},
     hamiltonian::HamHam{T},
 ) where {T<:AbstractFloat}
-    filter = _resolve_filter(config)
+    return _precompute_dll_time_data(_resolve_filter(config),config,hamiltonian)
+end
+function _precompute_dll_time_data(filter,config,hamiltonian::HamHam{T}) where {T<:AbstractFloat}
     # DLL uses one time grid for dissipative and coherent terms; `w0_D` is unused.
     r_D = register_r_D(config)
     t0_D = register_t0_D(config)
     N = 2^r_D
     raw_time_labels = collect((-N÷2):(N÷2 - 1)) .* t0_D
-    oft_time_labels = filter isa PreparedFilterTransform ? raw_time_labels :
+    oft_time_labels = any(c->c isa PreparedFilterTransform,_filter_channels_for_dll_oft(filter)) ? raw_time_labels :
         _truncate_time_labels_for_oft(raw_time_labels, config.sigma; filter=filter)
-    if filter isa PreparedFilterTransform
-        _prepare_dll_bohr_filter(filter,hamiltonian.eigvals;beta=config.beta)
-    end
+    _prepare_dll_bohr_filter(filter,hamiltonian.eigvals;beta=config.beta)
 
     # Single-slice NUFFT at ω = 0 per channel; replaces the per-jump explicit
     # `cis()` triple loop in `dll_lindblad_op_time` with a single FINUFFT eval.
@@ -448,4 +451,47 @@ coherent unitary.
     # Cohₐ†: X ↦ U† X U  (applied AFTER WMₐ†, mirroring Sₐ† = Cohₐ† ∘ WMₐ†).
     _apply_adjoint_coherent_unitary!(evolving_dm, U_coherent, scratch)
     return nothing
+end
+
+# Resolve source assignments before allocating any filtered matrices or Fourier grids.
+_precompute_data(config,ham,jumps)=_precompute_data(config,ham)
+function _precompute_data(config::Config{Lindbladian,D,DLL},ham::HamHam,jumps) where {D<:Union{BohrDomain,TimeDomain}}
+    f=_resolve_filter(config)
+    partners=_validate_dll_source_assignments(f,jumps)
+    f isa DLLSourceFilters || return _precompute_data(config,ham)
+    cache=IdDict()
+    data=map(f.assignments) do c
+        get!(cache,c) do
+            config.domain isa BohrDomain ? _precompute_dll_bohr_data(c,config,ham) :
+                _precompute_dll_time_data(c,config,ham)
+        end
+    end
+    return (;filter=f,source_data=data,partners)
+end
+
+# Full-time and hybrid coherent contributions stay separate for every channel.
+function _dll_time_compilation(jumps,ham,config,data)
+    if hasproperty(data,:source_data)
+        pieces=map(eachindex(jumps)) do k
+            _dll_time_compilation(JumpOp[jumps[k]],ham,config,data.source_data[k])
+        end
+        return (;B=sum(x->x.B,pieces),evidence=(;sources=Tuple(x.evidence for x in pieces),composition=:per_source_separate_channels))
+    end
+    channels=_filter_channels_for_dll_oft(data.filter)
+    pieces=map(eachindex(channels)) do k
+        f=channels[k]
+        if f isa PreparedFilterTransform
+            T=eltype(ham.eigvals); R=zeros(Complex{T},size(ham.data))
+            for jump in jumps
+                L=jump.in_eigenbasis .* data.oft_nufft_at_zero_list[k] .* data.t0
+                R .+= L'*L
+            end
+            _prepared_dll_coherent(jumps,ham,f,data.time_labels,data.t0;loss=R)
+        else
+            (;B=dll_coherent_op_time(jumps,ham,data.time_labels,f,config.beta,data.t0),
+              evidence=(;method=:builtin_time,filter=filter_evidence(f)))
+        end
+    end
+    length(pieces)==1 && return first(pieces)
+    return (;B=sum(x->x.B,pieces),evidence=(;channels=Tuple(x.evidence for x in pieces),composition=:separate_channels))
 end

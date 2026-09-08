@@ -42,7 +42,7 @@ function construct_lindbladian(jumps::Vector{JumpOp}, config::Config{Lindbladian
         hamiltonian
     end
 
-    precomputed_data = _precompute_data(config, ham_or_trott)
+    precomputed_data = _precompute_data(config, ham_or_trott, jumps)
 
     dim = size(hamiltonian.data, 1)
     T = eltype(hamiltonian.eigvals)
@@ -68,7 +68,7 @@ function construct_lindbladian(jumps::Vector{JumpOp}, config::Config{Lindbladian
 
     # Accumulate Liouvillian in-place (no per-jump dim^2 x dim^2 allocations).
     for (k, jump) in pairs(jumps)
-        _jump_contribution!(total_lindbladian, jump, ham_or_trott, config, precomputed_data, ws;
+        _jump_contribution!(total_lindbladian, jump, ham_or_trott, config, _dll_source_data(precomputed_data,k), ws;
             coherent_term=nothing)
     end
 

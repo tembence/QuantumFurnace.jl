@@ -97,7 +97,7 @@ end
     custom=KMSFilter(beta;q_positive=x->exp(-(beta*x)^2/8)*cis(shift*x),name=:phase_time)
     controls=(;time_step=.12,time_window=6.,frequency_grid_size=257,policy=:error)
     prepared=prepare_filter_transform(custom;window=20.,coherent=controls)
-    @test_throws ArgumentError DLLMultiChannelFilter([prepared],beta)
+    @test only(DLLMultiChannelFilter([prepared],beta).channels) === prepared
     @test_throws ArgumentError prepare_filter_transform(DLLMultiChannelFilter([custom,custom],beta);window=20.)
     @test_throws ArgumentError prepare_filter_transform(prepared;window=20.)
     exact=Workspace(H;beta_phys=beta,filter=custom,jumps=sources)

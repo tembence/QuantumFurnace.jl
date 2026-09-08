@@ -195,8 +195,8 @@ DLL validation no longer requires CKG transition-rate parameters. DLL
 |---|---|---|---|---|---|---|
 | DLL built-ins, Hermitian sources | Available | Available | Available | Available | Rejected | T02 complete; T09 facade |
 | DLL built-ins, adjoint-paired sources | Available | Available | Available | Available | Rejected | T01–T02 complete |
-| DLL existing global multichannel filters | Available, separate channels | Available | Available, separate channels | Available | Rejected | T01–T02 complete; heterogeneous per-source expansion T14 |
-| DLL custom complex filters | Available, finite Bohr checks | Available, retained samples | Available with prepared transforms | Available with prepared transforms | Rejected | T10–T13 complete; T14 per-source channels |
+| DLL existing global multichannel filters | Available, separate channels | Available | Available, separate channels | Available | Rejected | T01–T02 and T14 complete; source assignments preserve channel multiplicity |
+| DLL custom complex filters | Available, finite Bohr checks | Available, retained samples | Available with prepared transforms | Available with prepared transforms | Rejected | T10–T14 complete |
 | CKG built-in Gaussian OFT/rates | Available | Available | Available | Available | Available with valid registers/local Trotter cache | Preserve; T15 typed rates; T20 release checks |
 | CKG general joint filter/rate | Unavailable | Unavailable | Unavailable | Unavailable | General Energy pending; custom Trotter gated | T16 Bohr/Energy; T17 Time and explicit Trotter gate |
 
@@ -441,7 +441,7 @@ information and implementation-theorem applicability. The compiled report record
 finite-Bohr balance checks and flags active transition zeros as possibly reducing
 connectivity. Such zeros are allowed and are not a balance failure or a proof of
 nonergodicity. One global filter/channel family is applied to both adjoint partners;
-per-source assignments remain T14. Wrap `TimeFilter` or a custom frequency filter in `prepare_filter_transform`
+per-source assignments are available through `DLLSourceFilters`. Wrap `TimeFilter` or a custom frequency filter in `prepare_filter_transform`
 for numerical Time execution. Unprepared callbacks still reject in TimeDomain
 because their numerical windows and controls have not been specified.
 
@@ -524,5 +524,43 @@ from their implemented loss R. Provenance calls this
 its implementation cost and does not restore KMS to inaccurate jumps.
 Hermiticity is checked before optional `repair=true` roundoff symmetrisation;
 a material defect rejects. The repair size is reported separately and is never
-called a KMS correction. Prepared custom channel families are deferred to T14;
+called a KMS correction. Prepared custom channels can be grouped with `DLLMultiChannelFilter`;
 the existing built-in multichannel paths retain their behaviour.
+
+
+### Per-source DLL channels (T14)
+
+`DLLMultiChannelFilter((f, g, f), beta_phys)` stores three separate channels.
+Nested families flatten in order; the repeated `f` doubles its contribution to
+both dissipator and coherent term. Tuple and vector inputs are accepted and
+stored as a concrete tuple. Scalar kernel sums remain diagnostic quantities.
+
+Use `filter=DLLSourceFilters((family_for_A, family_for_B), beta_phys)` with
+`jumps=[A, B]` to assign one prescription to each source. Integer-index pairs
+are also accepted, for example `(2 => g, 1 => f)`; missing or duplicate indices
+reject. Adjoint partners must have the same channel multiset, including
+multiplicity and source rates. Reuse the same custom callback or prepared
+filter object; a matching name or matching finite samples does not establish
+matching prescriptions. Channel order may differ between partners.
+`complete_adjoint=true` copies the originating prescription to newly appended
+partners; it does not repair conflicting assignments on existing partners.
+
+```julia
+beta_phys = 0.8
+H = ComplexF64[0 0; 0 1]
+X = ComplexF64[0 1; 1 0]
+Z = ComplexF64[1 0; 0 -1]
+f = DLLGaussianFilter(beta_phys)
+g = KMSFilter(beta_phys; q_positive=x -> exp(-x^2)*cis(0.2x), name=:phase)
+channels = DLLMultiChannelFilter((f, g), beta_phys)
+ws = Workspace(H; beta_phys, jumps=[X, Z],
+    filter=DLLSourceFilters((channels, g), beta_phys))
+```
+
+For TimeDomain, prepare each custom channel separately, with its own Fourier
+and coherent controls, before grouping. Each hybrid correction uses that
+channel's implemented loss operator. Result provenance records source partner
+indices, channel counts, physical/algorithm filters, and per-channel Time
+reports. Filter callbacks run during serial preparation, and matrix-free actions
+use only retained matrices. No continuum tail or ergodicity theorem follows
+from these finite-system checks.

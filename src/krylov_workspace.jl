@@ -91,6 +91,11 @@ function Workspace(
 end
 
 function _dll_bohr_compilation_evidence(filter, jumps, ham)
+    if filter isa DLLSourceFilters
+        return (;sources=Tuple(_dll_bohr_compilation_evidence(a,JumpOp[jumps[k]],ham) for (k,a) in enumerate(filter.assignments)),
+            composition=:per_source_separate_channels,
+            numerical_scope=:complete_finite_bohr_set)
+    end
     channels = _flatten_local_dll_channels((filter,))
     suppressed = count(channels) do channel
         any(eachindex(ham.bohr_freqs)) do k
@@ -542,8 +547,8 @@ function _accumulate_R_total_dll!(
         return nothing
     end
 
-    for jump in jumps
-        L_or_Ls = _dll_workspace_lindblads(jump, hamiltonian, precomputed_data, config.domain)
+    for (k,jump) in enumerate(jumps)
+        L_or_Ls = _dll_workspace_lindblads(jump, hamiltonian, _dll_source_data(precomputed_data,k), config.domain)
         # Single-channel filters return a Matrix; multi-channel filters
         # Multi-channel filters return a vector; flatten it in jump-major order.
         # output `dll_lindblads_out` — the matrix-free hot path
@@ -575,7 +580,7 @@ function _accumulate_R_total_dll_chunk!(
     chunk::UnitRange{Int},
 ) where {T<:Complex, D}
     @inbounds for k in chunk
-        L_or_Ls = _dll_workspace_lindblads(jumps[k], hamiltonian, precomputed_data, domain)
+        L_or_Ls = _dll_workspace_lindblads(jumps[k], hamiltonian, _dll_source_data(precomputed_data,k), domain)
         ops = Vector{Matrix{T}}()
         if L_or_Ls isa AbstractMatrix
             L_a = Matrix{T}(L_or_Ls)
@@ -611,7 +616,7 @@ function Workspace(
     validate_config!(config, hamiltonian)
     trotter === nothing || throw(ArgumentError("DLL Bohr/Time workspaces do not use a Trotter cache."))
 
-    precomputed_data = _precompute_data(config, hamiltonian)
+    precomputed_data = _precompute_data(config, hamiltonian, jumps)
     (; filter) = precomputed_data
 
     dim = size(hamiltonian.data, 1)
@@ -621,7 +626,7 @@ function Workspace(
     # Per-jump DLL Lindblad operators + accumulated R_total. For
     # Multi-channel filters store `k * length(jumps)` matrices.
     # operators (one per channel per coupling).
-    n_channels = filter isa DLLMultiChannelFilter ? length(filter.channels) : 1
+    n_channels = filter isa DLLSourceFilters ? maximum(a->length(_filter_channels_for_dll_oft(a)),filter.assignments) : length(_filter_channels_for_dll_oft(filter))
     dll_lindblads = Vector{Matrix{CT}}()
     sizehint!(dll_lindblads, length(jumps) * n_channels)
     R_total = zeros(CT, dim, dim)
@@ -630,13 +635,10 @@ function Workspace(
     hermitianize!(R_total)
 
     # Keep the requested domain's coherent correction, including Time quadrature.
-    time_compilation = config.domain isa TimeDomain && filter isa PreparedFilterTransform ?
-        _prepared_dll_coherent(jumps,hamiltonian,filter,precomputed_data.time_labels,
-            precomputed_data.t0;loss=R_total) : nothing
+    time_compilation = config.domain isa TimeDomain ?
+        _dll_time_compilation(jumps,hamiltonian,config,precomputed_data) : nothing
     G = config.domain isa BohrDomain ?
-        _dll_coherent_from_loss(R_total, hamiltonian.eigvals, config.beta) :
-        time_compilation===nothing ?
-        Matrix{CT}(_precompute_coherent_B(jumps, hamiltonian, config, precomputed_data)) : time_compilation.B
+        _dll_coherent_from_loss(R_total, hamiltonian.eigvals, config.beta) : time_compilation.B
 
     # Schrödinger coherent action: -i[G,rho].
     G_left  = Matrix{CT}(-1im .* G .- 0.5 .* R_total)
@@ -658,7 +660,8 @@ function Workspace(
         config.domain isa BohrDomain ?
             (;basis=:computational,clock_label=:compiled_generator,
                 beta_phys=config.beta_phys,beta_alg=config.beta,input_preparation=:legacy_workspace,
-                filter_compilation=_dll_bohr_compilation_evidence(filter, jumps, hamiltonian)) :
+                filter_compilation=_dll_bohr_compilation_evidence(hasproperty(precomputed_data,:source_data) ?
+                    DLLSourceFilters(map(x->x.filter,precomputed_data.source_data),config.beta) : filter, jumps, hamiltonian)) :
             time_compilation===nothing ? nothing : (;time_compilation=time_compilation.evidence),
     )
 end

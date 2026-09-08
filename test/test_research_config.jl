@@ -64,9 +64,10 @@ BLAS.set_num_threads(1)
     @test prepare_gibbs_inputs(ham;beta_phys=beta).provenance.input_frame == :algorithm
     @test prepare_gibbs_inputs(ham;beta_phys=beta).provenance.filter_input_frame == :physical
     @test_throws ArgumentError prepare_gibbs_inputs(H;beta_phys=beta,filter=42)
-    mutable_filter = DLLMultiChannelFilter([DLLGaussianFilter(beta)],beta)
+    input_channels = [DLLGaussianFilter(beta)]
+    mutable_filter = DLLMultiChannelFilter(input_channels,beta)
     snapshot = prepare_gibbs_inputs(ham;beta_phys=beta,filter=mutable_filter)
-    push!(mutable_filter.channels,DLLGaussianFilter(beta))
+    push!(input_channels,DLLGaussianFilter(beta))
     @test length(snapshot.provenance.physical_filter.channels) == 1
     @test length(snapshot.config.filter.channels) == 1
     default = prepare_gibbs_inputs(H; beta_phys=beta)
