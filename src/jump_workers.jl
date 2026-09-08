@@ -62,9 +62,9 @@ function _jump_contribution!(
 
     jump_oft = ws.scratch.jump_tmp
     prefactor = precomputed_data.oft_domain_prefactor * gamma_norm_factor
-    inv_4sigma2 = 1.0 / (4 * config.sigma^2)
+    inv_4sigma2 = _energy_oft_kernel(config)
 
-    if jump.hermitian
+    if jump.hermitian && !_is_joint_ckg(config)
         for w_raw in energy_labels
             # iterate only half-grid (w<=0) and mirror manually
             w_raw > 1e-12 && continue

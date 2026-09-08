@@ -35,7 +35,7 @@ function Workspace(
 
     # Extract concrete-typed eigenbasis matrices and hermitian flags
     jump_eigenbases = [Matrix{CT}(j.in_eigenbasis) for j in jumps]
-    jump_hermitian  = [j.hermitian for j in jumps]
+    jump_hermitian  = [j.hermitian && !_is_joint_ckg(config) for j in jumps]
 
     # Allocate KrylovScratch (no channel_rho_jump for Lindbladian)
     sc = KrylovScratch(CT, dim; with_channel_rho_jump=false)
@@ -129,9 +129,10 @@ function _accumulate_R_total!(
 ) where {T<:Complex}
     (; transition, gamma_norm_factor, energy_labels) = precomputed_data
     bohr_freqs = hamiltonian.bohr_freqs
-    inv_4sigma2 = 1.0 / (4 * config.sigma^2)
+    inv_4sigma2 = _energy_oft_kernel(config)
     prefactor = precomputed_data.oft_domain_prefactor * gamma_norm_factor
 
+    _is_joint_ckg(config) && (ws_hermitian=fill(false,length(ws_hermitian)))
     n_labels = length(energy_labels)
     n_jumps  = length(ws_eigenbases)
     if Threads.nthreads() > 1 && n_jumps * n_labels >= OMEGA_THREAD_THRESHOLD
@@ -281,7 +282,7 @@ function _accumulate_R_total_threaded_energy!(
     energy_labels::AbstractVector{Float64},
     transition,
     prefactor::Float64,
-    inv_4sigma2::Float64,
+    inv_4sigma2,
 ) where {T<:Complex}
     work = Tuple{Int, Int}[]
     _populate_jump_frequency_work_list!(work, ws_hermitian, energy_labels)
@@ -322,7 +323,7 @@ function _accumulate_R_total_chunk_energy!(
     chunk::UnitRange{Int},
     transition,
     prefactor::Float64,
-    inv_4sigma2::Float64,
+    inv_4sigma2,
 ) where {T<:Complex}
     @inbounds for w_idx in chunk
         (k, li) = work[w_idx]

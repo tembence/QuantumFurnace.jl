@@ -160,3 +160,145 @@ struct UnsupportedCKGTransition <: AbstractCKGTransition end
         end
     end
 end
+
+@testset "T16 general complex CKG joint compiler" begin
+    beta_phys=0.8
+    # Independent structural family: C=e^(beta*x/4)q, gamma=e^(-beta*w/2)g,
+    # q conjugate-reflected, g even nonnegative. Normalisation is explicit.
+    normalization=inv(sqrt(first(quadgk(x->exp(beta_phys*x/2-2x^4),-Inf,Inf;rtol=1e-12))))
+    C=x->normalization*exp(beta_phys*x/4-x^4)*cis(0.3x)
+    gamma=w->exp(-w^2-beta_phys*w/2)
+    pair=CKGJointKernel(beta_phys;oft=C,rate=gamma,frequency_window=(-8.,8.))
+    nus=[-0.7,-0.2,0.,0.2,0.7]
+    compiled=compile_ckg_kernel(pair,nus)
+    @test compiled.evidence.status==:pass
+    @test compiled.evidence.global_balance==:not_established_by_samples
+    @test minimum(eigvals(Hermitian(compiled.alpha)))>=-1e-12
+    @test norm(compiled.alpha-compiled.alpha')<1e-12
+    @test norm(imag(compiled.alpha))>1e-3
+    for u in nus,v in nus
+        ref=first(quadgk(w->gamma(w)*C(w-u)*conj(C(w-v)),-Inf,Inf;atol=1e-13,rtol=1e-12))
+        @test transition_alpha(compiled,u,v)≈ref atol=1e-10 rtol=1e-10
+        @test transition_alpha(compiled,u,v)≈exp(-beta_phys*(u+v)/2)*transition_alpha(compiled,-v,-u) atol=1e-12
+    end
+    @testset "Invalid pair versus unresolved quadrature; explicit bounds" begin
+        bad=CKGJointKernel(beta_phys;oft=x->(2pi)^(-1/4)*exp(-x^2/4),rate=gamma,frequency_window=(-8.,8.))
+        @test gamma(.7)/gamma(-.7)≈exp(-beta_phys*.7)
+        inspected=compile_ckg_kernel(bad,nus;strict=false)
+        @test inspected.evidence.status==:not_KMS
+        @test inspected.evidence.reference_balance_defect>0.01
+        @test minimum(eigvals(Hermitian(inspected.alpha)))>=-1e-12
+        @test_throws ArgumentError compile_ckg_kernel(bad,nus)
+        tiny_bad=CKGJointKernel(beta_phys;oft=bad.oft,rate=w->1e-100*gamma(w),frequency_window=(-8.,8.))
+        @test compile_ckg_kernel(tiny_bad,nus;strict=false).evidence.status==:not_KMS
+        failed_cfg=Config(;sim=Lindbladian(),domain=BohrDomain(),construction=KMS(),
+            num_qubits=1,beta=beta_phys,sigma=1.,with_linear_combination=false,
+            filter=inspected.oft,transition_weight=inspected)
+        @test_throws ArgumentError validate_config!(failed_cfg)
+        @test_throws ArgumentError Workspace(ComplexF64[0 0;0 0.7];beta_phys,construction=KMS(),transition_weight=bad)
+        for (window,panels) in (((-8.,8.),2),((-0.5,0.5),32))
+            coarse=CKGJointKernel(beta_phys;oft=C,rate=gamma,frequency_window=window,panels)
+            evidence=compile_ckg_kernel(coarse,nus;strict=false).evidence
+            @test evidence.status==:quadrature_unresolved
+            @test evidence.reference_balance_defect<1e-10
+            @test evidence.relative_integration_difference>1e-6
+            @test_throws ArgumentError compile_ckg_kernel(coarse,nus)
+        end
+        @test_throws ArgumentError compile_ckg_kernel(CKGJointKernel(beta_phys;oft=C,rate=w->-gamma(w),frequency_window=(-8.,8.)),nus)
+        @test_throws ArgumentError compile_ckg_kernel(CKGJointKernel(beta_phys;oft=x->2C(x),rate=gamma,frequency_window=(-8.,8.)),nus)
+        @test_throws ArgumentError compile_ckg_kernel(CKGJointKernel(beta_phys;oft=C,rate=gamma,frequency_window=(-8.,8.),max_bohr_frequencies=3),nus)
+        @test_throws ArgumentError compile_ckg_kernel(CKGJointKernel(beta_phys;oft=C,rate=gamma,frequency_window=(-8.,8.),max_bytes=100),nus)
+        overflow=CKGJointKernel(beta_phys;oft=x->(2pi)^(-1/4)*exp(-x^2/4),
+            rate=w->1e307,frequency_window=(-10000.,10000.),panels=1)
+        @test_throws ArgumentError compile_ckg_kernel(overflow,[0.])
+        @test_throws ArgumentError compile_ckg_kernel(pair,[0.,0.7])
+        @test_throws ArgumentError compile_ckg_kernel(pair,nus;energy_labels=[0.,0.],energy_step=1.)
+        @test_throws ArgumentError CKGJointKernel(beta_phys;oft=C,rate=gamma,frequency_window=(-Inf,Inf))
+        @test_throws ArgumentError CKGJointKernel(beta_phys;oft=C,rate=gamma,frequency_window=(-8.,8.),panels=0)
+    end
+    @testset "Physical continuum full generator; complex NH and Hermitian sources" begin
+        H=Hermitian(ComplexF64[0.2 0.3im 0.1 0.; -0.3im 0.7 0.2 -0.1im; 0.1 0.2 -0.5 0.3; 0. 0.1im 0.3 1.1])
+        A=ComplexF64[0.2 0.3im 0.1 0.7; 0.1 -0.2 0.4im 0.2; 0.3 0. 0.2 0.1im; -0.2im 0.1 0.5 0.3]
+        sources=[A,Matrix(A')]
+        p=prepare_gibbs_inputs(H;beta_phys,construction=KMS(),transition_weight=pair,jumps=sources)
+        ham=p.hamiltonian; d=4; Id=Matrix{ComplexF64}(I,d,d)
+        delta_phys=ham.bohr_freqs*ham.rescaling_factor
+        As=[j.in_eigenbasis for j in p.jumps]
+        # Matrix-valued physical-frequency integration, independent of the
+        # compiler's alpha, its positive rule, and package vectorisation helpers.
+        function gain_loss(w)
+            Ls=[a .* C.(w .- delta_phys) for a in As]
+            R=sum(L' * L for L in Ls)
+            gain=sum(kron(conj(L),L) for L in Ls)
+            vcat(vec(gamma(w)*gain),vec(gamma(w)*R))
+        end
+        integral=first(quadgk(gain_loss,-Inf,0.,Inf;atol=1e-12,rtol=1e-12))
+        gain=reshape(integral[1:d^4],d^2,d^2); R=reshape(integral[d^4+1:end],d,d)
+        B=(im/2).*tanh.(beta_phys.*delta_phys./4).*R
+        reference=gain-(kron(Id,R)+kron(transpose(R),Id))/2-im*(kron(Id,B)-kron(transpose(B),Id))
+        @test norm(B)>1e-3
+        LB=construct_lindbladian(p.jumps,p.config,ham)
+        @test LB≈reference atol=1e-9 rtol=1e-9
+        @test norm(LB*vec(ham.gibbs))<1e-10
+        weights=real(diag(ham.gibbs)); S=Diagonal(vec((weights*weights').^(1/4)))
+        @test norm(S\LB*S-(S\LB*S)')<1e-10
+        wsB=Workspace(H;beta_phys,construction=KMS(),transition_weight=pair,jumps=sources)
+        X=reshape(ComplexF64.(1:16),4,4)./16 .+ im.*Matrix(I,4,4)
+        @test vec(apply_lindbladian!(wsB,X,wsB.cached_cfg,wsB.ham_or_trott))≈reference*vec(X) atol=1e-9
+        @test vec(apply_adjoint_lindbladian!(wsB,X,wsB.cached_cfg,wsB.ham_or_trott))≈reference'*vec(X) atol=1e-9
+        # Equivalent Hermitian source representation must use signed labels too.
+        hermitian_sources=[(A+A')/sqrt(2),(A-A')/(sqrt(2)*im)]
+        errors=Float64[]
+        for (step,bits) in ((0.5,5),(0.25,6),(0.0625,8))
+            # Coarse approximations are inspectable, but may not enter strict KMS.
+            labels=step.*collect(-2^(bits-1):2^(bits-1)-1)
+            k=compile_ckg_kernel(pair,sort!(collect(keys(ham.bohr_dict))).*ham.rescaling_factor;
+                strict=false,energy_labels=labels,energy_step=step)
+            push!(errors,k.evidence.relative_integration_difference)
+        end
+        @test errors[end]<1e-9
+        @test errors[end]<errors[1]/100
+        for jumps in (sources,hermitian_sources)
+            ws=Workspace(H;beta_phys,construction=KMS(),transition_weight=pair,jumps,
+                domain=EnergyDomain(),energy_step=0.0625,num_energy_bits=8)
+            cfg=ws.cached_cfg; hh=ws.ham_or_trott
+            LE=construct_lindbladian(ws.jumps,cfg,hh)
+            @test LE≈reference atol=1e-9 rtol=1e-9
+            @test vec(apply_lindbladian!(ws,X,cfg,hh))≈reference*vec(X) atol=1e-9
+            @test vec(apply_adjoint_lindbladian!(ws,X,cfg,hh))≈reference'*vec(X) atol=1e-9
+            @test norm(ws.G_left+ws.G_right+R)<1e-9
+            @test norm((ws.G_right-ws.G_left)/(2im)-B)<1e-9
+            @test ws.research_provenance.filter_evidence[1].status==:pass
+            @test ws.research_provenance.rate_divisor≈1.
+        end
+        @test_throws ArgumentError Workspace(H;beta_phys,construction=KMS(),transition_weight=pair,
+            domain=EnergyDomain(),energy_step=0.5,num_energy_bits=5)
+        @test_throws ArgumentError Workspace(H;beta_phys,construction=KMS(),transition_weight=pair,
+            domain=EnergyDomain(),energy_step=0.1,num_energy_bits=50)
+        @test_throws ArgumentError Workspace(H;beta_phys,construction=KMS(),transition_weight=pair,domain=TimeDomain())
+        @test_throws ArgumentError Workspace(H;beta_phys,construction=KMS(),transition_weight=pair,domain=TrotterDomain())
+        @test_throws ArgumentError Workspace(Hermitian(ComplexF32.(H));beta_phys,construction=KMS(),transition_weight=pair)
+        # Model mismatch must fail before a stale tabulated lookup/action.
+        @test_throws ArgumentError validate_config!(p.config,HamHam(2Matrix(H);beta_phys))
+    end
+    @testset "Analytic fast-path differential and owned samples" begin
+        H=ComplexF64[0.2 0.1im;-0.1im 0.9]
+        analytic=GaussianTransition(beta_phys;sigma=.35,sigma_gamma=.6)
+        Cg=x->(2pi*.35^2)^(-1/4)*exp(-x^2/(4*.35^2))
+        numerical=CKGJointKernel(beta_phys;oft=Cg,rate=w->transition_value(analytic,w),frequency_window=(-8.,8.))
+        pa=prepare_gibbs_inputs(H;beta_phys,construction=KMS(),transition_weight=analytic)
+        pn=prepare_gibbs_inputs(H;beta_phys,construction=KMS(),transition_weight=numerical)
+        @test construct_lindbladian(pa.jumps,pa.config,pa.hamiltonian)≈construct_lindbladian(pn.jumps,pn.config,pn.hamiltonian) atol=1e-10 rtol=1e-10
+        poison=Ref(false)
+        owned=CKGJointKernel(beta_phys;oft=x->(poison[] ? error("callback replay") : C(x)),rate=gamma,frequency_window=(-8.,8.))
+        for domain in (BohrDomain(),EnergyDomain())
+            poison[]=false
+            options=domain isa EnergyDomain ? (;energy_step=0.0625,num_energy_bits=8) : (;)
+            ws=Workspace(H;beta_phys,construction=KMS(),transition_weight=owned,domain,options...)
+            poison[]=true
+            @test all(isfinite,apply_lindbladian!(ws,Matrix{ComplexF64}(I,2,2)/2,ws.cached_cfg,ws.ham_or_trott))
+            result=simulate_gibbs(ws;times=[0.,0.1],diagnostics=:quick,krylovdim=4,gap_options=(;krylovdim=4,howmany=2))
+            @test all(isfinite,result.trajectory.distances)
+        end
+    end
+end

@@ -232,7 +232,7 @@ function validate_config!(
     # GNS coherent check removed: type system enforces with_coherent(::GNS) = false via trait.
 
     # DLL carries its thermal weighting in the filter, without a CKG rate.
-    if !(config.construction isa DLL) && !(config.transition_weight isa GaussianMixtureTransition)
+    if !(config.construction isa DLL) && !(config.transition_weight isa Union{GaussianMixtureTransition,PreparedCKGJointKernel})
         if !(config.with_linear_combination) && config.gaussian_parameters == (nothing, nothing)
             push!(errors, "If with_linear_combination is false, gaussian_parameters must be set.")
         end
@@ -317,6 +317,8 @@ function validate_config!(
             if config.domain isa TimeDomain && !_dll_time_supported(config.filter)
                 push!(errors, "Custom DLL Time requires prepare_filter_transform with numerical controls.")
             end
+        elseif _is_joint_ckg(config) && config.filter === config.transition_weight.oft
+            # Joint compiler has validated the full complex OFT and rate together.
         elseif !(config.filter isa GaussianFilter)
             push!(errors,
                 "$(nameof(typeof(config.construction))) construction requires " *
@@ -401,6 +403,17 @@ function validate_config!(
 )
     validate_config!(config;
         _allow_hypothetical_dll_trotter = _allow_hypothetical_dll_trotter)
+    if _is_joint_ckg(config)
+        r=config.transition_weight
+        Set(keys(r.oft.frequencies)) == Set(keys(ham.bohr_dict)) ||
+            throw(ArgumentError("Prepared CKG kernel belongs to a different Bohr set; recompile for this Hamiltonian."))
+        if config.domain isa EnergyDomain
+            count=big(2)^register_r_D(config)
+            count==length(r.energy_labels) || throw(ArgumentError("Energy register changed after joint compilation; recompile."))
+            r.energy_labels == _create_energy_labels(register_r_D(config),register_w0_D(config)) ||
+                throw(ArgumentError("Energy step changed after joint compilation; recompile."))
+        end
+    end
     dim = size(ham.data, 1)
     size(ham.data, 2) == dim || throw(ArgumentError("ham.data must be square."))
     expected_dim = 2^config.num_qubits

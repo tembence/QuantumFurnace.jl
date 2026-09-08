@@ -57,7 +57,7 @@ function apply_lindbladian!(
     prefactor = (ws.oft_domain_prefactor::Float64) * (ws.gamma_norm_factor::Float64)
     energy_labels = ws.energy_labels::Vector{Float64}
     bohr_freqs = hamiltonian.bohr_freqs
-    inv_4sigma2 = 1.0 / (4 * config.sigma^2)
+    inv_4sigma2 = _energy_oft_kernel(config)
 
     CT = one(T)
     ZT = zero(T)
@@ -130,7 +130,7 @@ function apply_adjoint_lindbladian!(
     prefactor = (ws.oft_domain_prefactor::Float64) * (ws.gamma_norm_factor::Float64)
     energy_labels = ws.energy_labels::Vector{Float64}
     bohr_freqs = hamiltonian.bohr_freqs
-    inv_4sigma2 = 1.0 / (4 * config.sigma^2)
+    inv_4sigma2 = _energy_oft_kernel(config)
 
     CT = one(T)
     ZT = zero(T)
@@ -618,7 +618,7 @@ function _apply_lindbladian_threaded_energy!(
     energy_labels::Vector{Float64},
     config::Config{Lindbladian, EnergyDomain},
     prefactor::Float64,
-    inv_4sigma2::Float64;
+    inv_4sigma2;
     adjoint::Bool,
 ) where {T<:Complex}
     # `work` is the scratch's pre-allocated buffer; the population helper does
@@ -658,7 +658,7 @@ function _apply_lindbladian_chunk_energy!(
     chunk::UnitRange{Int},
     config::Config{Lindbladian, EnergyDomain},
     prefactor::Float64,
-    inv_4sigma2::Float64;
+    inv_4sigma2;
     adjoint::Bool,
 ) where {T<:Complex}
     fill!(task_sc.rho_out, 0)

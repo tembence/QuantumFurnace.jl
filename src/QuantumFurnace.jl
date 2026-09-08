@@ -3,6 +3,7 @@ module QuantumFurnace
 export PreparedFilterTransform, prepare_filter_transform, transform_values, fourier_sum
 export KMSFilter, FrequencyFilter, RateFilter, TimeFilter, filter_evidence
 export AbstractCKGTransition, GaussianTransition, MetropolisTransition, SmoothMetropolisTransition
+export CKGJointKernel, compile_ckg_kernel
 export GaussianMixtureTransition, prepare_gaussian_mixture, transition_value, transition_alpha
 
 using Pkg
@@ -178,6 +179,7 @@ include("filter_transforms.jl")
 include("nufft.jl")
 include("transition_weights.jl")
 include("structs.jl")
+include("ckg_joint_kernel.jl")
 include("dense_lindbladian_workspace.jl")
 include("qi_tools.jl")
 include("time_domain.jl")

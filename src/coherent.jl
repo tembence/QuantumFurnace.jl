@@ -17,6 +17,13 @@ function _precompute_coherent_B(
     )
 
     with_coherent(config.construction) || return nothing
+    if _is_joint_ckg(config)
+        CT=Complex{eltype(ham_or_trott.eigvals)}
+        R=zeros(CT,size(ham_or_trott.data))
+        _accumulate_R_total!(R,[Matrix{CT}(j.in_eigenbasis) for j in jumps],
+            fill(false,length(jumps)),precomputed_data,config,ham_or_trott)
+        return _dll_coherent_from_loss(R,ham_or_trott.eigvals,config.beta)
+    end
 
     if config.domain isa TimeDomain
         (; b_minus, b_plus, gamma_norm_factor) = precomputed_data

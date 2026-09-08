@@ -197,7 +197,7 @@ DLL validation no longer requires CKG transition-rate parameters. DLL
 | DLL existing global multichannel filters | Available, separate channels | Available | Available, separate channels | Available | Rejected | T01–T02 and T14 complete; source assignments preserve channel multiplicity |
 | DLL custom complex filters | Available, finite Bohr checks | Available, retained samples | Available with prepared transforms | Available with prepared transforms | Rejected | T10–T14 complete |
 | CKG built-in Gaussian OFT/rates | Available | Available | Available | Available | Available with valid registers/local Trotter cache | T15 typed rates available; T20 release checks |
-| CKG general joint filter/rate | Unavailable | Unavailable | Unavailable | Unavailable | General Energy pending; custom Trotter gated | T16 Bohr/Energy; T17 Time and explicit Trotter gate |
+| CKG general joint filter/rate | Available, bounded joint compilation | Available, retained samples | Unavailable | Unavailable | Energy available; Trotter rejected | T16 Bohr/Energy; T17 Time and explicit Trotter gate |
 
 DLL GQSP remains rejected (T02 keeps the rejection); DLL Energy/Trotter and a
 new DLL circuit implementation are outside scope. Existing CKG thermalisation,
@@ -580,7 +580,7 @@ centres `x`, where the rate Gaussian is centred at `-x` and has variance
 the singular zero-variance endpoint rejects. These rates require the normalised
 Gaussian OFT, `C(w)=(2π sigma^2)^(-1/4) exp(-w^2/(4sigma^2))`, implemented using
 `GaussianFilter` and the existing external normalisation. An arbitrary OFT
-substitution is rejected; general joint-kernel validation belongs to T16.
+substitution is rejected on this analytic route; use the joint compiler below for a different OFT.
 
 ```julia
 beta_phys = 0.8
@@ -616,3 +616,71 @@ Mixture Time/Trotter and GQSP execution reject pending the later compiler tasks.
 Existing built-in Time/Trotter configurations remain available through the legacy
 API. Retained finite-mixture parameters can be saved with Config; the original
 continuum density or arbitrary callbacks are not reconstructed by that snapshot.
+
+### General CKG joint kernels (T16)
+
+`CKGJointKernel(beta_phys; oft=C, rate=gamma, frequency_window=(lo,hi))`
+accepts the full complex, normalised transform, with `integral(abs2(C))=1`,
+and a nonnegative rate **together**. Supply it as `transition_weight` with
+`construction=KMS()`. Bohr and Energy support Float64 Hamiltonians; custom
+Time, Trotter, thermalisation channels and GQSP remain rejected.
+
+```julia
+using QuantumFurnace, QuadGK
+beta_phys = 0.8
+normalization = inv(sqrt(first(quadgk(
+    x -> exp(beta_phys*x/2 - 2x^4), -Inf, Inf))))
+pair = CKGJointKernel(beta_phys;
+    oft=x -> normalization * exp(beta_phys*x/4 - x^4) * cis(0.3x),
+    rate=w -> exp(-w^2 - beta_phys*w/2),
+    frequency_window=(-8.0, 8.0), panels=32)
+ws = Workspace(ComplexF64[0 0; 0 0.7]; beta_phys,
+    construction=KMS(), transition_weight=pair)
+result = simulate_gibbs(ws; times=[0.0, 0.1], diagnostics=:quick)
+ws.research_provenance.filter_evidence[1]
+```
+
+This example has the structural form `C(x)=exp(beta_phys*x/4)q(x)` and
+`gamma(w)=exp(-beta_phys*w/2)g(w)`, where `q(-x)=conj(q(x))` and `g` is even
+and nonnegative. Substitution in the integral proves the joint reflection
+identity. Normalising C preserves it. A classical rate ratio alone is
+insufficient: retaining this gamma but replacing C by an ordinary untilted
+Gaussian fails the joint test.
+
+The compiler forms
+`alpha(u,v)=integral(gamma(w)*C(w-u)*conj(C(w-v)), dw)` with positive quadrature
+weights, preserving Gram positivity. It checks **all pairs** in the complete
+Hamiltonian Bohr set against independent adaptive real-line integrals and
+`alpha(u,v)=exp(-beta_alg*(u+v)/2)*alpha(-v,-u)` in algorithm coordinates.
+The coherent correction uses the implemented loss, including its quadrature.
+Both domains retain complex samples; callbacks and quadrature do not run in
+matrix-vector actions. No sampled supremum or implicit clock rescaling is used.
+
+Bohr uses an eight-point composite Gauss rule: `frequency_window` and `panels`
+control its outer window and spacing. Energy uses the explicit physical
+`energy_step` and `num_energy_bits` register instead; its actual retained window
+is reported separately. Both must meet the default `balance_rtol=1e-8` against
+the adaptive reference (`rtol=1e-10`). Tighten these tolerances and discretisations
+when a smaller numerical floor is needed. `:not_KMS` means the resolved reference
+fails balance; `:quadrature_unresolved` means the reference passes but the
+implemented grid does not agree; `:reference_unresolved` means the adaptive
+error estimate exceeds tolerance. Failed kernels reject from the standard
+facade. `compile_ckg_kernel(pair, frequencies; strict=false)` exposes these
+statuses for inspection without accepting a failed KMS simulation.
+
+The balance metric is a bounded reflection residual divided by the largest
+reference alpha entry; it is neither a relative error for every tiny transition
+nor a Gibbs-weighted generator bound. QuadGK error estimates, callback
+nonnegativity and finite-spectrum balance checks are numerical evidence, not
+functional proofs or certified tails. Optional `structural_provenance` records
+a caller-supplied source; it does not bypass validation. Neither this compiler
+nor a small defect establishes mixing or an efficient implementation theorem.
+
+Compilation defaults to at most 65 distinct Bohr frequencies and a 64 MiB
+working-set estimate, checked before quadratic kernel allocation. The facade
+also checks its total construction budget. `maxevals` is a **per integral** cap;
+there are `1+m*(m+1)/2` adaptive integrals for `m` frequencies. These are bounded
+research references, with O(m²) kernel storage, not an arbitrary-size production
+algorithm. A changed Hamiltonian, beta or Energy grid requires recompilation.
+Prepared data own samples; portable reconstruction of callback prescriptions
+remains T19.

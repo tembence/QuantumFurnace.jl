@@ -206,6 +206,14 @@ _ckg_parameter_match(a::Tuple,b::Tuple) = length(a)==length(b) && all(_ckg_param
 function _collect_ckg_transition_errors!(errors,cfg)
     rate=cfg.transition_weight
     rate===nothing && return nothing
+    if rate isa PreparedCKGJointKernel
+        cfg.construction isa KMS && cfg.sim isa Lindbladian && cfg.domain isa Union{BohrDomain,EnergyDomain} && !cfg.with_gqsp ||
+            push!(errors,"General CKG kernels support KMS Lindbladian Bohr/Energy only; Time/Trotter/GQSP require separate compilation.")
+        rate.evidence.status==:pass || push!(errors,"An inspected failed joint kernel cannot enter the standard KMS simulator.")
+        _ckg_parameter_match(rate.beta,cfg.beta) || push!(errors,"Compiled joint beta must match Config.beta.")
+        cfg.filter === rate.oft || push!(errors,"Compiled joint OFT and transition must be used together.")
+        return nothing
+    end
     if !(rate isa Union{GaussianTransition,MetropolisTransition,SmoothMetropolisTransition,GaussianMixtureTransition})
         push!(errors,"Unsupported CKG transition type; arbitrary joint kernels require joint-kernel validation.")
         return nothing
@@ -230,9 +238,13 @@ function _resolve_physical_ckg(beta,filter,transition_weight)
         transition_weight isa AbstractCKGTransition ? transition_weight :
         applicable(transition_weight,beta) ? transition_weight(beta) :
         throw(ArgumentError("transition_weight must be a typed CKG transition or a physical-beta factory."))
-    rate isa Union{GaussianTransition,MetropolisTransition,SmoothMetropolisTransition,GaussianMixtureTransition} ||
+    rate isa Union{GaussianTransition,MetropolisTransition,SmoothMetropolisTransition,GaussianMixtureTransition,CKGJointKernel} ||
         throw(ArgumentError("Use a supported typed CKG transition; arbitrary joint kernels require joint-kernel validation."))
     isapprox(rate.beta,beta;rtol=100eps(typeof(float(beta))),atol=0) || throw(ArgumentError("Transition beta must match beta_phys."))
+    if rate isa CKGJointKernel
+        filter===nothing || filter===rate.oft || throw(ArgumentError("CKGJointKernel owns its full OFT; do not substitute a separate filter."))
+        return rate,rate.oft
+    end
     physical_filter=filter===nothing ? GaussianFilter(rate.sigma) : filter
     physical_filter isa GaussianFilter || throw(ArgumentError("T15 CKG rates require GaussianFilter; arbitrary OFT substitution needs T16 joint-kernel validation."))
     isapprox(physical_filter.sigma,rate.sigma;rtol=100eps(typeof(float(beta))),atol=0) ||
@@ -258,6 +270,19 @@ function _ckg_preflight(H;beta_phys,temperature,filter,jumps,rates,complete_adjo
     base=_gibbs_preflight(H;beta_phys,temperature,filter=DLLGaussianFilter,jumps,rates,
         complete_adjoint,basis,domain=BohrDomain(),construction=DLL(),clock,max_bytes)
     rate,physical_filter=_resolve_physical_ckg(base.beta_phys,filter,transition_weight)
+    if rate isa CKGJointKernel
+        m=big(base.dimension)^2-base.dimension+1
+        n=domain isa EnergyDomain ? big(2)^num_energy_bits : big(8)*rate.panels
+        kernel_bytes=big(128)*(m*m+n*m+n)
+        bytes=base.estimated_construction_bytes+kernel_bytes
+        return merge(base,(;construction=:CKG_KMS,domain=Symbol(nameof(typeof(domain))),
+            filter=physical_filter,transition_weight=rate,channel_count=1,energy_step,
+            outer_frequency_points=n,estimated_construction_bytes=bytes,
+            permitted=bytes<=max_bytes && kernel_bytes<=rate.max_bytes,
+            max_bohr_frequencies=rate.max_bohr_frequencies,bohr_validation=:complete_set_checked_after_diagonalisation,
+            rate_normalization=:none,rate_divisor=one(rate.beta),rate_bound_kind=:not_normalized,
+            kernel_realization=:positive_quadrature_gram))
+    end
     points=domain isa EnergyDomain ? big(2)^num_energy_bits : big(0)
     bytes=base.estimated_construction_bytes+big(32)*base.dimension^2*points
     return merge(base,(;construction=:CKG_KMS,domain=Symbol(nameof(typeof(domain))),
@@ -277,6 +302,7 @@ function _prepare_ckg_inputs(H;beta_phys,temperature,filter,jumps,rates,complete
         complete_adjoint,basis,domain=BohrDomain(),construction=DLL(),clock)
     ham=base.hamiltonian; T=eltype(ham.eigvals)
     physical_rate,physical_filter=_resolve_physical_ckg(base.provenance.beta_phys,filter,transition_weight)
+    physical_rate isa CKGJointKernel && return _prepare_joint_ckg_inputs(base,physical_rate,domain,num_energy_bits,energy_step)
     algorithm_rate=_physical_ckg_transition(physical_rate,T(ham.rescaling_factor),base.config.beta)
     algorithm_filter=GaussianFilter(algorithm_rate.sigma)
     cfg=Config(;sim=Lindbladian(),domain,construction=KMS(),num_qubits=base.config.num_qubits,

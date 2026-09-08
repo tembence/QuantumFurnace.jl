@@ -87,12 +87,12 @@ function _precompute_data(
     config::Config{<:Any, EnergyDomain},
     ham_or_trott::Union{HamHam, AbstractTrotter}
 )
-    energy_labels, = _precompute_labels(config)
+    energy_labels = _is_joint_ckg(config) ? config.transition_weight.energy_labels : first(_precompute_labels(config))
     transition = pick_transition(config)
     # Use the continuum rate supremum, independent of the sampled grid.
     gamma_norm_factor = 1.0 / pick_gamma_sup(config)
     # EnergyDomain dissipator only consults `w0_D` (no time grid).
-    dp = oft_domain_prefactor(config.domain, register_w0_D(config), config.sigma)
+    dp = _is_joint_ckg(config) ? register_w0_D(config) : oft_domain_prefactor(config.domain, register_w0_D(config), config.sigma)
 
     return (
         transition = transition,

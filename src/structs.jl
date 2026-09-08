@@ -72,8 +72,9 @@ presence is determined by `with_coherent(C())`.
 - `with_gqsp`, `gqsp_degree`: Coherent polynomial approximation controls.
 - `jump_selection`: `:sweep` or `:random` for full-DM channel evolution.
 - `filter`: Construction-specific filter. KMS/GNS accept `nothing` or a
-  `GaussianFilter` matching `sigma`; DLL requires an explicit DLL filter.
-- `transition_weight`: Optional typed CKG rate tied to the Gaussian OFT.
+  `GaussianFilter` matching `sigma`. KMS also accepts a compiled joint OFT;
+  DLL requires an explicit DLL filter.
+- `transition_weight`: Optional typed CKG rate or compiled joint OFT/rate kernel.
   `nothing` retains the legacy rate fields; DLL/GNS reject typed CKG rates.
 
 Each register obeys `\$w0_X t0_X = 2 pi / 2^r_X\$`. Unsuffixed register fields
