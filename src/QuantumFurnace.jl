@@ -102,7 +102,7 @@ export B_time, B_trotter, B_bohr
 export X, Y, Z, Had,
        pad_term, expm_pauli_padded, pauli_string_to_matrix, pauli_hamiltonian,
        trotterize, group_hamiltonian_terms
-export validate_config!
+export validate_config!, prepare_gibbs_inputs
 export register_t0_D, register_w0_D, register_r_D,
        register_t0_b_minus, register_w0_b_minus, register_r_b_minus,
        register_t0_b_plus, register_w0_b_plus, register_r_b_plus,

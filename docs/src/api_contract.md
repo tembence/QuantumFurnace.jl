@@ -107,6 +107,51 @@ asserting ergodicity. The onsite preset records its `1/sqrt(3n)` amplitude;
 user matrices receive no proposal normalisation. Nonuniform rates change the
 generator and are recorded per source, without inventing a single clock factor.
 
+T05 adds an executable preparation helper for the existing DLL backends:
+
+```julia
+p = prepare_gibbs_inputs(0.4X + 0.7Z; temperature=1.25,
+    filter=DLLGaussianFilter, jumps=:onsite_paulis)
+ws = Workspace(p.config, p.hamiltonian, p.jumps)
+p.provenance
+```
+
+Supply exactly one of `beta_phys` or `temperature`, with `k_B=1` and finite,
+positive values. Prebuilt filters must match the requested physical beta at
+Hamiltonian working precision. Gaussian widths set by beta, Metropolis support
+and symmetric frequency shifts convert together. Channel weights are unchanged.
+The helper supports the existing DLL Gaussian, Metropolis, symmetric-translate
+and multichannel families; custom phase/time-shift callbacks remain later filter
+work. It rejects negative symmetric shifts explicitly (supply `abs(shift)` if
+intended). CKG/GNS retain their existing low-level `Config` APIs; this helper
+currently accepts DLL only. The simulation facade remains T09 work.
+
+For DLL Time, supply `domain=TimeDomain()`, physical `time_step` and
+`num_energy_bits`; the algorithm time step is `R*time_step`. Both generator
+terms use the existing shared quadrature grid, whose accuracy must be checked.
+Bohr preparation needs no register or CKG rate parameters; the returned
+`Config.sigma=1` is an unused DLL compatibility value recorded as such.
+
+`HamHam(ham; beta_phys=new_beta)` validates and reuses its eigensystem without
+another diagonalisation, copies the spectral arrays, and recomputes Gibbs/Bohr
+data. Passing an old-temperature Hamiltonian directly to the helper rejects.
+The helper records whether H arrived in physical matrix or algorithm cache
+coordinates, the physical/resolved filters, beta, energy scale and shift,
+source rates, working precision, and Gibbs underflow. It also rejects stored
+Gibbs offdiagonals and stale Bohr caches. Scalar H has the same Gibbs state at
+every beta, so a prior temperature cannot be inferred from that state alone.
+Cache checks establish numerical Gibbs agreement within the recorded precision
+tolerances, including when cold states become numerically indistinguishable.
+
+An optional `clock=GeneratorClock{Float64}(:my_clock, multiplier, declared_rate)`
+scales every source amplitude by `sqrt(multiplier)`. The complete generator and
+decay rates scale by `multiplier`; equal evolutions use times divided by it.
+`declared_rate` is user-provided reference metadata, never a computed gap or a
+positive relaxation-rate claim for a zero generator. With no clock the raw
+multiplier is one, independently of Hamiltonian rescaling. Prepared provenance
+is returned separately from legacy `Config`; portable combined result storage
+remains T19 work.
+
 ## Filter and rate authoring
 
 These routes are reserved for T11–T17; names do not assert current support.

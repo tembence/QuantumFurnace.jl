@@ -506,6 +506,24 @@ beta_alg(ham::HamHam{T}, beta_phys::Real) where {T<:AbstractFloat} = T(beta_phys
 beta_phys(ham::HamHam{T}, beta_alg::Real) where {T<:AbstractFloat} = T(beta_alg / ham.rescaling_factor)
 
 """
+    HamHam(ham::HamHam; beta_phys, spectral_validation=:auto)
+
+Recompute Gibbs weights at a new physical inverse temperature using the existing
+eigensystem, without diagonalisation. Validate the cached eigensystem through
+the raw constructor; copy spectral matrices and rebuild Bohr data. Local-term
+metadata retains the existing raw-constructor ownership semantics. The input
+Gibbs state is deliberately replaced; `prepare_gibbs_inputs` instead rejects a
+prebuilt Hamiltonian whose Gibbs state does not match the requested temperature.
+"""
+function HamHam(ham::HamHam; beta_phys::Real, spectral_validation::Symbol=:auto)
+    raw = (; matrix=ham.data, terms=ham.base_terms, base_coeffs=ham.base_coeffs,
+        disordering_terms=ham.disordering_terms, disordering_coeffs=ham.disordering_coeffs,
+        eigvals=ham.eigvals, eigvecs=ham.eigvecs, nu_min=ham.nu_min,
+        shift=ham.shift, rescaling_factor=ham.rescaling_factor, periodic=ham.periodic)
+    return HamHam(raw; beta_phys, spectral_validation)
+end
+
+"""
     _unpack_disordering_fields(raw::NamedTuple, T) -> (terms, coeffs)
 
 Return typed disorder terms and coefficients, or `(nothing, nothing)`.
