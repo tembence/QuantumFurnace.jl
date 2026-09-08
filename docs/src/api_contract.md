@@ -292,3 +292,29 @@ for nonunique or unresolved systems. `kms_parent_spectrum` uses a homogeneous
 operator-scale tolerance; `dense_dll_irreducibility` also accepts validated
 adjoint pairs through an equivalent Hermitian source family. Its finite-system
 commutant witness still requires a faithful invariant Gibbs state.
+
+## Independent gap checks (T08)
+
+`robust_spectral_gap(ws; diagnostics=:standard)` runs three deterministic,
+independent O(1) operator starts and a larger-subspace repeat on the same compiled
+workspace, sequentially. `operator_starts=[A,B,...]` explicitly supplies eigenbasis
+operators; these need not be density matrices. The low-level
+`krylov_spectral_gap(...; operator_start=A)` supports a single explicit start.
+
+`runs` retains raw spectra/residuals and `agreement` compares captured rates and
+slow-cluster spans without averaging incompatible gaps. Consensus does not prove
+full coverage or uniqueness. Degenerate modes can give different captured
+subspaces even with identical rates. `reliability=:pass` is reserved for agreement
+with a passing complete, finite-system numerical reference in `:strict` mode;
+`:quick` and `:standard` remain globally inconclusive.
+
+`max_bytes`, `max_matvecs`, `max_seconds` bound the diagnostic work; memory is
+checked before each solve/refinement and includes retained results, compiled
+scratch and projected algebra. Time is checked at operation boundaries, so a
+native eigensolve/matvec can overrun the deadline. These are allocation estimates
+and cooperative time limits, not operating-system caps. Exhaustion preserves
+completed runs and records a reason. No dense fallback occurs on solver failure.
+Strict mode separately budgets complete KMS/kernel checks through
+`dense_max_dim`; `parent_action=true` also measures a transformed Ritz residual
+using the existing KMS-parent action after conditioning and Hermiticity pass.
+This optional probe adds no continuum or exhaustive-spectrum guarantee.

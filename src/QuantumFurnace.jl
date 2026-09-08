@@ -45,7 +45,7 @@ export EigenDecompositionResult, FixedPointResult, DefectResult, OverlapResult,
        compute_sz_labels, detect_multiplets, run_exact_diagnostics
 export SpectralModeDiagnostics, spectral_mode_diagnostics
 export DiagnosticCheck, GibbsDiagnostics, state_diagnostics, workspace_diagnostics
-export spectral_gap_diagnostics
+export spectral_gap_diagnostics, robust_spectral_gap
 
 # --- Discriminant ---
 export DiscriminantBuffers, gibbs_fractional_powers,

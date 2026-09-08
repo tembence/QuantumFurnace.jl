@@ -667,13 +667,17 @@ remain unavailable; these checks do not certify a continuum implementation.
 function workspace_diagnostics(ws::Workspace{KrylovSpectrum}, config::Config{Lindbladian},
     ham::HamHam; rho::Union{Nothing,AbstractMatrix}=nothing, rtol::Real=1e-9,
     dense_max_dim::Integer=16, max_dense_bytes::Integer=64*1024^2,
-    probes::Integer=3, seed::Integer=0x70606)
+    probes::Integer=3, seed::Integer=0x70606,
+    matvec_callback=nothing, work_callback=nothing)
     _diagnostic_controls(rtol, dense_max_dim, max_dense_bytes)
     probes > 0 || throw(ArgumentError("probes must be positive."))
     config.domain isa TrotterDomain && throw(ArgumentError(
         "workspace_diagnostics currently requires the Hamiltonian eigenbasis; TrotterDomain is unsupported."))
     _validate_reused_krylov_workspace(ws, config, ham,
         config.domain isa TrotterDomain ? ws.ham_or_trott : nothing, ws.jumps)
+    tick() = matvec_callback === nothing ? nothing : matvec_callback()
+    work() = work_callback === nothing ? nothing : work_callback()
+    work()
     d = size(ham.data,1)
     rho === nothing || size(rho) == (d,d) || throw(ArgumentError(
         "rho must match the Hamiltonian dimension ($d, $d)."))
@@ -684,12 +688,15 @@ function workspace_diagnostics(ws::Workspace{KrylovSpectrum}, config::Config{Lin
     for _ in 1:probes
         v = randn(rng, CT, d, d)
         v ./= norm(v)
+        tick()
         scale = max(scale, norm(apply_lindbladian!(ws,v,config,ham)))
     end
+    tick()
     stationary = _residual_check(norm(apply_lindbladian!(ws,gibbs,config,ham)),
         scale*norm(gibbs), rtol, :matrix_free_action, :complete_action_probed_scale,
         "Gibbs stationarity only; refine the filter/grid if the scaled residual fails.")
     identity_d = Matrix{CT}(I,d,d)
+    tick()
     tp = _residual_check(norm(apply_adjoint_lindbladian!(ws,identity_d,config,ham)),
         scale*sqrt(d), rtol, :matrix_free_adjoint, :complete_action_probed_scale,
         "Trace preservation requires L†(I)=0; check gain/loss assembly on failure.")
@@ -717,8 +724,10 @@ function workspace_diagnostics(ws::Workspace{KrylovSpectrum}, config::Config{Lin
         basis = zeros(CT,d,d)
         for j in 1:d^2
             fill!(basis,0); basis[j] = 1
+            tick()
             L[:,j] .= vec(apply_lindbladian!(ws,basis,config,ham))
         end
+        work()
         parent = materialize_kms_parent(L,gibbs)
         pn = opnorm(parent)
         tolerance = 10*d^2*eps(typeof(real(zero(CT))))*pn
@@ -737,6 +746,7 @@ function workspace_diagnostics(ws::Workspace{KrylovSpectrum}, config::Config{Lin
                 "Complete finite-system numerical kernel at the reported resolution; no all-size theorem.")
         end
     end
+    work()
     return GibbsDiagnostics((; stationarity=stationary, trace_preservation=tp,
         conditioning, state, kms, kernel, tails=_skipped("No integrated transform-tail evidence supplied.")),
         parent_spectrum, (; dense_permitted=permitted, estimated_dense_bytes=bytes,
@@ -822,4 +832,39 @@ function _spectral_fixed_point(vecs, indices, dim; rtol=1e-9)
     return (; state=fill(ComplexF64(NaN),dim,dim),
         checks=_skipped("No zero-compatible mode with a stable nonzero trace; request more modes."),
         valid=false,index=nothing,raw_trace=nothing,normalisation_multiplier=nothing,repair_norm=0.0)
+end
+
+# Compare captured eigenspaces through orthonormal spans, not vector phases.
+function _compare_gap_runs(runs; gap_rtol, subspace_tol)
+    gaps = [r.result.spectral_gap for r in runs]
+    usable = !isempty(runs) && all(isfinite,gaps)
+    residual_ok = usable && all(r -> maximum(r.result.normres;init=0.) <=
+        gap_rtol*r.result.spectrum_diagnostics.operator_scale, runs)
+    gap_defect = usable ? (maximum(gaps)-minimum(gaps))/maximum(gaps) : Inf
+    spans = Matrix{ComplexF64}[]
+    if usable
+        for r in runs
+            s = r.result
+            indices = findall(i -> abs(-real(s.eigenvalues[i])-s.spectral_gap) <=
+                gap_rtol*s.spectral_gap,eachindex(s.eigenvalues))
+            V = hcat(s.raw_eigenvectors[indices]...)
+            F = svd(V;full=false)
+            rank = count(x -> x > subspace_tol*maximum(F.S),F.S)
+            push!(spans,F.U[:,1:rank])
+        end
+    end
+    # Projector distance without allocating d^2 by d^2 projectors. Different
+    # captured ranks are inconclusive (single-vector Arnoldi can miss degeneracy).
+    defects = Float64[]
+    for i in 2:length(spans)
+        A,B = spans[1],spans[i]
+        push!(defects,size(A,2) != size(B,2) ? 1. :
+            max(norm(B-A*(A'*B)),norm(A-B*(B'*A))))
+    end
+    gap_agreement = length(runs) >= 2 && residual_ok && gap_defect <= gap_rtol
+    return (;status=gap_agreement && !isempty(defects) && maximum(defects)<=subspace_tol ? :pass : :inconclusive,
+        gap_agreement,residuals_pass=residual_ok,relative_gap_spread=gap_defect,
+        subspace_defects=defects,captured_cluster_ranks=size.(spans,2),
+        gap_rtol,subspace_tol,scope=:captured_multistart_subspaces,
+        message="Agreement is numerical evidence only; missing sectors or degenerate directions remain possible.")
 end

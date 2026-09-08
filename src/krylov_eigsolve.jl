@@ -378,6 +378,8 @@ function krylov_spectral_gap(
     max_retries::Int=3,
     allow_unpaired_nonhermitian::Bool=false,
     workspace::Union{Nothing, Workspace{KrylovSpectrum}}=nothing,
+    operator_start::Union{Nothing,AbstractArray}=nothing,
+    matvec_callback=nothing,
     krylov_kwargs...
 )
     # Guards
@@ -395,13 +397,15 @@ function krylov_spectral_gap(
 
     # Build matvec closure: Vector{ComplexF64} -> Vector{ComplexF64}
     function lindbladian_matvec(v::AbstractVector)
+        matvec_callback === nothing || matvec_callback()
         rho = reshape(v, dim, dim)
         apply_lindbladian!(ws, rho, config, hamiltonian)
         return copy(vec(ws.scratch.rho_out))  # KrylovKit must own each returned vector.
     end
 
     # Pure `I/d` can miss non-trivial symmetry sectors.
-    x0 = _krylov_default_x0(dim)
+    x0 = operator_start === nothing ? _krylov_default_x0(dim) :
+        _validated_operator_start(operator_start, dim)
 
     # Eigsolve with retry
     vals, vecs, info = _eigsolve_with_retry(
@@ -647,4 +651,192 @@ function run_krylov_spectrum(
         krylov_result.delta_used,
         metadata,
     )
+end
+
+function _validated_operator_start(start::AbstractArray, dim)
+    (size(start) == (dim,dim) || size(start) == (dim^2,)) ||
+        throw(ArgumentError("operator_start must be a ($dim, $dim) matrix or a length $(dim^2) vector in the eigenbasis."))
+    all(isfinite,start) && norm(start) > 0 || throw(ArgumentError("operator_start must be finite and nonzero."))
+    v = complex.(float.(vec(copy(start))))
+    return v / norm(v)
+end
+
+struct _WorkLimit <: Exception
+    reason::Symbol
+end
+Base.showerror(io::IO, err::_WorkLimit) = print(io, "Work budget exhausted: ",err.reason)
+
+# Budget checks are cooperative at matvec/solve boundaries; one native call
+# cannot be preempted. The memory estimate is a working-set gate, not an RSS cap.
+function _work_budget(max_matvecs, max_seconds)
+    max_matvecs >= 0 || throw(ArgumentError("max_matvecs must be nonnegative."))
+    isfinite(max_seconds) && max_seconds >= 0 || throw(ArgumentError("max_seconds must be finite and nonnegative."))
+    started = time_ns()
+    count = Ref(0)
+    elapsed() = (time_ns()-started)/1e9
+    function check()
+        elapsed() < max_seconds || throw(_WorkLimit(:time))
+        return nothing
+    end
+    function tick()
+        check()
+        count[] < max_matvecs || throw(_WorkLimit(:matvecs))
+        count[] += 1
+        return nothing
+    end
+    return (; count, elapsed, check, tick)
+end
+
+"""
+    robust_spectral_gap(ws; diagnostics=:standard, operator_starts=nothing,
+        seed=0x708, krylovdim=30, howmany=4, tol=1e-11,
+        max_matvecs=20000, max_seconds=60, max_bytes=256*1024^2, ...)
+
+Sequential independent operator solves on one compiled Lindbladian. Quick uses
+one O(1) random operator; standard uses three independent operators and repeats
+one with a larger subspace. Explicit `operator_starts` replace the starting set
+and are eigenbasis operators, not density matrices. Standard requires at least
+two starts. No automatic retries bypass the resource gates.
+
+`agreement` concerns residual-qualified captured gaps and slow-cluster spans.
+Degenerate eigenspaces may yield different captured directions, so a subspace
+mismatch stays inconclusive. No incompatible gaps are averaged. `reliability`
+remains inconclusive unless a strict, complete small-system KMS reference passes.
+Strict adds that bounded reference. Optional `parent_action=true` additionally
+checks the existing matrix-free KMS-parent action after complete Hermiticity and
+Gibbs-conditioning gates; it does not enable an ungated Hermitian solver.
+
+Budgets cover all diagnostic matvecs; memory includes the compiled workspace,
+retained results and the next basis. Time limits are cooperative, not preemptive.
+On exhaustion/failure, completed solves survive in `runs` and `failures` explains
+what was unavailable. `spectral_gap` is a captured candidate, not a certificate.
+"""
+function robust_spectral_gap(ws::Workspace{KrylovSpectrum}; diagnostics::Symbol=:standard,
+    operator_starts=nothing, seed::Integer=0x708, krylovdim::Int=30,
+    howmany::Int=4, tol::Real=1e-11, maxiter::Int=100,
+    gap_rtol::Real=1e-6, subspace_tol::Real=1e-4,
+    max_matvecs::Integer=20000, max_seconds::Real=60,
+    max_bytes::Integer=256*1024^2, dense_max_dim::Integer=16,
+    parent_action::Bool=false)
+    diagnostics in (:quick,:standard,:strict) || throw(ArgumentError("diagnostics must be :quick, :standard or :strict."))
+    isfinite(tol) && tol > 0 && isfinite(gap_rtol) && gap_rtol > 0 &&
+        isfinite(subspace_tol) && subspace_tol > 0 || throw(ArgumentError("Tolerances must be finite and positive."))
+    krylovdim > howmany > 0 && maxiter > 0 || throw(ArgumentError("Require krylovdim > howmany > 0 and maxiter > 0."))
+    max_bytes >= 0 && dense_max_dim >= 0 || throw(ArgumentError("Memory and dimension caps must be nonnegative."))
+    cfg, ham = ws.cached_cfg, ws.ham_or_trott
+    cfg isa Config{Lindbladian} && ham isa HamHam || throw(ArgumentError("A Hamiltonian-eigenbasis Lindbladian workspace is required."))
+    _validate_reused_krylov_workspace(ws,cfg,ham,nothing,ws.jumps)
+    d = size(ham.data,1); N = d^2
+    budget = _work_budget(max_matvecs,max_seconds)
+    starts = operator_starts === nothing ? nothing : collect(operator_starts)
+    nstarts = starts === nothing ? (diagnostics == :quick ? 1 : 3) : length(starts)
+    nstarts >= (diagnostics == :quick ? 1 : 2) || throw(ArgumentError("Standard/strict checks require at least two operator starts."))
+    # Validate without allocating normalised copies before the memory gate.
+    if starts !== nothing
+        for v in starts
+            (size(v) == (d,d) || size(v) == (N,)) && all(isfinite,v) && norm(v)>0 ||
+                throw(ArgumentError("Each start must be a finite nonzero eigenbasis operator."))
+        end
+    end
+    runs = NamedTuple[]; failures = NamedTuple[]
+    rng = MersenneTwister(seed)
+    basebytes = big(Base.summarysize(ws)) + (starts === nothing ? 0 : Base.summarysize(starts))
+    peak = basebytes
+    first_start = nothing
+    schedule = [(i,min(krylovdim,N+1),false) for i in 1:nstarts]
+    diagnostics == :quick || push!(schedule,(1,min(max(krylovdim+1,ceil(Int,1.5krylovdim)),N+1),true))
+    for (i,k,refinement) in schedule
+        # Arnoldi, residual copies, returned modes and dense projected algebra.
+        estimate = basebytes + Base.summarysize(runs) + big(16)*(6k+12)*N + big(16)*8k^2
+        peak = max(peak,estimate)
+        if estimate > max_bytes
+            push!(failures,(;start=i,refinement,reason=:memory,message="Next Krylov working-set estimate exceeds max_bytes.")); break
+        end
+        try
+            budget.check()
+            v = if refinement
+                first_start
+            elseif starts !== nothing
+                _validated_operator_start(starts[i],d)
+            else
+                random = randn(rng,ComplexF64,N)
+                random / norm(random)
+            end
+            i == 1 && !refinement && (first_start=copy(v))
+            result = krylov_spectral_gap(cfg,ham,ws.jumps;workspace=ws,
+                operator_start=v,krylovdim=k,howmany=min(howmany,k-1),tol,
+                max_retries=0,maxiter,matvec_callback=budget.tick)
+            push!(runs,(;start=i,refinement,krylovdim=k,result))
+        catch err
+            err isa InterruptException && rethrow()
+            reason = err isa _WorkLimit ? err.reason : :solver_failure
+            push!(failures,(;start=i,refinement,reason,message=sprint(showerror,err)))
+            err isa _WorkLimit && break
+        end
+    end
+    comparison = _compare_gap_runs(runs;gap_rtol,subspace_tol)
+    reference = nothing
+    parent = _skipped("Optional KMS-parent action not requested or complete gates unavailable.")
+    if diagnostics == :strict && isempty(failures)
+        remaining = max(big(0),big(max_bytes)-basebytes-Base.summarysize(runs))
+        try
+            budget.check()
+            densebytes = big(16)*(d^4+d^2)*sizeof(eltype(ws.G_left))
+            if d <= dense_max_dim && densebytes <= remaining
+                peak = max(peak,basebytes+Base.summarysize(runs)+densebytes)
+            end
+            reference = workspace_diagnostics(ws,cfg,ham;dense_max_dim,
+                max_dense_bytes=remaining,rtol=gap_rtol,matvec_callback=budget.tick,
+                work_callback=budget.check)
+            if parent_action && reference.checks.kms.status == :pass &&
+                reference.checks.conditioning.status == :pass && reference.checks.kernel.status == :pass
+                budget.check()
+                parentbytes = basebytes + Base.summarysize(runs) + Base.summarysize(reference) + big(16)*20N
+                peak = max(peak,parentbytes)
+                parentbytes <= max_bytes || throw(_WorkLimit(:memory))
+                powers = gibbs_fractional_powers(ham.gibbs)
+                bufs = DiscriminantBuffers{eltype(ws.G_left)}(d)
+                r = runs[1].result
+                idx = r.gap_mode_index
+                idx === nothing && throw(ArgumentError("Parent residual needs a resolved captured gap mode."))
+                v = reshape(r.raw_eigenvectors[idx],d,d)
+                x = powers.sigma_inv_quarter .* v .* transpose(powers.sigma_inv_quarter)
+                x ./= norm(x)
+                out = similar(x)
+                action! = (out,v) -> begin
+                    budget.tick(); copyto!(out,apply_lindbladian!(ws,v,cfg,ham))
+                end
+                apply_kms_parent!(out,x,action!,powers.sigma_quarter,powers.sigma_inv_quarter,bufs)
+                defect = norm(out + r.eigenvalues[idx]*x)
+                scale = max(norm(out),abs(r.eigenvalues[idx]))
+                parent = _residual_check(defect,scale,gap_rtol,
+                    :matrix_free_kms_parent,:captured_transformed_ritz_mode,
+                    "KMS-parent residual of a similarity-transformed generator Ritz mode; no coverage claim.")
+            end
+            budget.check()
+        catch err
+            err isa InterruptException && rethrow()
+            push!(failures,(;start=0,refinement=false,reason=err isa _WorkLimit ? err.reason : :reference_failure,
+                message=sprint(showerror,err)))
+        end
+    end
+    candidate = isempty(runs) ? NaN : minimum((r.result.spectral_gap for r in runs if isfinite(r.result.spectral_gap));init=Inf)
+    isfinite(candidate) || (candidate=NaN)
+    reliability = :inconclusive
+    if reference !== nothing && reference.checks.kernel.status == :pass &&
+        isfinite(reference.parent_spectrum.first_positive_eigenvalue) &&
+        reference.parent_spectrum.first_positive_eigenvalue > 0 && isempty(failures)
+        exact_gap = reference.parent_spectrum.first_positive_eigenvalue
+        if isfinite(candidate) && abs(candidate-exact_gap) <= gap_rtol*max(candidate,exact_gap)
+            reliability = :pass
+        end
+    end
+    return (; spectral_gap=candidate, runs, failures, agreement=comparison,
+        reliability, coverage= reliability == :pass ? :complete_small_system : :not_established,
+        uniqueness=reference === nothing ? :not_established : reference.uniqueness,
+        reference,parent_action=parent, clock=:raw_generator,diagnostics,seed,
+        resources=(;matvec_count=budget.count[],elapsed_seconds=budget.elapsed(),
+            max_matvecs,max_seconds,max_bytes,estimated_peak_bytes=peak,
+            exhausted=any(f.reason in (:time,:matvecs,:memory) for f in failures)),
+        evidence=:numerical)
 end
