@@ -470,20 +470,28 @@ function _accumulate_R_total_chunk_bohr!(
     return nothing
 end
 
+# Compile once per source, then share retained-channel gain/loss machinery.
+_dll_workspace_lindblads(jump, ham, data, ::BohrDomain) =
+    dll_lindblad_op_bohr(jump, ham, data.filter)
+
+function _dll_workspace_lindblads(jump, ham, data, ::TimeDomain)
+    return [jump.in_eigenbasis .* prefactor .* data.t0
+            for prefactor in data.oft_nufft_at_zero_list]
+end
+
 """
     _accumulate_R_total_dll!(R, dll_lindblads_out, jumps, precomputed_data, config, hamiltonian) -> nothing
 
-Accumulate the DLL rate operator and retain each Bohr-domain Lindblad matrix.
+Accumulate the DLL rate operator and retain each Bohr- or Time-domain Lindblad matrix.
 """
 function _accumulate_R_total_dll!(
     R::Matrix{T},
     dll_lindblads_out::Vector{Matrix{T}},
     jumps::Vector{JumpOp},
     precomputed_data,
-    config::Config{<:Any, BohrDomain, DLL},
+    config::Config{<:Any, <:Union{BohrDomain, TimeDomain}, DLL},
     hamiltonian::HamHam,
 ) where {T<:Complex}
-    (; filter) = precomputed_data
     n_jumps = length(jumps)
 
     # Each task builds its DLL Lindblad operators into private accumulators.
@@ -503,7 +511,7 @@ function _accumulate_R_total_dll!(
         @sync for (idx, chunk) in enumerate(chunks)
             Threads.@spawn _accumulate_R_total_dll_chunk!(
                 R_partials[idx], per_jump_ops, jumps, hamiltonian,
-                filter, chunk)
+                precomputed_data, config.domain, chunk)
         end
 
         @inbounds for idx in 1:n_chunks
@@ -518,7 +526,7 @@ function _accumulate_R_total_dll!(
     end
 
     for jump in jumps
-        L_or_Ls = dll_lindblad_op_bohr(jump, hamiltonian, filter)
+        L_or_Ls = _dll_workspace_lindblads(jump, hamiltonian, precomputed_data, config.domain)
         # Single-channel filters return a Matrix; multi-channel filters
         # Multi-channel filters return a vector; flatten it in jump-major order.
         # output `dll_lindblads_out` — the matrix-free hot path
@@ -545,11 +553,12 @@ function _accumulate_R_total_dll_chunk!(
     per_jump_ops::Vector{Vector{Matrix{T}}},
     jumps::Vector{JumpOp},
     hamiltonian::HamHam,
-    filter,
+    precomputed_data,
+    domain::D,
     chunk::UnitRange{Int},
-) where {T<:Complex}
+) where {T<:Complex, D}
     @inbounds for k in chunk
-        L_or_Ls = dll_lindblad_op_bohr(jumps[k], hamiltonian, filter)
+        L_or_Ls = _dll_workspace_lindblads(jumps[k], hamiltonian, precomputed_data, domain)
         ops = Vector{Matrix{T}}()
         if L_or_Ls isa AbstractMatrix
             L_a = Matrix{T}(L_or_Ls)
@@ -568,22 +577,22 @@ function _accumulate_R_total_dll_chunk!(
 end
 
 """
-    Workspace(config::Config{Lindbladian, BohrDomain, DLL}, hamiltonian, jumps; trotter=nothing)
+    Workspace(config::Config{Lindbladian, D, DLL}, hamiltonian, jumps; trotter=nothing)
 
-Construct the DLL Bohr-domain matrix-free workspace.
+Construct the DLL Bohr- or Time-domain matrix-free workspace.
 
 It stores per-channel Lindblad matrices, the total rate operator, and the
 coherent correction. The left/right factors follow the package's transposed
 column-stacking convention.
 """
 function Workspace(
-    config::Config{Lindbladian, BohrDomain, DLL},
+    config::Config{Lindbladian, D, DLL},
     hamiltonian::HamHam,
     jumps::Vector{JumpOp};
     trotter::Union{AbstractTrotter, Nothing}=nothing,
-)
+) where {D<:Union{BohrDomain, TimeDomain}}
     validate_config!(config, hamiltonian)
-    @assert trotter === nothing  "DLL BohrDomain does not use Trotter"
+    trotter === nothing || throw(ArgumentError("DLL Bohr/Time workspaces do not use a Trotter cache."))
 
     precomputed_data = _precompute_data(config, hamiltonian)
     (; filter) = precomputed_data
@@ -603,8 +612,8 @@ function Workspace(
                               precomputed_data, config, hamiltonian)
     hermitianize!(R_total)
 
-    # Coherent G via dll_coherent_op_bohr (Hermitian by Theorem 10).
-    G = Matrix{CT}(dll_coherent_op_bohr(jumps, hamiltonian, filter, config.beta))
+    # Keep the requested domain's coherent correction, including Time quadrature.
+    G = Matrix{CT}(_precompute_coherent_B(jumps, hamiltonian, config, precomputed_data))
 
     # Schrödinger coherent action: -i[G,rho].
     G_left  = Matrix{CT}(-1im .* G .- 0.5 .* R_total)
@@ -614,7 +623,7 @@ function Workspace(
 
     sc = KrylovScratch(CT, dim; with_channel_rho_jump=false)
 
-    return Workspace{KrylovSpectrum, BohrDomain, DLL, T}(
+    return Workspace{KrylovSpectrum, D, DLL, T}(
         jump_eigenbases, jump_hermitian, copy(jumps),
         dll_lindblads,
         G_left, G_right,

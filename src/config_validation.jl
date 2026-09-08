@@ -196,13 +196,15 @@ function validate_config!(
     (!isfinite(config.sigma) || config.sigma <= 0) &&
         push!(errors, "sigma must be finite and > 0.")
 
-    for (name, value) in (("a", config.a), ("s", config.s))
-        if value !== nothing && (!isfinite(value) || value < 0)
-            push!(errors, "$name must be finite and >= 0 when provided.")
+    if !(config.construction isa DLL)
+        for (name, value) in (("a", config.a), ("s", config.s))
+            if value !== nothing && (!isfinite(value) || value < 0)
+                push!(errors, "$name must be finite and >= 0 when provided.")
+            end
         end
-    end
-    if config.eta !== nothing && (!isfinite(config.eta) || config.eta <= 0)
-        push!(errors, "eta must be finite and > 0 when provided.")
+        if config.eta !== nothing && (!isfinite(config.eta) || config.eta <= 0)
+            push!(errors, "eta must be finite and > 0 when provided.")
+        end
     end
 
     if config.sim isa Thermalize
@@ -222,51 +224,54 @@ function validate_config!(
     # --- Common Validation Logic ---
     # GNS coherent check removed: type system enforces with_coherent(::GNS) = false via trait.
 
-    if !(config.with_linear_combination) && config.gaussian_parameters == (nothing, nothing)
-        push!(errors, "If with_linear_combination is false, gaussian_parameters must be set.")
-    end
+    # DLL carries its thermal weighting in the filter, without a CKG rate.
+    if !(config.construction isa DLL)
+        if !(config.with_linear_combination) && config.gaussian_parameters == (nothing, nothing)
+            push!(errors, "If with_linear_combination is false, gaussian_parameters must be set.")
+        end
 
-    if !(config.with_linear_combination)
-        w_gamma, sigma_gamma = config.gaussian_parameters
-        if w_gamma === nothing || sigma_gamma === nothing
-            push!(errors, "For Gaussian transitions gaussian_parameters=(ω_γ, σ_γ) must be set.")
-        else
-            !isfinite(w_gamma) && push!(errors, "Gaussian transition ω_γ must be finite.")
-            (!isfinite(sigma_gamma) || sigma_gamma <= 0) &&
-                push!(errors, "Gaussian transition σ_γ must be finite and > 0.")
-            rhs = if config.construction isa GNS
-                2 * w_gamma / (sigma_gamma^2)
+        if !(config.with_linear_combination)
+            w_gamma, sigma_gamma = config.gaussian_parameters
+            if w_gamma === nothing || sigma_gamma === nothing
+                push!(errors, "For Gaussian transitions gaussian_parameters=(ω_γ, σ_γ) must be set.")
             else
-                2 * w_gamma / (config.sigma^2 + sigma_gamma^2)
-            end
-            parameter_relation_holds = isapprox(config.beta, rhs)
-            if !(parameter_relation_holds)
-                if config.construction isa GNS
-                    push!(errors, "For Gaussian transitions (GNS line) require beta ≈ 2*ω_γ/σ_γ^2")
+                !isfinite(w_gamma) && push!(errors, "Gaussian transition ω_γ must be finite.")
+                (!isfinite(sigma_gamma) || sigma_gamma <= 0) &&
+                    push!(errors, "Gaussian transition σ_γ must be finite and > 0.")
+                rhs = if config.construction isa GNS
+                    2 * w_gamma / (sigma_gamma^2)
                 else
-                    push!(errors, "For Gaussian transitions (KMS line) require beta ≈ 2*ω_γ/(σ^2+σ_γ^2)")
+                    2 * w_gamma / (config.sigma^2 + sigma_gamma^2)
+                end
+                parameter_relation_holds = isapprox(config.beta, rhs)
+                if !(parameter_relation_holds)
+                    if config.construction isa GNS
+                        push!(errors, "For Gaussian transitions (GNS line) require beta ≈ 2*ω_γ/σ_γ^2")
+                    else
+                        push!(errors, "For Gaussian transitions (KMS line) require beta ≈ 2*ω_γ/(σ^2+σ_γ^2)")
+                    end
                 end
             end
         end
-    end
 
-    if config.with_linear_combination
-        if config.a === nothing || config.s === nothing
-            push!(errors, "Linear-combination transitions require explicit finite a and s values.")
-        end
-        a_val = something(config.a, 0.0)
-        s_val = something(config.s, 0.0)
-        # (a, s) taxonomy: kinky Metropolis is exactly (s = 0, a = 0); smooth
-        # Metropolis is (s > 0, any a ≥ 0). The (s = 0, a > 0) combination is
-        # an a-regularised but unsmoothed rate that the thesis numerics never
-        # use — reject it so we don't silently dispatch into an out-of-scope
-        # rate function.
-        if s_val == 0.0 && a_val != 0.0
-            push!(errors, "For linear combinations require (s = 0, a = 0) for kinky Metropolis or (s > 0) for smooth Metropolis; got (s=0, a=$(a_val)).")
-        end
-        # Smooth Metropolis with `a == 0` requires positive `eta` in time domains.
-        if a_val == 0.0 && config.domain isa Union{TimeDomain, TrotterDomain} && with_coherent(config.construction) && (isnothing(config.eta) || config.eta <= 0.0)
-            push!(errors, "For linear combinations in the KMS DB case with a=0 in TIME or TROTTER domain, eta must be > 0.")
+        if config.with_linear_combination
+            if config.a === nothing || config.s === nothing
+                push!(errors, "Linear-combination transitions require explicit finite a and s values.")
+            end
+            a_val = something(config.a, 0.0)
+            s_val = something(config.s, 0.0)
+            # (a, s) taxonomy: kinky Metropolis is exactly (s = 0, a = 0); smooth
+            # Metropolis is (s > 0, any a ≥ 0). The (s = 0, a > 0) combination is
+            # an a-regularised but unsmoothed rate that the thesis numerics never
+            # use — reject it so we don't silently dispatch into an out-of-scope
+            # rate function.
+            if s_val == 0.0 && a_val != 0.0
+                push!(errors, "For linear combinations require (s = 0, a = 0) for kinky Metropolis or (s > 0) for smooth Metropolis; got (s=0, a=$(a_val)).")
+            end
+            # Smooth Metropolis with `a == 0` requires positive `eta` in time domains.
+            if a_val == 0.0 && config.domain isa Union{TimeDomain, TrotterDomain} && with_coherent(config.construction) && (isnothing(config.eta) || config.eta <= 0.0)
+                push!(errors, "For linear combinations in the KMS DB case with a=0 in TIME or TROTTER domain, eta must be > 0.")
+            end
         end
     end
 
@@ -318,6 +323,9 @@ function validate_config!(
 
     # --- DLL construction validation (DLL-2) ---
     if config.construction isa DLL
+        if config.sim isa Thermalize
+            push!(errors, "DLL Thermalize channels are not supported; use Lindbladian evolution.")
+        end
         # DLL needs an explicit DLL filter at the OFT stage (Eq. 3.4 weighting).
         if config.filter === nothing
             push!(errors, "DLL construction requires an explicit AbstractFilter " *

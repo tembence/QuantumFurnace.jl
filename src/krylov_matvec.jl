@@ -337,19 +337,39 @@ function apply_adjoint_lindbladian!(
         hamiltonian.bohr_dict, alpha, gamma_norm_factor, Val(true))
 end
 
+# Concrete domain entry points avoid ambiguous intersections with the legacy
+# Bohr methods; both dispatch into the same retained-matrix function barrier.
+for D in (BohrDomain, TimeDomain)
+    @eval begin
+        function apply_lindbladian!(
+            ws::Workspace{KrylovSpectrum}, rho::Matrix{T},
+            config::Config{Lindbladian, $D, DLL}, hamiltonian::HamHam;
+            include_coherent::Bool=true,
+        ) where {T<:Complex}
+            return _apply_lindbladian_dll!(ws, rho; include_coherent)
+        end
+
+        function apply_adjoint_lindbladian!(
+            ws::Workspace{KrylovSpectrum}, rho::Matrix{T},
+            config::Config{Lindbladian, $D, DLL}, hamiltonian::HamHam;
+            include_coherent::Bool=true,
+        ) where {T<:Complex}
+            return _apply_adjoint_lindbladian_dll!(ws, rho; include_coherent)
+        end
+    end
+end
+
 # DLL uses one Lindblad matrix per coupling or channel.
 # Math: $L(rho) = G_L rho + rho G_R + sum_a L_a rho L_a^dagger$.
 
 """
-    apply_lindbladian!(ws, rho, config, hamiltonian) -> sc.rho_out
+    _apply_lindbladian_dll!(ws, rho) -> sc.rho_out
 
-Apply the DLL Bohr-domain Lindbladian.
+Apply the DLL Bohr- or Time-domain Lindbladian.
 """
-function apply_lindbladian!(
+function _apply_lindbladian_dll!(
     ws::Workspace{KrylovSpectrum},
-    rho::Matrix{T},
-    config::Config{Lindbladian, BohrDomain, DLL},
-    hamiltonian::HamHam;
+    rho::Matrix{T};
     include_coherent::Bool = true,
 ) where {T<:Complex}
     sc = ws.scratch::KrylovScratch{T}
@@ -384,15 +404,13 @@ function apply_lindbladian!(
 end
 
 """
-    apply_adjoint_lindbladian!(ws, rho, config, hamiltonian) -> sc.rho_out
+    _apply_adjoint_lindbladian_dll!(ws, rho) -> sc.rho_out
 
-Apply the Hilbert--Schmidt adjoint DLL Bohr-domain Lindbladian.
+Apply the Hilbert--Schmidt adjoint DLL Bohr- or Time-domain Lindbladian.
 """
-function apply_adjoint_lindbladian!(
+function _apply_adjoint_lindbladian_dll!(
     ws::Workspace{KrylovSpectrum},
-    rho::Matrix{T},
-    config::Config{Lindbladian, BohrDomain, DLL},
-    hamiltonian::HamHam;
+    rho::Matrix{T};
     include_coherent::Bool = true,
 ) where {T<:Complex}
     sc = ws.scratch::KrylovScratch{T}

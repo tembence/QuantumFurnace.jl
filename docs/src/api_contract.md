@@ -3,14 +3,14 @@
 This page freezes the interface planned by tasks T00–T21. The new facade and
 filter constructors below are **target API, not yet available**. Existing
 `Config`, `HamHam`, `JumpOp`, `Workspace` and result APIs keep their meanings.
-The standalone `test/test_research_contract.jl` records current regressions;
-its expected failures are not registered in the default test runner.
+`test/test_research_contract.jl` verifies the repaired T00–T02 regressions
+and is registered in the default test runner.
 
 ## Entry points and units
 
 The reserved names are `pauli_hamiltonian`, `simulate_gibbs`, `KMSFilter`,
 `FrequencyFilter`, `RateFilter`, `TimeFilter`, and `GibbsSimulationResult`.
-They have no existing package binding at the T00 baseline. `Workspace` gains
+They have no existing package binding after T02. `Workspace` gains
 a convenience constructor; it remains the existing compiled workspace type.
 
 Target example (Hamiltonian input: T03; configuration: T05; facade: T09):
@@ -108,20 +108,20 @@ unknown; T12–T13 provide direct references and independent refinement controls
 
 ## Construction and domain capabilities
 
-This table describes **low-level Lindbladian** paths at the T00 baseline.
+This table describes **low-level Lindbladian** paths after T02.
 The facade remains pending until T09. Existence of a domain type does not
 establish support. “Available” does not certify a chosen quadrature tolerance.
 
-T01 update: the missing Time source adjoint is repaired in the NUFFT and
-legacy direct contractions, retaining the Hermitian fast path. T02's Time
-workspace and false CKG-eta validation failures remain open. Per-source DLL
-`Thermalize` coherent-unitary routing is outside T01 and is not advertised here.
+T01 repaired the Time source adjoint. T02 supports DLL Time workspaces with
+retained per-channel matrices and the same coherent quadrature as dense Time.
+DLL validation no longer requires CKG transition-rate parameters. DLL
+`Thermalize` channels reject explicitly; use `Lindbladian()` evolution.
 
 | Construction/filter | Dense Bohr | Bohr workspace | Dense Time | Time workspace | Energy/Trotter | Implementing task |
 |---|---|---|---|---|---|---|
-| DLL built-ins, Hermitian sources | Available | Available | Available | Broken: missing `transition` | Rejected | T02 repairs workspace/validation; T09 facade |
-| DLL built-ins, adjoint-paired sources | Available | Available | Missing left adjoint at baseline | Broken | Rejected | T01 adjoint repair; T02 workspace |
-| DLL existing global multichannel filters | Available, separate channels | Available | Shared coherent contraction | Broken | Rejected | T01–T02; heterogeneous per-source expansion T14 |
+| DLL built-ins, Hermitian sources | Available | Available | Available | Available | Rejected | T02 complete; T09 facade |
+| DLL built-ins, adjoint-paired sources | Available | Available | Available | Available | Rejected | T01–T02 complete |
+| DLL existing global multichannel filters | Available, separate channels | Available | Available, separate channels | Available | Rejected | T01–T02 complete; heterogeneous per-source expansion T14 |
 | DLL custom complex filters | Real-only/trait limitations | Same limitations | Unavailable as general interface | Unavailable | Rejected | T10–T11 Bohr; T12–T13 Time; T14 channels |
 | CKG built-in Gaussian OFT/rates | Available | Available | Available | Available | Available with valid registers/local Trotter cache | Preserve; T15 typed rates; T20 release checks |
 | CKG general joint filter/rate | Unavailable | Unavailable | Unavailable | Unavailable | General Energy pending; custom Trotter gated | T16 Bohr/Energy; T17 Time and explicit Trotter gate |
