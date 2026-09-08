@@ -51,6 +51,7 @@ makedocs(
         ],
         "Interface and capabilities" => "api_contract.md",
         "Filter theory" => "theory_filters.md",
+        "Symbolic filter feasibility" => "symbolic_filters.md",
         "API reference" => "api.md",
     ],
 )

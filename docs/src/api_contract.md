@@ -205,8 +205,8 @@ DLL GQSP remains rejected (T02 keeps the rejection); DLL Energy/Trotter and a
 new DLL circuit implementation are outside scope. Existing CKG thermalisation,
 GQSP, GNS and optional TN paths retain their own documented capabilities.
 CKG-to-DLL finite-Bohr factorisation is a bounded reference task (T18), not a
-default scalable replacement. Symbolic transforms are optional feasibility
-work (T21); numerical execution cannot depend on their success.
+default scalable replacement. The [T21 symbolic feasibility experiment](symbolic_filters.md)
+retains the numerical provider; no symbolic extension or dependency is added.
 
 The strict sampler includes `-im[B,rho]`, with
 `B_ij=(im/2)*tanh(beta*(E_i-E_j)/4)*sum(L' * L)_ij`.
