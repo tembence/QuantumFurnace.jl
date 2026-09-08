@@ -191,7 +191,7 @@ function _jump_contribution!(
     jump_oft = ws.scratch.jump_tmp
     prefactor = precomputed_data.oft_domain_prefactor * gamma_norm_factor
 
-    if jump.hermitian
+    if jump.hermitian && !_is_joint_ckg(config)
         for w_raw in energy_labels
             w_raw > 1e-12 && continue
             w = abs(w_raw)

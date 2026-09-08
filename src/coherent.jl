@@ -18,6 +18,10 @@ function _precompute_coherent_B(
 
     with_coherent(config.construction) || return nothing
     if _is_joint_ckg(config)
+        if config.domain isa TimeDomain
+            data=config.transition_weight.time_data
+            return _dll_coherent_from_g_tt(jumps,ham_or_trott,data.g_tt,data.times,data.step;backend=data.backend)
+        end
         CT=Complex{eltype(ham_or_trott.eigvals)}
         R=zeros(CT,size(ham_or_trott.data))
         _accumulate_R_total!(R,[Matrix{CT}(j.in_eigenbasis) for j in jumps],

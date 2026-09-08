@@ -77,7 +77,8 @@ presence is determined by `with_coherent(C())`.
 - `transition_weight`: Optional typed CKG rate or compiled joint OFT/rate kernel.
   `nothing` retains the legacy rate fields; DLL/GNS reject typed CKG rates.
 
-Each register obeys `\$w0_X t0_X = 2 pi / 2^r_X\$`. Unsuffixed register fields
+Legacy CKG registers obey `\$w0_X t0_X = 2 pi / 2^r_X\$`; compiled joint
+Time kernels instead own independently validated grids. Unsuffixed register fields
 are compatibility fallbacks promoted by `validate_config!`.
 """
 @kwdef struct Config{S <: AbstractSimulation, D <: AbstractDomain, C <: AbstractConstruction, T <: AbstractFloat}

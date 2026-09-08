@@ -705,6 +705,7 @@ function _collect_config_errors!(errors::Vector{String}, config::Config{<:Any, E
 end
 
 function _collect_config_errors!(errors::Vector{String}, config::Config{<:Any, TimeDomain})
+    _is_joint_ckg(config) && return errors # owned independent grids validated during compilation
     # CKG/GNS TimeDomain dissipator: full (r_D, t0_D, w0_D) Fourier triple.
     _check_register_fourier!(
         errors, "D", register_r_D(config), register_t0_D(config), register_w0_D(config);

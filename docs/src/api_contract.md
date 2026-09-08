@@ -197,7 +197,7 @@ DLL validation no longer requires CKG transition-rate parameters. DLL
 | DLL existing global multichannel filters | Available, separate channels | Available | Available, separate channels | Available | Rejected | T01–T02 and T14 complete; source assignments preserve channel multiplicity |
 | DLL custom complex filters | Available, finite Bohr checks | Available, retained samples | Available with prepared transforms | Available with prepared transforms | Rejected | T10–T14 complete |
 | CKG built-in Gaussian OFT/rates | Available | Available | Available | Available | Available with valid registers/local Trotter cache | T15 typed rates available; T20 release checks |
-| CKG general joint filter/rate | Available, bounded joint compilation | Available, retained samples | Unavailable | Unavailable | Energy available; Trotter rejected | T16 Bohr/Energy; T17 Time and explicit Trotter gate |
+| CKG general joint filter/rate | Available, bounded joint compilation | Available, retained samples | Available, explicit transform controls | Available, owned samples | Energy available; custom Trotter rejected | T16–T17 complete |
 
 DLL GQSP remains rejected (T02 keeps the rejection); DLL Energy/Trotter and a
 new DLL circuit implementation are outside scope. Existing CKG thermalisation,
@@ -612,7 +612,7 @@ physical `energy_step` and `num_energy_bits`, controlling a separate outer
 frequency grid; the full requested grid is retained for mixtures. Physical
 widths, centres and energy steps are divided by the Hamiltonian rescaling factor;
 the normalised OFT and integration measure cancel their Jacobians in alpha.
-Mixture Time/Trotter and GQSP execution reject pending the later compiler tasks.
+Mixture Time requires the explicit joint compiler and transform controls below; custom Trotter and GQSP reject.
 Existing built-in Time/Trotter configurations remain available through the legacy
 API. Retained finite-mixture parameters can be saved with Config; the original
 continuum density or arbitrary callbacks are not reconstructed by that snapshot.
@@ -622,8 +622,8 @@ continuum density or arbitrary callbacks are not reconstructed by that snapshot.
 `CKGJointKernel(beta_phys; oft=C, rate=gamma, frequency_window=(lo,hi))`
 accepts the full complex, normalised transform, with `integral(abs2(C))=1`,
 and a nonnegative rate **together**. Supply it as `transition_weight` with
-`construction=KMS()`. Bohr and Energy support Float64 Hamiltonians; custom
-Time, Trotter, thermalisation channels and GQSP remain rejected.
+`construction=KMS()`. Bohr, Energy and the explicit Time conversion below support Float64 Hamiltonians.
+Custom Trotter, thermalisation channels and GQSP remain rejected.
 
 ```julia
 using QuantumFurnace, QuadGK
@@ -684,3 +684,54 @@ research references, with O(m²) kernel storage, not an arbitrary-size productio
 algorithm. A changed Hamiltonian, beta or Energy grid requires recompilation.
 Prepared data own samples; portable reconstruction of callback prescriptions
 remains T19.
+
+
+### General CKG Time conversion (T17)
+
+Pass physical windows and steps explicitly. This executable example uses the
+normalised `pair.oft` and `pair.rate` from the preceding example:
+
+```julia
+time_pair = CKGJointKernel(beta_phys; oft=pair.oft, rate=pair.rate,
+    frequency_window=(-8.0,8.0), panels=32,
+    time_transform=(frequency_window=8.0, frequency_grid_size=257,
+        coherent_frequency_window=8.0, coherent_frequency_grid_size=129,
+        coherent_time_window=19.2, coherent_time_step=0.15, backend=:direct))
+time_ws = Workspace(ComplexF64[0 0; 0 0.7]; beta_phys,
+    construction=KMS(), transition_weight=time_pair, domain=TimeDomain(),
+    time_step=0.15, num_energy_bits=8)
+```
+
+The dissipative time grid has `2^num_energy_bits` points separated by
+`time_step`. Its inverse-transform window and spacing are controlled separately
+by `time_transform.frequency_window` and `frequency_grid_size`. The outer
+frequency integral still uses the joint kernel's `frequency_window` and
+`panels`, with positive weights and no sampled rate normalisation.
+
+The coherent term uses the full two-dimensional inverse transform of
+`tanh(beta*(v-u)/4)*alpha(u,v)/(2im)`, with its own frequency window/grid and
+time window/step. It contracts the ordered product `A(s)'*A(t)`, including
+non-Hermitian paired sources. It does not use the built-in `b_minus/b_plus`
+formulas or replace the two-time calculation with a correction from the
+implemented loss. Both transforms are prepared once; actions use owned samples.
+`:finufft` may be selected for the dissipative Fourier sums and coherent
+contraction; the bounded two-dimensional inverse itself uses matrix products.
+
+Every Bohr pair is compared with the retained frequency reference. Independent
+dissipative and coherent differences, the actual Time coefficient balance
+defect, and nested frequency-reference evidence are recorded. Exceeding
+`balance_rtol` rejects with the controls to refine. These are small-system
+numerical comparisons, not integrated-tail certificates. Valid KMS kernels,
+particularly rates with nondecaying tails such as Metropolis, need not admit
+absolutely integrable two-frequency kernels. Explicit finite windows may fail
+to resolve them within the resource budget. No universal Time convergence or
+quantum implementation claim follows. `max_bytes` includes time/frequency
+matrices, prefactors and dimension-dependent contraction scratch.
+
+Custom CKG Trotter remains unsupported: even a retained local Hamiltonian
+needs a separately validated evolution and coherent-kernel algorithm. An
+opaque dense Hamiltonian additionally lacks a local decomposition. The error
+states this gate; legacy built-in `Config` plus `make_trotter_for_config`
+continues to support its established Time/Trotter paths. A future custom
+Trotter task must verify basis, local evolution and independent coherent error
+before this gate can be opened.

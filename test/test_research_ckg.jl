@@ -302,3 +302,100 @@ end
         end
     end
 end
+
+@testset "T17 general CKG Time and capability gate" begin
+    beta=.8; H=ComplexF64[-.35 0;0 .35]
+    A=ComplexF64[.2 .3im;.4 -.1]; sources=[A,Matrix(A')]
+    z=inv(sqrt(first(quadgk(x->exp(beta*x/2-2x^4),-Inf,Inf;rtol=1e-12))))
+    # Odd cubic phase gives a genuinely nonfactorising complex joint kernel.
+    C=x->z*exp(beta*x/4-x^4)*cis(.1x^3)
+    gamma=w->exp(-w^2-beta*w/2)
+    fine=(;frequency_window=8.,frequency_grid_size=257,
+        coherent_frequency_window=8.,coherent_frequency_grid_size=129,
+        coherent_time_window=19.2,coherent_time_step=.15,backend=:direct)
+    pair=CKGJointKernel(beta;oft=C,rate=gamma,frequency_window=(-8.,8.),time_transform=fine)
+    ws=Workspace(H;beta_phys=beta,construction=KMS(),transition_weight=pair,jumps=sources,
+        domain=TimeDomain(),time_step=.15,num_energy_bits=8)
+    cfg=ws.cached_cfg; ham=ws.ham_or_trott; r=cfg.transition_weight
+    delta=ham.bohr_freqs*ham.rescaling_factor; As=[j.in_eigenbasis for j in ws.jumps]
+    # Physical-frequency, matrix-valued adaptive reference uses no compiler,
+    # no package coherent/vectorisation helper and no time quadrature.
+    integral=first(quadgk(-Inf,0.,Inf;rtol=1e-12,atol=1e-13) do w
+        Ls=[a.*C.(w.-delta) for a in As]
+        vcat(vec(gamma(w)*sum(kron(conj(L),L) for L in Ls)),
+             vec(gamma(w)*sum(L'*L for L in Ls)))
+    end)
+    gain=reshape(integral[1:16],4,4); R=reshape(integral[17:end],2,2)
+    B=(im/2).*tanh.(beta.*delta./4).*R; Id=Matrix{ComplexF64}(I,2,2)
+    reference=gain-(kron(Id,R)+kron(transpose(R),Id))/2-im*(kron(Id,B)-kron(transpose(B),Id))
+    LT=construct_lindbladian(ws.jumps,cfg,ham)
+    @test LT≈reference atol=1e-9 rtol=1e-9
+    @test norm(ws.G_left+ws.G_right+R)<1e-9
+    @test norm((ws.G_right-ws.G_left)/(2im)-B)<1e-9
+    @test norm(B)>1e-4
+    @test norm(LT*vec(ham.gibbs))<1e-9
+    @test vec(apply_lindbladian!(ws,A,cfg,ham))≈reference*vec(A) atol=1e-9
+    @test vec(apply_adjoint_lindbladian!(ws,A,cfg,ham))≈reference'*vec(A) atol=1e-9
+    @test all(w->isapprox(transition_value(r,w),gamma(w*ham.rescaling_factor);rtol=1e-14),r.energy_labels)
+    @test r.evidence.coherent==:two_time_joint_kernel
+    @test r.evidence.relative_dissipative_time_difference<1e-9
+    @test r.evidence.relative_coherent_time_difference<1e-9
+    @test r.evidence.quantum_implementation==:not_established
+    trajectory=simulate_gibbs(ws;times=[0.,.1],diagnostics=:quick)
+    @test all(isfinite,trajectory.trajectory.distances)
+    @test r.evidence.integration_comparator==:retained_frequency_gram
+    @test r.evidence.frequency_reference_evidence.status==:pass
+    weights=real(diag(ham.gibbs)); S=Diagonal(vec((weights*weights').^(1/4)))
+    @test norm(S\LT*S-(S\LT*S)')<1e-9
+
+    # Independent 2D inverse-transform reference at a sampled time pair.
+    # Separate Gauss outer rule and explicit scalar double sum.
+    x,q=QuantumFurnace.QuadGK.gauss(Float64,256); outer=8x; ow=8q
+    nu=collect(range(-8.,8.;length=129)); dv=nu[2]-nu[1]
+    nw=fill(dv,129); nw[1]/=2; nw[end]/=2
+    amplitudes=[sqrt(w*gamma(v))*C(v-u) for (v,w) in zip(outer,ow),u in nu]
+    alpha=transpose(amplitudes)*conj(amplitudes)
+    ti=120; tj=137; scale=ham.rescaling_factor
+    t=r.time_data.times[ti]/scale; s=r.time_data.times[tj]/scale
+    gref=sum(nw[i]*nw[j]*tanh(beta*(v-u)/4)*alpha[i,j]/(2im)*cis(-u*t+v*s)
+        for (i,u) in enumerate(nu),(j,v) in enumerate(nu))/(2pi)^2
+    @test r.time_data.g_tt[ti,tj]*scale^2≈gref atol=1e-10 rtol=1e-9
+
+    # Refine coherent time truncation with dissipation held byte-identical.
+    coarse=merge(fine,(;coherent_time_window=4.8,coherent_time_step=.3))
+    loose=CKGJointKernel(beta;oft=C,rate=gamma,frequency_window=(-8.,8.),
+        time_transform=coarse,balance_rtol=.01)
+    wc=Workspace(H;beta_phys=beta,construction=KMS(),transition_weight=loose,jumps=sources,
+        domain=TimeDomain(),time_step=.15,num_energy_bits=8)
+    @test wc.cached_cfg.transition_weight.oft.values≈r.oft.values atol=1e-14
+    @test wc.cached_cfg.transition_weight.evidence.relative_coherent_time_difference>
+        100r.evidence.relative_coherent_time_difference
+    @test norm((wc.G_right-wc.G_left)/(2im)-B)>100norm((ws.G_right-ws.G_left)/(2im)-B)
+    strict_coarse=CKGJointKernel(beta;oft=C,rate=gamma,frequency_window=(-8.,8.),time_transform=coarse)
+    @test_throws ArgumentError Workspace(H;beta_phys=beta,construction=KMS(),transition_weight=strict_coarse,
+        jumps=sources,domain=TimeDomain(),time_step=.15,num_energy_bits=8)
+    @test_throws ArgumentError Workspace(H;beta_phys=beta,construction=KMS(),transition_weight=pair,
+        jumps=sources,domain=TimeDomain(),time_step=.6,num_energy_bits=4)
+    # NH pairing and general complex OFT prohibit Hermitian frequency folding.
+    hp=[(A+A')/sqrt(2),(A-A')/(im*sqrt(2))]
+    wf=Workspace(H;beta_phys=beta,construction=KMS(),transition_weight=CKGJointKernel(beta;
+        oft=C,rate=gamma,frequency_window=(-8.,8.),time_transform=merge(fine,(;backend=:finufft))),
+        jumps=hp,domain=TimeDomain(),time_step=.15,num_energy_bits=8)
+    @test construct_lindbladian(wf.jumps,wf.cached_cfg,wf.ham_or_trott)≈reference atol=1e-9
+    @test vec(apply_lindbladian!(wf,A,wf.cached_cfg,wf.ham_or_trott))≈reference*vec(A) atol=1e-9
+    @test_throws ArgumentError Workspace(H;beta_phys=beta,construction=KMS(),transition_weight=pair,
+        domain=TrotterDomain(),dry_run=true)
+    @test_throws ArgumentError Workspace(H;beta_phys=beta,construction=KMS(),transition_weight=pair,
+        domain=TimeDomain(),time_step=.15,num_energy_bits=30,dry_run=false)
+    @test_throws ArgumentError CKGJointKernel(beta;oft=C,rate=gamma,frequency_window=(-8.,8.),time_transform=(;unknown=1))
+    # A Gaussian full-normalisation anchor has the same physical generator as
+    # the retained analytic typed-rate path.
+    rate=GaussianTransition(beta;sigma=.7,sigma_gamma=.9)
+    Cg=x->(2pi*.7^2)^(-1/4)*exp(-x^2/(4*.7^2))
+    gaussian=CKGJointKernel(beta;oft=Cg,rate=w->transition_value(rate,w),frequency_window=(-8.,8.),time_transform=fine)
+    wg=Workspace(H;beta_phys=beta,construction=KMS(),transition_weight=gaussian,jumps=sources,
+        domain=TimeDomain(),time_step=.15,num_energy_bits=8)
+    wa=Workspace(H;beta_phys=beta,construction=KMS(),transition_weight=rate,jumps=sources)
+    @test construct_lindbladian(wg.jumps,wg.cached_cfg,wg.ham_or_trott)≈
+        construct_lindbladian(wa.jumps,wa.cached_cfg,wa.ham_or_trott) atol=1e-9 rtol=1e-9
+end

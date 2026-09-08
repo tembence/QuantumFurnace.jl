@@ -183,6 +183,7 @@ function _precompute_data(
     config::Config{<:Any, D},
     ham_or_trott::Union{HamHam, AbstractTrotter}
 ) where {D<:Union{TimeDomain, TrotterDomain}}
+    _is_joint_ckg(config) && return _precompute_ckg_time_data(config,ham_or_trott)
     energy_labels, time_labels = _precompute_labels(config)
     oft_time_labels = _truncate_time_labels_for_oft(time_labels, config.sigma; filter=_resolve_filter(config))
 

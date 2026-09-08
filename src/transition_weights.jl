@@ -207,8 +207,9 @@ function _collect_ckg_transition_errors!(errors,cfg)
     rate=cfg.transition_weight
     rate===nothing && return nothing
     if rate isa PreparedCKGJointKernel
-        cfg.construction isa KMS && cfg.sim isa Lindbladian && cfg.domain isa Union{BohrDomain,EnergyDomain} && !cfg.with_gqsp ||
-            push!(errors,"General CKG kernels support KMS Lindbladian Bohr/Energy only; Time/Trotter/GQSP require separate compilation.")
+        cfg.construction isa KMS && cfg.sim isa Lindbladian && cfg.domain isa Union{BohrDomain,EnergyDomain,TimeDomain} && !cfg.with_gqsp ||
+            push!(errors,"General CKG kernels support KMS Lindbladian Bohr/Energy/Time only; custom Trotter/GQSP evolution has no validated joint-kernel implementation.")
+        (cfg.domain isa TimeDomain)==(rate.time_data!==nothing) || push!(errors,"Joint kernel must be compiled for the requested Time versus frequency domain.")
         rate.evidence.status==:pass || push!(errors,"An inspected failed joint kernel cannot enter the standard KMS simulator.")
         _ckg_parameter_match(rate.beta,cfg.beta) || push!(errors,"Compiled joint beta must match Config.beta.")
         cfg.filter === rate.oft || push!(errors,"Compiled joint OFT and transition must be used together.")
@@ -222,7 +223,7 @@ function _collect_ckg_transition_errors!(errors,cfg)
     isapprox(rate.beta,cfg.beta;rtol=100eps(typeof(cfg.beta)),atol=0) || push!(errors,"transition_weight.beta must match Config.beta.")
     isapprox(rate.sigma,cfg.sigma;rtol=100eps(typeof(cfg.sigma)),atol=0) || push!(errors,"transition_weight.sigma must match the Gaussian OFT width Config.sigma.")
     if rate isa GaussianMixtureTransition
-        cfg.domain isa Union{BohrDomain,EnergyDomain} || push!(errors,"Gaussian mixtures support BohrDomain/EnergyDomain; custom Time/Trotter kernels are pending T17.")
+        cfg.domain isa Union{BohrDomain,EnergyDomain} || push!(errors,"Gaussian mixtures support BohrDomain/EnergyDomain; Time conversion requires an explicit CKGJointKernel with time_transform controls; custom Trotter is unsupported.")
         cfg.with_gqsp && push!(errors,"Gaussian mixtures do not support GQSP.")
     else
         expected=_ckg_legacy_fields(rate)
@@ -253,7 +254,14 @@ function _resolve_physical_ckg(beta,filter,transition_weight)
 end
 
 function _ckg_grid(domain,time_step,num_energy_bits,energy_step)
-    domain isa Union{BohrDomain,EnergyDomain} || throw(ArgumentError("Typed CKG facade supports BohrDomain/EnergyDomain; use legacy Config for built-in Time/Trotter or await T17 for custom kernels."))
+    domain isa TrotterDomain && throw(ArgumentError("Custom CKG Trotter requires a retained local Hamiltonian decomposition and a separately validated joint coherent evolution algorithm; it is unsupported even with local terms. Built-in Trotter remains available through legacy Config and make_trotter_for_config."))
+    domain isa Union{BohrDomain,EnergyDomain,TimeDomain} || throw(ArgumentError("Unsupported CKG domain."))
+    if domain isa TimeDomain
+        time_step isa Real && isfinite(time_step) && time_step>0 && num_energy_bits isa Integer && 0<num_energy_bits<63 ||
+            throw(ArgumentError("CKG Time requires positive physical time_step and 0<num_energy_bits<63."))
+        energy_step===nothing || throw(ArgumentError("CKG Time outer quadrature uses CKGJointKernel.frequency_window/panels, not energy_step."))
+        return nothing
+    end
     time_step===nothing || throw(ArgumentError("CKG Bohr/Energy does not use time_step; Energy uses physical energy_step."))
     if domain isa BohrDomain
         num_energy_bits===nothing && energy_step===nothing || throw(ArgumentError("BohrDomain uses no outer-frequency grid."))
@@ -270,10 +278,12 @@ function _ckg_preflight(H;beta_phys,temperature,filter,jumps,rates,complete_adjo
     base=_gibbs_preflight(H;beta_phys,temperature,filter=DLLGaussianFilter,jumps,rates,
         complete_adjoint,basis,domain=BohrDomain(),construction=DLL(),clock,max_bytes)
     rate,physical_filter=_resolve_physical_ckg(base.beta_phys,filter,transition_weight)
+    domain isa TimeDomain && !(rate isa CKGJointKernel) && throw(ArgumentError("CKG Time facade requires CKGJointKernel and explicit time_transform controls; typed built-ins retain legacy Config Time/Trotter support."))
     if rate isa CKGJointKernel
         m=big(base.dimension)^2-base.dimension+1
         n=domain isa EnergyDomain ? big(2)^num_energy_bits : big(8)*rate.panels
         kernel_bytes=big(128)*(m*m+n*m+n)
+        domain isa TimeDomain && (kernel_bytes+=_ckg_time_bytes(rate,num_energy_bits,n,m,base.dimension))
         bytes=base.estimated_construction_bytes+kernel_bytes
         return merge(base,(;construction=:CKG_KMS,domain=Symbol(nameof(typeof(domain))),
             filter=physical_filter,transition_weight=rate,channel_count=1,energy_step,
@@ -302,7 +312,8 @@ function _prepare_ckg_inputs(H;beta_phys,temperature,filter,jumps,rates,complete
         complete_adjoint,basis,domain=BohrDomain(),construction=DLL(),clock)
     ham=base.hamiltonian; T=eltype(ham.eigvals)
     physical_rate,physical_filter=_resolve_physical_ckg(base.provenance.beta_phys,filter,transition_weight)
-    physical_rate isa CKGJointKernel && return _prepare_joint_ckg_inputs(base,physical_rate,domain,num_energy_bits,energy_step)
+    domain isa TimeDomain && !(physical_rate isa CKGJointKernel) && throw(ArgumentError("CKG Time facade requires CKGJointKernel with explicit time_transform controls; use legacy Config for typed built-in Time."))
+    physical_rate isa CKGJointKernel && return _prepare_joint_ckg_inputs(base,physical_rate,domain,num_energy_bits,energy_step,time_step)
     algorithm_rate=_physical_ckg_transition(physical_rate,T(ham.rescaling_factor),base.config.beta)
     algorithm_filter=GaussianFilter(algorithm_rate.sigma)
     cfg=Config(;sim=Lindbladian(),domain,construction=KMS(),num_qubits=base.config.num_qubits,
