@@ -19,6 +19,9 @@ function dll_lindblad_op_bohr(
     hamiltonian::HamHam{T},
     filter::AbstractFilter,
 ) where {T<:AbstractFloat}
+    if _is_dll_bohr_spec(filter)
+        filter = _prepare_dll_bohr_filter(filter, hamiltonian.eigvals)
+    end
     _require_admissible_dll_filter(filter)
     eigvals = hamiltonian.eigvals
     A_eb = jump.in_eigenbasis
@@ -86,6 +89,11 @@ Evaluate the DLL coherent frequency kernel for two Bohr frequencies.
     ν::Real,
     νp::Real,
 )
+    if _is_dll_bohr_spec(filter)
+        T = typeof(float(filter.beta))
+        samples = unique!(T[0, ν, -ν, νp, -νp])
+        filter = _sample_dll_bohr_filter(filter, samples, T(filter.beta))
+    end
     _require_admissible_dll_filter(filter)
     T = typeof(float(filter.beta))
     β = filter.beta
@@ -117,6 +125,9 @@ function dll_coherent_op_bohr(
     filter::AbstractFilter,
     beta::Real,
 ) where {T<:AbstractFloat}
+    if _is_dll_bohr_spec(filter)
+        filter = _prepare_dll_bohr_filter(filter, hamiltonian.eigvals; beta)
+    end
     _require_admissible_dll_filter(filter; beta=beta)
     eigvals = hamiltonian.eigvals
     n = length(eigvals)
@@ -524,6 +535,11 @@ function dll_kossakowski_bohr(
     filter::AbstractFilter,
     bohr_freqs::AbstractVector{<:Real},
 )
+    if _is_dll_bohr_spec(filter)
+        T = typeof(float(filter.beta))
+        samples = unique!(vcat(T[0], T.(bohr_freqs), -T.(bohr_freqs)))
+        filter = _sample_dll_bohr_filter(filter, samples, T(filter.beta))
+    end
     _require_admissible_dll_filter(filter)
     K = length(bohr_freqs)
     v = [freq_kernel(filter, ν) for ν in bohr_freqs]

@@ -90,6 +90,23 @@ function Workspace(
     )
 end
 
+function _dll_bohr_compilation_evidence(filter, jumps, ham)
+    channels = _flatten_local_dll_channels((filter,))
+    suppressed = count(channels) do channel
+        any(eachindex(ham.bohr_freqs)) do k
+            iszero(freq_kernel(channel,ham.bohr_freqs[k])) &&
+                any(j -> !iszero(j.in_eigenbasis[k]),jumps)
+        end
+    end
+    return (;balance=:passed,numerical_scope=:complete_finite_bohr_set,
+        precision=eltype(ham.eigvals),sample_ownership=:compiled_snapshot,
+        callback_evaluation=:before_source_threading,
+        reflection_tolerance=:roundoff_scaled_by_thermal_exponent,
+        channels_with_suppressed_components=suppressed,
+        ergodicity_warning=suppressed > 0 ? :active_bohr_zeros_may_reduce_connectivity : :none,
+        continuum_transform=:not_established_by_samples)
+end
+
 """
     _accumulate_R_total!(R, ws, config, hamiltonian) -> nothing
 
@@ -634,6 +651,10 @@ function Workspace(
         hamiltonian, nothing, nothing, nothing,  # source provenance; no channel matrices
         sc,
         config,   # Cached to validate predictor workspace reuse.
+        config.domain isa BohrDomain ?
+            (;basis=:computational,clock_label=:compiled_generator,
+                beta_phys=config.beta_phys,beta_alg=config.beta,input_preparation=:legacy_workspace,
+                filter_compilation=_dll_bohr_compilation_evidence(filter, jumps, hamiltonian)) : nothing,
     )
 end
 

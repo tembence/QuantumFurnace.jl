@@ -74,28 +74,45 @@ struct _DLLBohrFilter{T<:AbstractFloat} <: AbstractFilter
             isfinite(nu) && isfinite(value) || throw(ArgumentError("Nonfinite DLL Bohr amplitude at $nu."))
             haskey(values, iszero(nu) ? nu : -nu) || throw(ArgumentError("DLL Bohr table must include both frequency signs."))
             nu < 0 && continue
-            expected = exp(-(beta / T(2)) * nu) * conj(values[iszero(nu) ? nu : -nu])
+            tilt = -(beta / T(2)) * nu
+            expected = _scale_dll_amplitude(conj(values[iszero(nu) ? nu : -nu]), tilt)
             scale = max(abs(value), abs(expected))
-            abs(value - expected) <= T(128) * eps(T) * scale || throw(ArgumentError(
+            # Log-domain evaluation has a conditioning factor at steep tilt.
+            rtol = T(128) * eps(T) * max(one(T), min(abs(tilt), -log(nextfloat(zero(T)))))
+            abs(value - expected) <= max(rtol * scale, T(4)*nextfloat(zero(T))) || throw(ArgumentError(
                 "DLL weighted reflection failed at frequency $nu; supply a balanced amplitude (thermal weight exactly once)."))
         end
         new{T}(beta, copy(values))
     end
+end
+
+function _scale_dll_amplitude(z::Complex{T}, logscale::Real) where {T<:AbstractFloat}
+    iszero(z) && return zero(z)
+    scale = max(abs(real(z)),abs(imag(z)))
+    unit = z/scale
+    magnitude = abs(unit)
+    amplitude = exp((log(scale)+log(magnitude))+T(logscale))
+    isfinite(amplitude) || throw(ArgumentError("DLL amplitude overflows working precision."))
+    return amplitude*(unit/magnitude)
 end
 Base.eltype(::_DLLBohrFilter{T}) where {T} = Complex{T}
 _is_admissible_dll_filter(::_DLLBohrFilter) = true
 freq_kernel(f::_DLLBohrFilter{T}, nu::Real) where {T} = f.values[T(nu)]
 function q_weight(f::_DLLBohrFilter{T}, nu::Real) where {T}
     x = abs(T(nu))
-    value = freq_kernel(f, iszero(x) ? zero(T) : -x) * exp(-(f.beta / T(4)) * x)
+    value = _scale_dll_amplitude(freq_kernel(f, iszero(x) ? zero(T) : -x), -(f.beta / T(4)) * x)
     return nu < 0 ? value : conj(value)
 end
 
 function _prepare_dll_bohr_filter(filter::AbstractFilter, eigvals::AbstractVector{T};
                                   beta=filter.beta) where {T<:AbstractFloat}
+    frequencies = sort!(unique!(T[a-b for a in eigvals for b in eigvals]))
+    return _sample_dll_bohr_filter(filter, frequencies, T(beta))
+end
+function _sample_dll_bohr_filter(filter::AbstractFilter, frequencies::AbstractVector{T},
+                                 beta::T) where {T<:AbstractFloat}
     isapprox(filter.beta, beta; atol=zero(T), rtol=10eps(T)) ||
         throw(ArgumentError("DLL filter beta must match construction beta."))
-    frequencies = sort!(unique!(T[a-b for a in eigvals for b in eigvals]))
     values = Dict{T,Complex{T}}()
     for nu in frequencies
         value = freq_kernel(filter, nu)
@@ -520,3 +537,259 @@ function filter_time_cutoff(f::DLLMetropolisFilter{T}, tol::Real) where {T}
 end
 
 # Multi-channel filter types live in `dll_multichannel.jl`.
+
+# User specifications retain typed callbacks and declared provenance. They do
+# not claim transform existence or an efficient implementation theorem.
+struct _UserFilterMetadata{T<:AbstractFloat,P<:NamedTuple,B}
+    name::Symbol
+    version::String
+    parameters::P
+    support::Union{Nothing,T}
+    tail_bound::B
+    _UserFilterMetadata{T,P,B}(name,version,parameters,support,tail_bound) where {T<:AbstractFloat,P<:NamedTuple,B} =
+        new{T,P,B}(name,version,parameters,support,tail_bound)
+end
+
+function _user_filter_metadata(beta; name, version="1", parameters::NamedTuple=(;),
+                               support=nothing, tail_bound=nothing)
+    T = typeof(float(beta))
+    isfinite(beta) && beta > 0 || throw(ArgumentError("Filter beta must be finite and positive."))
+    name isa Union{Symbol,AbstractString} && !isempty(strip(string(name))) ||
+        throw(ArgumentError("Filter name must be a nonempty stable symbol or string."))
+    version isa AbstractString && !isempty(strip(version)) ||
+        throw(ArgumentError("Filter version must be a nonempty string."))
+    support === nothing || (support isa Real && isfinite(support) && support > 0 &&
+                            isfinite(T(support)) && T(support) > 0) ||
+        throw(ArgumentError("support must be nothing or a positive finite symmetric radius in the input frame."))
+    tail_bound === nothing || applicable(tail_bound,one(T)) ||
+        throw(ArgumentError("tail_bound must be a callable of a positive cutoff, or nothing."))
+    return _UserFilterMetadata{T,typeof(parameters),typeof(tail_bound)}(Symbol(name), String(version), deepcopy(parameters),
+        support === nothing ? nothing : T(support), tail_bound)
+end
+
+abstract type _UserDLLFilter <: AbstractFilter end
+
+"""
+    KMSFilter(beta; q_positive=nothing, logabs_q_positive=nothing,
+              phase_positive=x->1, name, version="1", parameters=(;),
+              support=nothing, tail_bound=nothing)
+
+Construct `q(-x)=conj(q(x))` from a callback on `x>=0`, then apply the thermal
+amplitude `F(nu)=q(nu)*exp(-beta*nu/4)` exactly once. `q(0)` must be real.
+Alternatively provide log magnitude and a unit-modulus phase; `-Inf` represents
+an exact zero. This avoids losing a small q before combining its thermal factor.
+Callbacks use physical frequencies in the facade and algorithm frequencies in
+legacy Config calls. `support` is an enforced symmetric frequency radius;
+regularity, transform existence and supplied tail bounds remain unverified.
+"""
+struct KMSFilter{T<:AbstractFloat,F,L,P,M} <: _UserDLLFilter
+    beta::T
+    q_positive::F
+    logabs_q_positive::L
+    phase_positive::P
+    metadata::M
+end
+function KMSFilter(beta::Real; q_positive=nothing, logabs_q_positive=nothing,
+                   phase_positive=nothing, kwargs...)
+    (q_positive === nothing) != (logabs_q_positive === nothing) || throw(ArgumentError(
+        "Supply exactly one of q_positive or logabs_q_positive; neither is a thermally weighted amplitude."))
+    q_positive === nothing || phase_positive === nothing || throw(ArgumentError(
+        "phase_positive belongs to the logabs_q_positive route; q_positive already includes its phase."))
+    metadata = _user_filter_metadata(beta; kwargs...)
+    T = typeof(float(beta))
+    callback = q_positive === nothing ? logabs_q_positive : q_positive
+    applicable(callback,zero(T)) || throw(ArgumentError("The q callback must accept nonnegative frequencies."))
+    phase = phase_positive === nothing ? (x -> one(x)) : phase_positive
+    applicable(phase,zero(T)) || throw(ArgumentError("phase_positive must accept nonnegative frequencies."))
+    f = KMSFilter(T(beta),q_positive,logabs_q_positive,phase,metadata)
+    _kms_logphase(f,zero(T)) # enforce the origin condition immediately
+    return f
+end
+
+"""
+    FrequencyFilter(beta; amplitude, name, version="1", parameters=(;),
+                    support=nothing, tail_bound=nothing)
+
+Expert full frequency amplitude, already including the thermal factor. Bohr
+compilation checks weighted conjugate reflection on the complete finite set.
+These checks establish no functional identity away from the sampled spectrum.
+"""
+struct FrequencyFilter{T<:AbstractFloat,F,M} <: _UserDLLFilter
+    beta::T
+    amplitude::F
+    metadata::M
+end
+function FrequencyFilter(beta::Real; amplitude, kwargs...)
+    metadata = _user_filter_metadata(beta; kwargs...)
+    applicable(amplitude,zero(float(beta))) || throw(ArgumentError("amplitude must be a frequency callback."))
+    f = FrequencyFilter(float(beta),amplitude,metadata)
+    freq_kernel(f,zero(float(beta)))
+    return f
+end
+
+"""
+    RateFilter(beta; downward_rate, name, version="1", parameters=(;),
+               support=nothing, tail_bound=nothing)
+
+`downward_rate(x)` takes energy release `x>=0` and returns finite nonnegative
+`r(-x)`. Choose principal-root amplitudes: `F(-x)=sqrt(r(-x))` and
+`F(x)=exp(-beta*x/2)*sqrt(r(-x))`. No phase, rate normalisation or extra
+thermal weight is added. Zeros are allowed and do not imply ergodicity.
+"""
+struct RateFilter{T<:AbstractFloat,F,M} <: _UserDLLFilter
+    beta::T
+    downward_rate::F
+    metadata::M
+end
+function RateFilter(beta::Real; downward_rate, kwargs...)
+    metadata = _user_filter_metadata(beta; kwargs...)
+    applicable(downward_rate,zero(float(beta))) || throw(ArgumentError("downward_rate must accept energy release x>=0."))
+    f = RateFilter(float(beta),downward_rate,metadata)
+    freq_kernel(f,zero(float(beta)))
+    return f
+end
+
+"""
+    TimeFilter(beta; kernel, name, version="1", parameters=(;),
+               support=nothing, tail_bound=nothing)
+
+Qualified time-input specification with `F(nu)=integral f(t)*exp(i*nu*t) dt`.
+Support and tail declarations use time coordinates. Kernel evaluation is
+available; simulation requires the future numerical transform/coherent compiler
+(T12–T13) and currently rejects explicitly. No balance projection is performed.
+"""
+struct TimeFilter{T<:AbstractFloat,F,M} <: _UserDLLFilter
+    beta::T
+    kernel::F
+    metadata::M
+end
+function TimeFilter(beta::Real; kernel, kwargs...)
+    metadata = _user_filter_metadata(beta; kwargs...)
+    applicable(kernel,zero(float(beta))) || throw(ArgumentError("kernel must be a time callback."))
+    f = TimeFilter(float(beta),kernel,metadata)
+    time_kernel(f,zero(float(beta)))
+    return f
+end
+
+Base.eltype(f::_UserDLLFilter) = Complex{typeof(f.beta)}
+_is_admissible_dll_filter(::Union{KMSFilter,RateFilter}) = true
+_is_dll_bohr_spec(::AbstractFilter) = false
+_is_dll_bohr_spec(::_UserDLLFilter) = true
+_dll_time_supported(::AbstractFilter) = true
+_dll_time_supported(::_DLLBohrFilter) = false
+_dll_time_supported(::_UserDLLFilter) = false
+
+function _user_filter_coordinate(f::_UserDLLFilter, nu::Real)
+    x = typeof(f.beta)(nu)
+    isfinite(x) || throw(ArgumentError("Filter coordinate must be finite at working precision."))
+    return x
+end
+_filter_outside(f::_UserDLLFilter, x) = f.metadata.support !== nothing && abs(x) > f.metadata.support
+function _finite_filter_value(value, f, x)
+    value isa Number && isfinite(value) || throw(ArgumentError(
+        "$(f.metadata.name) callback must return a finite number at $x."))
+    z = eltype(f)(value)
+    isfinite(z) || throw(ArgumentError("$(f.metadata.name) amplitude overflows working precision at $x."))
+    return z
+end
+
+function _kms_logphase(f::KMSFilter{T}, x::T) where {T}
+    if f.q_positive !== nothing
+        z = _finite_filter_value(f.q_positive(x),f,x)
+        iszero(x) && !isreal(z) && throw(ArgumentError("q_positive(0) must be real."))
+        iszero(z) && return (T(-Inf),one(Complex{T}))
+        scale = max(abs(real(z)),abs(imag(z)))
+        unit = z/scale
+        magnitude = abs(unit)
+        return (log(scale)+log(magnitude), unit/magnitude)
+    end
+    ell = f.logabs_q_positive(x)
+    ell isa Real && (isfinite(ell) || ell == -Inf) || throw(ArgumentError(
+        "logabs_q_positive must return a finite real or -Inf for an exact zero."))
+    converted = T(ell)
+    (isfinite(converted) || ell == -Inf) ||
+        throw(ArgumentError("Log magnitude overflows working precision."))
+    ell = converted
+    phase = _finite_filter_value(f.phase_positive(x),f,x)
+    isapprox(abs(phase),one(T);atol=zero(T),rtol=32eps(T)) ||
+        throw(ArgumentError("phase_positive must have unit modulus."))
+    iszero(x) && ell != -Inf && !isreal(phase) && throw(ArgumentError("q(0) must be real."))
+    return (ell,phase)
+end
+function freq_kernel(f::KMSFilter{T}, nu::Real) where {T}
+    x = _user_filter_coordinate(f,nu)
+    _filter_outside(f,x) && return zero(Complex{T})
+    ell,phase = _kms_logphase(f,abs(x))
+    ell == -Inf && return zero(Complex{T})
+    logamp = ell - (f.beta/T(4))*x
+    amplitude = exp(logamp)
+    isfinite(amplitude) || throw(ArgumentError(
+        "$(f.metadata.name) thermal amplitude overflows at $x; use logabs_q_positive or revise the filter/precision."))
+    return amplitude * (x < 0 ? conj(phase) : phase)
+end
+function q_weight(f::KMSFilter{T}, nu::Real) where {T}
+    x = _user_filter_coordinate(f,nu)
+    _filter_outside(f,x) && return zero(Complex{T})
+    ell,phase = _kms_logphase(f,abs(x))
+    return _finite_filter_value(exp(ell)*(x < 0 ? conj(phase) : phase),f,x)
+end
+function freq_kernel(f::FrequencyFilter, nu::Real)
+    x = _user_filter_coordinate(f,nu)
+    _filter_outside(f,x) && return zero(eltype(f))
+    return _finite_filter_value(f.amplitude(x),f,x)
+end
+function freq_kernel(f::RateFilter{T}, nu::Real) where {T}
+    x = _user_filter_coordinate(f,nu)
+    _filter_outside(f,x) && return zero(Complex{T})
+    r = f.downward_rate(abs(x))
+    r isa Real && isfinite(r) && r >= 0 || throw(ArgumentError(
+        "downward_rate must return a finite nonnegative real rate at energy release $(abs(x))."))
+    # Root before thermal multiplication: do not underflow the rate first.
+    amplitude = T(sqrt(r))
+    isfinite(amplitude) || throw(ArgumentError("Rate amplitude overflows working precision."))
+    return x > 0 ? _scale_dll_amplitude(Complex{T}(amplitude),-(f.beta/T(2))*x) : Complex{T}(amplitude)
+end
+function q_weight(f::RateFilter{T}, nu::Real) where {T}
+    x = abs(_user_filter_coordinate(f,nu))
+    return _scale_dll_amplitude(freq_kernel(f,-x),-(f.beta/T(4))*x)
+end
+function time_kernel(f::TimeFilter, t::Real)
+    x = _user_filter_coordinate(f,t)
+    _filter_outside(f,x) && return zero(eltype(f))
+    return _finite_filter_value(f.kernel(x),f,x)
+end
+freq_kernel(::TimeFilter, ::Real) = throw(ArgumentError(
+    "TimeFilter simulation needs the numerical Fourier compiler (T12–T13); supply a frequency specification for BohrDomain."))
+time_kernel(::Union{KMSFilter,FrequencyFilter,RateFilter}, ::Real) = throw(ArgumentError(
+    "Custom DLL time transforms are not available yet (T12–T13); use BohrDomain."))
+filter_time_cutoff(::_UserDLLFilter, ::Real) = throw(ArgumentError(
+    "A custom time cutoff cannot be inferred from frequency samples; numerical transforms are T12–T13."))
+
+"""
+    filter_evidence(filter)
+
+Separate algebraic balance provenance from transform existence, declared support
+and tails, numerical checks, and implementation-theorem applicability. Custom
+callbacks remain nonportable without their definitions; a name is not a registry.
+"""
+function filter_evidence(f::_UserDLLFilter)
+    return (; name=f.metadata.name,version=f.metadata.version,
+        parameters=deepcopy(f.metadata.parameters),
+        algebraic_balance=f isa Union{KMSFilter,RateFilter} ? :conjugate_reflection : :unverified,
+        continuum_transform=:unknown,numerical_checks=:not_run,
+        implementation_theorem=:not_established,support=f.metadata.support,
+        support_coordinate=f isa TimeFilter ? :time : :frequency,
+        tail_bound=f.metadata.tail_bound === nothing ? :unknown : :user_supplied_unverified,
+        phase_policy=f isa RateFilter ? :principal_root : :user_supplied,
+        callback_portability=:requires_callable)
+end
+
+function filter_evidence(f::AbstractFilter)
+    builtin = f isa Union{DLLGaussianFilter,DLLMetropolisFilter}
+    return (;algebraic_balance=builtin ? :builtin_identity : :unverified,
+        continuum_transform=builtin ? :builtin_methods : :unknown,numerical_checks=:not_run,
+        implementation_theorem=:not_established)
+end
+filter_evidence(::_DLLBohrFilter) = (;algebraic_balance=:checked_finite_bohr_set,
+    continuum_transform=:unknown,numerical_checks=:passed_at_working_precision,
+    implementation_theorem=:not_established)

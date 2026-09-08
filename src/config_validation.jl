@@ -146,7 +146,11 @@ function _collect_dll_filter_errors!(
         return nothing
     end
 
-    if !_is_admissible_dll_filter(filter)
+    if filter isa TimeFilter
+        push!(errors, "TimeFilter simulation requires the numerical Fourier compiler (T12–T13); use a Bohr frequency specification.")
+        return nothing
+    end
+    if !_is_admissible_dll_filter(filter) && !_is_dll_bohr_spec(filter)
         push!(errors,
               "$label is not an admissible DLL filter. Use DLLGaussianFilter, " *
               "DLLMetropolisFilter, a ShiftedSymmetricFilter of one of those " *
@@ -307,6 +311,9 @@ function validate_config!(
     if config.filter !== nothing
         if config.construction isa DLL
             _collect_dll_filter_errors!(errors, config.filter, config.beta)
+            if config.domain isa TimeDomain && !_dll_time_supported(config.filter)
+                push!(errors, "Custom DLL Time simulation requires T12–T13; use BohrDomain.")
+            end
         elseif !(config.filter isa GaussianFilter)
             push!(errors,
                 "$(nameof(typeof(config.construction))) construction requires " *
@@ -563,7 +570,9 @@ function prepare_gibbs_inputs(H; beta_phys::Union{Nothing,Real}=nothing,
         temperature_input=temperature_kind, temperature_unit=:energy_kB_one,
         physical_filters=Tuple(_filter_frame(c,:physical,T) for c in physical_channels),
         algorithm_filters=Tuple(_filter_frame(c,:algorithm,T) for c in algorithm_channels),
-        physical_filter, algorithm_filter, sources=prepared.provenance,
+        physical_filter, algorithm_filter,
+        filter_evidence=Tuple(filter_evidence(c) for c in physical_channels),
+        sources=prepared.provenance,
         physical_time_step=time_step === nothing ? nothing : T(time_step),
         algorithm_time_step=cfg.t0_D, clock_label=clock === nothing ? :raw_generator : clock.label,
         generator_multiplier=multiplier, time_multiplier=inv(multiplier), derived_clock=clock,
@@ -797,4 +806,33 @@ function _print_press(config::Config{Thermalize})
         println("$name: $value")
     end
     println("-----------------")
+end
+
+# Coordinate adapter: preserve the entire callback, including widths/phases and
+# thermal tilt. No extra amplitude or generator-clock factor is introduced.
+struct _RescaledDLLFilter{T<:AbstractFloat,F<:_UserDLLFilter,M} <: _UserDLLFilter
+    beta::T
+    base::F
+    energy_scale::T
+    metadata::M
+end
+function _physical_dll_filter(f::_UserDLLFilter, R::T, beta::T) where {T<:AbstractFloat}
+    f isa TimeFilter && throw(ArgumentError("TimeFilter execution requires T12–T13."))
+    isone(R) && typeof(f.beta) == T && f.beta == beta && return f
+    metadata = _user_filter_metadata(beta;name=f.metadata.name,version=f.metadata.version,
+        parameters=f.metadata.parameters,
+        support=f.metadata.support === nothing ? nothing : f.metadata.support/R,
+        tail_bound=f.metadata.tail_bound)
+    return _RescaledDLLFilter(beta,f,R,metadata)
+end
+freq_kernel(f::_RescaledDLLFilter, nu::Real) =
+    _finite_filter_value(freq_kernel(f.base,f.energy_scale*_user_filter_coordinate(f,nu)),f,nu)
+q_weight(f::_RescaledDLLFilter, nu::Real) =
+    _finite_filter_value(q_weight(f.base,f.energy_scale*_user_filter_coordinate(f,nu)),f,nu)
+_is_admissible_dll_filter(f::_RescaledDLLFilter) = _is_admissible_dll_filter(f.base)
+filter_evidence(f::_RescaledDLLFilter) = merge(filter_evidence(f.base),
+    (;support=f.metadata.support,frequency_coordinate_scale=f.energy_scale))
+function _filter_frame(f::_UserDLLFilter, frame::Symbol, ::Type{T}) where {T<:AbstractFloat}
+    return DLLFilterFrame{T}(f.metadata.name,
+        f.metadata.support === nothing ? nothing : T(f.metadata.support),zero(T),one(T),frame)
 end

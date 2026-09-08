@@ -52,6 +52,9 @@ DLLMultiChannelFilter(channels::Vector{F}, beta::T) where
 # Multi-channel time kernels are sums of per-channel `Complex{T}` kernels;
 # `Complex{T}` is the right element type regardless of which sub-filters appear.
 Base.eltype(::DLLMultiChannelFilter{T}) where {T} = Complex{T}
+_dll_time_supported(f::DLLMultiChannelFilter) = all(_dll_time_supported, f.channels)
+filter_evidence(f::DLLMultiChannelFilter) = (;channels=Tuple(filter_evidence(c) for c in f.channels),
+    composition=:separate_dissipators,implementation_theorem=:not_established)
 function dll_coherent_kernel_bohr(f::DLLMultiChannelFilter, nu::Real, nup::Real)
     _require_admissible_dll_filter(f)
     return sum(c -> dll_coherent_kernel_bohr(c, nu, nup), f.channels)

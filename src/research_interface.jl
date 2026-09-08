@@ -54,6 +54,8 @@ function _gibbs_preflight(H; beta_phys=nothing,temperature=nothing,
     physical = filter isa AbstractFilter ? filter : applicable(filter,beta) ? filter(beta) :
         throw(ArgumentError("filter must be a built-in DLL instance or physical-beta factory."))
     physical isa AbstractFilter || throw(ArgumentError("Filter factory must return an AbstractFilter."))
+    domain isa TimeDomain && !_dll_time_supported(physical) && throw(ArgumentError(
+        "Custom DLL Time simulation requires T12–T13; use BohrDomain."))
     errors = String[]
     T = typeof(real(float(zero(eltype(matrix)))))
     _collect_dll_filter_errors!(errors,physical,T(beta);label="physical filter")
@@ -102,7 +104,9 @@ function Workspace(H::Union{AbstractMatrix,NamedTuple,HamHam};dry_run::Bool=fals
     source_basis = get(kwargs,:jumps,:onsite_paulis) isa Symbol ? :computational : preflight.basis
     p = prepare_gibbs_inputs(H;merge((;kwargs...),(;filter=preflight.filter,basis=source_basis))...)
     ws = Workspace(p.config,p.hamiltonian,p.jumps)
-    provenance = merge(p.provenance,(;basis=preflight.basis,preflight))
+    provenance = merge(ws.research_provenance === nothing ? (;) : ws.research_provenance,
+        p.provenance,
+        (;basis=preflight.basis,preflight))
     return typeof(ws)((getfield(ws,i) for i in 1:fieldcount(typeof(ws))-1)...,provenance)
 end
 

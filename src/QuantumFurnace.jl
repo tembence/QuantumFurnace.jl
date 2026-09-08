@@ -1,5 +1,7 @@
 module QuantumFurnace
 
+export KMSFilter, FrequencyFilter, RateFilter, TimeFilter, filter_evidence
+
 using Pkg
 using Base
 using Printf

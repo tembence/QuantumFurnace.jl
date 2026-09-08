@@ -1,7 +1,7 @@
 # DLL research interface contract
 
-This page freezes the interface planned by tasks T00–T21. The built-in DLL facade is available through T09; the custom
-filter constructors below remain **target API, not yet available**. Existing
+This page freezes the interface planned by tasks T00–T21. The DLL facade and custom frequency specifications are available through T11.
+Automatic custom time transforms remain T12–T13 work. Existing
 `Config`, `HamHam`, `JumpOp`, `Workspace` and result APIs keep their meanings.
 `test/test_research_contract.jl` verifies the repaired T00–T02 regressions
 and is registered in the default test runner.
@@ -11,7 +11,7 @@ and is registered in the default test runner.
 `pauli_hamiltonian` and `HamHam(H; beta_phys)` are available after T03.
 `simulate_gibbs`, `GibbsSimulationResult`, and the physical-input `Workspace`
 constructor are available. `KMSFilter`, `FrequencyFilter`, `RateFilter`, and
-`TimeFilter` remain reserved target API. `Workspace` remains the existing type.
+`TimeFilter` are available; `TimeFilter` currently stores a specification only. `Workspace` remains the existing type.
 
 Executable built-in DLL example:
 
@@ -121,10 +121,9 @@ positive values. Prebuilt filters must match the requested physical beta at
 Hamiltonian working precision. Gaussian widths set by beta, Metropolis support
 and symmetric frequency shifts convert together. Channel weights are unchanged.
 The helper supports the existing DLL Gaussian, Metropolis, symmetric-translate
-and multichannel families; custom phase/time-shift callbacks remain later filter
-work. It rejects negative symmetric shifts explicitly (supply `abs(shift)` if
+and multichannel families, plus custom frequency, q and rate specifications in BohrDomain. It rejects negative symmetric shifts explicitly (supply `abs(shift)` if
 intended). CKG/GNS retain their existing low-level `Config` APIs; this helper
-currently accepts DLL only. The simulation facade remains T09 work.
+currently accepts DLL only. The simulation facade uses these same preparation rules.
 
 For DLL Time, supply `domain=TimeDomain()`, physical `time_step` and
 `num_energy_bits`; the algorithm time step is `R*time_step`. Both generator
@@ -198,7 +197,7 @@ DLL validation no longer requires CKG transition-rate parameters. DLL
 | DLL built-ins, Hermitian sources | Available | Available | Available | Available | Rejected | T02 complete; T09 facade |
 | DLL built-ins, adjoint-paired sources | Available | Available | Available | Available | Rejected | T01–T02 complete |
 | DLL existing global multichannel filters | Available, separate channels | Available | Available, separate channels | Available | Rejected | T01–T02 complete; heterogeneous per-source expansion T14 |
-| DLL custom complex filters | Real-only/trait limitations | Same limitations | Unavailable as general interface | Unavailable | Rejected | T10–T11 Bohr; T12–T13 Time; T14 channels |
+| DLL custom complex filters | Available, finite Bohr checks | Available, retained samples | Rejected pending transforms | Rejected pending transforms | Rejected | T10–T11 complete; T12–T13 Time; T14 per-source channels |
 | CKG built-in Gaussian OFT/rates | Available | Available | Available | Available | Available with valid registers/local Trotter cache | Preserve; T15 typed rates; T20 release checks |
 | CKG general joint filter/rate | Unavailable | Unavailable | Unavailable | Unavailable | General Energy pending; custom Trotter gated | T16 Bohr/Energy; T17 Time and explicit Trotter gate |
 
@@ -389,3 +388,60 @@ finite-spectrum numerical evidence; no continuum or implementation theorem is
 inferred. Gain, loss and coherent construction share these samples, and the
 workspace forms its canonical correction from the retained loss matrix.
 Standalone coherent construction retains an independent source-product path.
+
+## Custom frequency filters (T11)
+
+```julia
+beta_phys = 0.8
+filter = KMSFilter(beta_phys;
+    q_positive=x -> exp(-(x/0.7)^2) * cis(0.4x),
+    name=:shifted_gaussian, version="1", parameters=(width=0.7, shift=0.4))
+H = pauli_hamiltonian(2, [-0.7 => (1=>:Z, 2=>:Z), -0.4 => (1=>:X,)])
+result = simulate_gibbs(H; beta_phys, filter, times=[0.0, 0.1], diagnostics=:quick)
+result.provenance.filter_evidence
+result.provenance.filter_compilation
+```
+
+Callbacks are concretely typed. Supply a stable nonempty `name`, an optional
+`version` (default `"1"`) and a `parameters` named tuple. Parameters are copied;
+callbacks remain user-owned definitions. Compilation owns the numerical samples,
+so subsequent callback mutation cannot change an existing workspace. A new
+workspace resamples the callback. Names and parameter records do not make a
+closure portable; registry-based reconstruction remains T19.
+
+`KMSFilter` takes unweighted q on nonnegative physical frequencies. Negative
+frequencies are conjugate-reflected and the thermal factor is added once. For
+steep factors, use `logabs_q_positive=x -> ...` instead of `q_positive`, optionally
+with `phase_positive=x -> ...` of unit modulus. `-Inf` means an exact zero.
+The phase at a nonzero origin value must be real. A callback that already rounded
+q to zero cannot recover its lost magnitude; the log route avoids that loss.
+Overflowing final amplitudes and nonfinite callback values reject explicitly.
+
+`RateFilter(beta_phys; downward_rate=x -> 2exp(-x*x), name=:rate)` takes a finite
+nonnegative downward rate at energy release x. The upward amplitude is computed
+in the log domain as `exp(log(r_down)/2-beta_phys*x/2)` with principal-root phase.
+Rates fix populations but do not uniquely determine nonsecular coherences;
+this constructor explicitly chooses zero phase. No rate maximum is normalised.
+
+`FrequencyFilter` accepts the complete amplitude including its thermal factor.
+Its reflected identity is checked on the complete finite Bohr set at working
+precision. This is numerical finite-system evidence, without a functional KMS
+claim elsewhere. Explicit DLL `transition_weight` is rejected; sampled callbacks
+cannot reveal whether the author intended a different unweighted q.
+
+For all four specifications, `support=nothing` means unknown support; a positive
+finite radius enforces zero outside `[-support,support]`. Frequency specifications
+use physical energy coordinates, whereas `TimeFilter` uses physical time. The
+facade evaluates frequency callbacks at `R*nu_alg`, preserving widths, phases and
+amplitudes without an additional clock multiplier. `tail_bound` is an optional
+callable of a cutoff, retained as **user-supplied, unverified** information.
+Compact support alone proves neither smoothness nor a transform theorem.
+
+`filter_evidence` separates structural balance, transform existence, tail
+information and implementation-theorem applicability. The compiled report records
+finite-Bohr balance checks and flags active transition zeros as possibly reducing
+connectivity. Such zeros are allowed and are not a balance failure or a proof of
+nonergodicity. One global filter/channel family is applied to both adjoint partners;
+per-source assignments remain T14. `TimeFilter` can evaluate its named kernel,
+but all custom Time simulation rejects until T12–T13 provide the transforms and
+matching coherent correction.
