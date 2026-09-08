@@ -85,3 +85,41 @@ end
     k = nufft_prefactors.energy_to_index[omega]
     return @view nufft_prefactors.data[:, :, k]
 end
+
+"""
+    fourier_sum(nodes, weights, targets; sign=1, backend=:direct, tolerance=1e-12)
+
+Evaluate `sum(weights[j]*exp(sign*im*nodes[j]*targets[k]))`. Weights must
+already contain the quadrature weights and any Fourier normalisation.
+`:direct` retains promoted input precision; deterministic single-threaded
+`:finufft` explicitly uses Float64/ComplexF64 and rejects higher precision.
+This evaluates a finite sum, not a continuum error certificate.
+"""
+function fourier_sum(nodes::AbstractVector{<:Real},weights::AbstractVector{<:Number},
+    targets::AbstractVector{<:Real};sign::Int=1,backend::Symbol=:direct,tolerance::Real=1e-12)
+    length(nodes)==length(weights) || throw(DimensionMismatch("nodes and weights must match."))
+    sign in (-1,1) || throw(ArgumentError("Fourier sign must be ±1."))
+    backend in (:direct,:finufft) || throw(ArgumentError("backend must be :direct or :finufft."))
+    all(isfinite,nodes) && all(isfinite,weights) && all(isfinite,targets) ||
+        throw(ArgumentError("Fourier samples must be finite."))
+    isfinite(tolerance) && tolerance>0 || throw(ArgumentError("tolerance must be finite and positive."))
+    T = promote_type(typeof(float(zero(eltype(nodes)))),typeof(real(float(zero(eltype(weights))))),typeof(float(zero(eltype(targets)))))
+    if backend == :direct
+        values = zeros(Complex{T},length(targets))
+        for k in eachindex(targets),j in eachindex(nodes,weights)
+            values[k] += Complex{T}(weights[j])*cis(T(sign)*T(nodes[j])*T(targets[k]))
+        end
+        return values
+    end
+    T in (Float32,Float64) || throw(ArgumentError("FINUFFT supports Float64 working precision; use backend=:direct for $T."))
+    (isempty(nodes) || isempty(targets)) && return zeros(ComplexF64,length(targets))
+    plan = FINUFFT.finufft_makeplan(3,1,sign,1,Float64(tolerance);dtype=Float64,nthreads=1)
+    try
+        FINUFFT.finufft_setpts!(plan,Float64.(nodes),Float64[],Float64[],Float64.(targets),Float64[],Float64[])
+        output = Vector{ComplexF64}(undef,length(targets))
+        FINUFFT.finufft_exec!(plan,ComplexF64.(weights),output)
+        return output
+    finally
+        FINUFFT.finufft_destroy!(plan)
+    end
+end

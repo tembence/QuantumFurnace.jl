@@ -1,5 +1,6 @@
 module QuantumFurnace
 
+export PreparedFilterTransform, prepare_filter_transform, transform_values, fourier_sum
 export KMSFilter, FrequencyFilter, RateFilter, TimeFilter, filter_evidence
 
 using Pkg
@@ -171,6 +172,7 @@ include("hamiltonian.jl")
 include("hamiltonian_io.jl")
 include("trotter_domain.jl")
 include("filters.jl")
+include("filter_transforms.jl")
 include("nufft.jl")
 include("structs.jl")
 include("dense_lindbladian_workspace.jl")

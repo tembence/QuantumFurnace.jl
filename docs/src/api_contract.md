@@ -445,3 +445,36 @@ nonergodicity. One global filter/channel family is applied to both adjoint partn
 per-source assignments remain T14. `TimeFilter` can evaluate its named kernel,
 but all custom Time simulation rejects until T12–T13 provide the transforms and
 matching coherent correction.
+
+### Prepared numerical Fourier transforms (T12)
+
+`prepare_filter_transform(f; window, breakpoints, rtol, atol, maxevals,
+max_panels, analytic=true)` owns a deep copy of the filter and its captured data.
+Callbacks must be deterministic and must not read mutable global or external
+state. Rebuild the preparation after changing a callback; compiled workspaces
+retain their own sampled operators.
+
+`transform_values(p, targets; direction=:inverse, window_refinements=1)` returns
+values, QuadGK error estimates, declared or unknown input L1 tails, and bounded
+window-expansion differences (at most three doublings). These differences are
+numerical evidence, not tail bounds. The returned values use the original window.
+Compact support is integrated over its exact declared extent; breakpoints split
+that extent. Oscillation-aware subdivision rejects targets exceeding the panel
+budget. Neither a small endpoint value nor a quadrature estimate certifies an
+omitted tail. The numerical path reports `:unresolved` when its quadrature budget
+cannot meet the requested tolerance.
+
+The convention is `F(ν)=∫f(t)exp(iνt)dt` with inverse `1/(2π)`. Analytic Gaussian
+pairs are preferred. A prepared legacy `GaussianFilter` adapts its frequency
+shape by `sqrt(π)/sigma`, leaving the existing CKG kernel methods unchanged.
+`fourier_sum(nodes, weights, targets; sign=1, backend=:direct)` provides a generic
+precision reference for finite sums; `backend=:finufft` uses deterministic
+single-threaded Float64/ComplexF64 and explicitly rejects higher precision.
+Quadrature weights and Fourier normalisation belong in the supplied weights.
+
+```julia
+f = KMSFilter(1.0; q_positive=x -> exp(-x^2/8)*cis(0.4x), name=:phase)
+p = prepare_filter_transform(f; window=16.0)
+evidence = transform_values(p, [-1.0, 0.0, 1.0])
+# evidence.tail_status == :unknown; this is not a continuum certificate.
+```
