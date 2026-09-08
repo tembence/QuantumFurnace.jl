@@ -248,3 +248,18 @@ scratch; a dense Liouvillian requires its own explicit small-system cap.
 Numerical budgets and default tolerances are measured in T07–T08. T20 gates
 public tutorials and supported capability claims on executable examples and
 tests; this contract page does not advertise the target snippets as runnable.
+
+### Implemented diagnostic checks (T06)
+
+`workspace_diagnostics(ws, config, ham; rho=nothing, dense_max_dim=16,
+max_dense_bytes=64*1024^2)` inspects the compiled Lindbladian in the Hamiltonian
+eigenbasis. It retains absolute and probe-normalised residuals for stationarity
+and trace preservation, raw state defects, Gibbs conditioning, and budgeted
+complete KMS-parent/kernel evidence. A failed probe-normalised tolerance is
+conservative: its scale is a lower estimate of the operator norm. Dense budgets
+cover an estimated temporary working set, additional to the existing workspace;
+they are not operating-system memory limits. Trotter-basis diagnostics currently
+reject explicitly. Unknown integrated transform tails stay `:not_run`.
+`state_diagnostics(rho)` also works independently. No state repair is applied.
+A complete numerical kernel result is scoped to this finite system and the
+reported tolerance; it does not establish uniform mixing.

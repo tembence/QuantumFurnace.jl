@@ -563,3 +563,170 @@ function run_exact_diagnostics(
     return ExactDiagnosticsResult(eigen_result, fp_result, defect_result,
                                    overlaps_vec, sz_labels, multiplets)
 end
+
+"""One numerical check, with separate absolute/scaled quantities and evidence scope.
+Unavailable quantities are `nothing`; a skipped check is never a pass.
+"""
+struct DiagnosticCheck{Q,T}
+    status::Symbol
+    quantity::Q
+    tolerance::T
+    method::Symbol
+    scope::Symbol
+    evidence::Symbol
+    message::String
+end
+
+"""Immutable collection of checks on the implemented generator, in its raw clock."""
+struct GibbsDiagnostics{C,P,R}
+    checks::C
+    parent_spectrum::P
+    resources::R
+    uniqueness::Symbol
+end
+
+_diagnostic(status, quantity, tolerance, method, scope, message) =
+    DiagnosticCheck(status, quantity, tolerance, method, scope, :numerical, message)
+_skipped(message) = _diagnostic(:not_run, nothing, nothing, :none, :none, message)
+
+function _diagnostic_controls(rtol, dense_max_dim, max_dense_bytes)
+    isfinite(rtol) && rtol >= 0 || throw(ArgumentError("rtol must be finite and nonnegative."))
+    dense_max_dim >= 0 || throw(ArgumentError("dense_max_dim must be nonnegative."))
+    max_dense_bytes >= 0 || throw(ArgumentError("max_dense_bytes must be nonnegative."))
+end
+
+# No additive absolute floor: changing the clock must not conceal a defect.
+_scaled_residual(value, scale) = scale > 0 ? value / scale : (iszero(value) ? zero(value) : oftype(value, Inf))
+function _residual_check(value, scale, rtol, method, scope, message)
+    relative = _scaled_residual(value, scale)
+    status = isfinite(relative) && relative <= rtol ? :pass : :fail
+    return _diagnostic(status, (absolute=value, scaled=relative, scale=scale),
+        rtol, method, scope, message)
+end
+
+"""
+    state_diagnostics(rho; rtol=1e-9, dense_max_dim=64, max_dense_bytes=64*1024^2)
+
+Inspect the raw state without repairing it. Positivity uses the Hermitian part
+only after the Hermiticity check passes, within an explicit allocation budget.
+"""
+function state_diagnostics(rho::AbstractMatrix; rtol::Real=1e-9,
+    dense_max_dim::Integer=64, max_dense_bytes::Integer=64*1024^2)
+    _diagnostic_controls(rtol, dense_max_dim, max_dense_bytes)
+    d = size(rho, 1)
+    d > 0 && size(rho, 2) == d || throw(ArgumentError("State must be nonempty and square."))
+    finite = all(isfinite, rho)
+    fin = _diagnostic(finite ? :pass : :fail, finite, nothing, :entries, :complete,
+        "State entries must be finite; no repair was applied.")
+    if !finite
+        skipped = _skipped("Nonfinite state; supply finite entries.")
+        return (; finiteness=fin, trace=skipped, hermiticity=skipped, positivity=skipped)
+    end
+    trace_check = _residual_check(abs(tr(rho)-1), one(real(float(tr(rho)))), rtol,
+        :trace, :complete, "Supply a unit-trace state; no normalisation was applied.")
+    herm = _residual_check(norm(rho-rho'), norm(rho), rtol, :frobenius,
+        :complete, "Supply a Hermitian state; no symmetrisation was applied.")
+    bytes = big(8)*d^2*sizeof(float(eltype(rho)))
+    positivity = if herm.status != :pass
+        _skipped("Positivity unavailable for a non-Hermitian state.")
+    elseif d > dense_max_dim || bytes > max_dense_bytes
+        _skipped("Positivity budget exceeded; increase dense_max_dim/max_dense_bytes.")
+    else
+        minimum_value = eigmin(Hermitian((rho+rho')/2))
+        _diagnostic(minimum_value >= -rtol ? :pass : :fail,
+            (minimum_eigenvalue=minimum_value, negative_part=max(-minimum_value, zero(minimum_value))),
+            rtol, :hermitian_eigenvalues, :complete, "State must be positive semidefinite; no clipping was applied.")
+    end
+    return (; finiteness=fin, trace=trace_check, hermiticity=herm, positivity)
+end
+
+"""
+    workspace_diagnostics(ws, config::Config{Lindbladian}, ham; rho=nothing, ...)
+
+Check the compiled full generator in the Hamiltonian eigenbasis. Stationarity
+and trace preservation use exact matrix-free actions; the normalising operator
+scale is a deterministic random-probe lower estimate, explicitly labelled.
+Dense KMS/kernel checks default to Hilbert dimension <=16 and a 64 MiB working
+allocation estimate (including eigensolver temporaries). Neither a small Gibbs
+residual nor random probes establish uniqueness or a global gap. `rho`, when
+supplied, is inspected in this same basis without repair. Unknown transform tails
+remain unavailable; these checks do not certify a continuum implementation.
+"""
+function workspace_diagnostics(ws::Workspace{KrylovSpectrum}, config::Config{Lindbladian},
+    ham::HamHam; rho::Union{Nothing,AbstractMatrix}=nothing, rtol::Real=1e-9,
+    dense_max_dim::Integer=16, max_dense_bytes::Integer=64*1024^2,
+    probes::Integer=3, seed::Integer=0x70606)
+    _diagnostic_controls(rtol, dense_max_dim, max_dense_bytes)
+    probes > 0 || throw(ArgumentError("probes must be positive."))
+    config.domain isa TrotterDomain && throw(ArgumentError(
+        "workspace_diagnostics currently requires the Hamiltonian eigenbasis; TrotterDomain is unsupported."))
+    _validate_reused_krylov_workspace(ws, config, ham,
+        config.domain isa TrotterDomain ? ws.ham_or_trott : nothing, ws.jumps)
+    d = size(ham.data,1)
+    rho === nothing || size(rho) == (d,d) || throw(ArgumentError(
+        "rho must match the Hamiltonian dimension ($d, $d)."))
+    CT = eltype(ws.G_left)
+    gibbs = Matrix{CT}(ham.gibbs)
+    rng = MersenneTwister(seed)
+    scale = zero(real(zero(CT)))
+    for _ in 1:probes
+        v = randn(rng, CT, d, d)
+        v ./= norm(v)
+        scale = max(scale, norm(apply_lindbladian!(ws,v,config,ham)))
+    end
+    stationary = _residual_check(norm(apply_lindbladian!(ws,gibbs,config,ham)),
+        scale*norm(gibbs), rtol, :matrix_free_action, :complete_action_probed_scale,
+        "Gibbs stationarity only; refine the filter/grid if the scaled residual fails.")
+    identity_d = Matrix{CT}(I,d,d)
+    tp = _residual_check(norm(apply_adjoint_lindbladian!(ws,identity_d,config,ham)),
+        scale*sqrt(d), rtol, :matrix_free_adjoint, :complete_action_probed_scale,
+        "Trace preservation requires L†(I)=0; check gain/loss assembly on failure.")
+    weights = real.(diag(gibbs))
+    faithful = all(isfinite, weights) && minimum(weights) > 0
+    ratio = faithful ? minimum(weights)/maximum(weights) : zero(eltype(weights))
+    well_conditioned = faithful && ratio > eps(eltype(weights))
+    conditioning = _diagnostic(!faithful ? :fail : well_conditioned ? :pass : :inconclusive,
+        (minimum_weight=minimum(weights), reciprocal_condition=ratio, faithful=faithful),
+        eps(eltype(weights)), :gibbs_weights, :complete,
+        "Underflow or conditioning can invalidate inverse-Gibbs diagnostics; use higher precision or lower beta_phys.")
+    state = rho === nothing ? _skipped("No raw state supplied.") :
+        state_diagnostics(rho;rtol,dense_max_dim,max_dense_bytes)
+    # Conservative working-set estimate: full operator, parent, SVD/eigen copies
+    # and scratch. No dense superoperator is allocated before this gate.
+    bytes = big(16)*d^4*sizeof(CT) + big(16)*d^2*sizeof(CT)
+    permitted = d <= dense_max_dim && bytes <= max_dense_bytes
+    parent_spectrum = nothing
+    kms = _skipped(permitted ? "Gibbs faithfulness/conditioning gate failed." :
+        "Dense KMS budget exceeded; increase dense_max_dim/max_dense_bytes.")
+    kernel = _skipped("Complete kernel requires a passing KMS/positivity/stationarity check.")
+    uniqueness = :not_established
+    if permitted && well_conditioned
+        L = Matrix{CT}(undef,d^2,d^2)
+        basis = zeros(CT,d,d)
+        for j in 1:d^2
+            fill!(basis,0); basis[j] = 1
+            L[:,j] .= vec(apply_lindbladian!(ws,basis,config,ham))
+        end
+        parent = materialize_kms_parent(L,gibbs)
+        pn = opnorm(parent)
+        tolerance = 10*d^2*eps(typeof(real(zero(CT))))*pn
+        parent_spectrum = kms_parent_spectrum(parent,gibbs;
+            kernel_tolerance=tolerance, hermiticity_tolerance=rtol)
+        kms = _residual_check(opnorm(parent-parent')/2,pn,rtol,
+            :dense_discriminant, :complete, "KMS self-adjointness of the implemented generator; refine Time grids on failure.")
+        if kms.status == :pass && stationary.status == :pass && tp.status == :pass &&
+            parent_spectrum.minimum_eigenvalue >= -tolerance
+            count = parent_spectrum.kernel_count
+            uniqueness = count > 1 ? :nonunique : count == 1 ? :established : :not_established
+            kernel = _diagnostic(count >= 1 ? :pass : :inconclusive,
+                (kernel_count=count, first_positive_rate=parent_spectrum.first_positive_eigenvalue),
+                tolerance,:kms_parent_spectrum,:complete_small_system,
+                count > 1 ? "Nonunique stationary space; add couplings that connect the conserved sectors." :
+                "Complete finite-system numerical kernel at the reported resolution; no all-size theorem.")
+        end
+    end
+    return GibbsDiagnostics((; stationarity=stationary, trace_preservation=tp,
+        conditioning, state, kms, kernel, tails=_skipped("No integrated transform-tail evidence supplied.")),
+        parent_spectrum, (; dense_permitted=permitted, estimated_dense_bytes=bytes,
+            dense_max_dim,max_dense_bytes,probes,seed,operator_scale=scale,clock=:raw_generator), uniqueness)
+end
