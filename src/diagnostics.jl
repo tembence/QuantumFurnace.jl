@@ -8,7 +8,8 @@ Leading eigenvalues and biorthogonal left/right eigenvectors.
 # Fields
 - `eigenvalues`: Modes sorted by `abs(real(lambda))`.
 - `right_eigenvectors`, `left_eigenvectors`: Biorthogonal mode columns.
-- `spectral_gap`: `abs(real(eigenvalues[2]))`.
+- `spectral_gap`: First resolved rate above the detected stationary space;
+  `NaN` when no relaxation rate resolves or an unstable mode is found.
 - `im_re_ratios`: Oscillation-to-decay ratio per mode.
 """
 struct EigenDecompositionResult
@@ -62,7 +63,8 @@ Observable overlaps with Lindbladian eigenmodes.
 - `coefficients`: n_obs x n_modes overlap coefficients.
 - `observable_names`: Names of observables.
 - `initial_state_name`: Name of initial state used.
-- `gap_mode_overlap`: |c_2| per observable.
+- `gap_mode_overlap`: legacy |c_2| per observable. This means the second
+  retained mode, which need not be a relaxation mode for nonunique kernels.
 """
 struct OverlapResult
     coefficients::Matrix{ComplexF64}
@@ -225,7 +227,11 @@ function extract_leading_eigendata(L::Matrix{ComplexF64}; n_modes::Int=20)
     V_inv = inv(V_full)
     V_left = V_inv[1:n_modes, :]'
 
-    spectral_gap = abs(real(eigenvalues[2]))
+    residuals = [norm(L*F.vectors[:,i]-F.values[i]*F.vectors[:,i]) /
+        norm(F.vectors[:,i]) for i in eachindex(F.values)]
+    spectrum = spectral_gap_diagnostics(F.values,residuals;
+        operator_scale=opnorm(L),complete=true)
+    spectral_gap = spectrum.spectral_gap
 
     im_re_ratios = Vector{Float64}(undef, n_modes)
     im_re_ratios[1] = 0.0
@@ -239,7 +245,10 @@ end
 """
     compute_fixed_point_distance(eigen_result::EigenDecompositionResult, gibbs::Hermitian) -> FixedPointResult
 
-Normalise the stationary right mode and compare it with the Gibbs state.
+Legacy normalisation of the first right mode, including Hermitian repair,
+and comparison with Gibbs. This helper assumes a unique physical stationary
+mode; use `krylov_spectral_gap(...).fixed_point_diagnostics` for raw validity
+and kernel-aware evidence. It is not a validity check for nonunique/invalid maps.
 
 # Returns
 A `FixedPointResult` containing the density matrix and trace distance.
@@ -262,7 +271,10 @@ end
 Compute the anti-Hermitian defect of the KMS quantum discriminant.
 
 # Returns
-A `DefectResult` with ratio `norm(A) / gap(H)` and an advisory warning flag.
+A `DefectResult` with a legacy ratio using the second-smallest absolute
+Hermitian eigenvalue. This heuristic assumes a unique resolved zero mode;
+it is not a kernel-aware gap diagnostic. Use `workspace_diagnostics` and
+`spectral_gap_diagnostics` for stationary-manifold and reliability evidence.
 """
 function compute_anti_hermitian_defect(L::Matrix{ComplexF64}, gibbs::Hermitian)
     # Math: $D = H + A$, where $H = (D + D^dagger)/2$ and $A = (D-D^dagger)/2$.
@@ -729,4 +741,85 @@ function workspace_diagnostics(ws::Workspace{KrylovSpectrum}, config::Config{Lin
         conditioning, state, kms, kernel, tails=_skipped("No integrated transform-tail evidence supplied.")),
         parent_spectrum, (; dense_permitted=permitted, estimated_dense_bytes=bytes,
             dense_max_dim,max_dense_bytes,probes,seed,operator_scale=scale,clock=:raw_generator), uniqueness)
+end
+
+"""
+    spectral_gap_diagnostics(eigenvalues, residuals; operator_scale, complete=false,
+                             channel_delta=nothing)
+
+Classify raw generator eigenvalues (or raw channel multipliers when delta is
+supplied). Zero-compatible modes satisfy `abs(lambda) <= 5*residual + roundoff`;
+this is numerical resolution evidence, not proof of an exact zero. The first
+resolved decay rate excludes the entire detected stationary space. Positive-real
+generator modes / channel moduli above one are unstable, never absolute-valued
+into decay. `complete=true` is reserved for a complete dense spectrum.
+Ritz residuals of nonnormal operators do not certify eigenvalue errors; partial
+spectra always have inconclusive global-gap reliability.
+"""
+function spectral_gap_diagnostics(values::AbstractVector, residuals::AbstractVector;
+    operator_scale::Real, complete::Bool=false, channel_delta::Union{Nothing,Real}=nothing)
+    length(values) == length(residuals) || throw(ArgumentError("One residual is required per eigenvalue."))
+    isfinite(operator_scale) && operator_scale >= 0 || throw(ArgumentError("operator_scale must be finite and nonnegative."))
+    channel_delta === nothing || (isfinite(channel_delta) && channel_delta > 0) ||
+        throw(ArgumentError("channel_delta must be finite and positive."))
+    all(isfinite,values) && all(x -> isfinite(x) && x >= 0,residuals) ||
+        throw(ArgumentError("Eigenvalues and nonnegative residuals must be finite."))
+    T = typeof(float(real(zero(eltype(values)))))
+    scale = max(T(operator_scale), maximum(abs,values;init=zero(T)))
+    roundoff = 10*max(length(values),1)*eps(T)*scale
+    thresholds = 5 .* residuals .+ roundoff
+    offsets = channel_delta === nothing ? values : values .- 1
+    stationary = findall(i -> abs(offsets[i]) <= thresholds[i], eachindex(values))
+    residual_ambiguous = filter(i -> abs(offsets[i]) > roundoff, stationary)
+    decay = Int[]; unstable = Int[]; unresolved = Int[]
+    rates = zeros(T,length(values))
+    for i in eachindex(values)
+        growth = channel_delta === nothing ? real(values[i]) : abs(values[i])-1
+        rates[i] = channel_delta === nothing ? -real(values[i]) :
+            (iszero(values[i]) ? T(Inf) : -log(abs(values[i]))/channel_delta)
+        if growth > thresholds[i]
+            push!(unstable,i)
+        elseif i in stationary
+            continue
+        elseif -growth > thresholds[i]
+            push!(decay,i)
+        else
+            push!(unresolved,i)
+        end
+    end
+    gap_index = isempty(decay) ? nothing : decay[argmin(rates[decay])]
+    candidate = gap_index === nothing ? nothing : rates[gap_index]
+    status = !isempty(unstable) ? :fail :
+        complete && !isempty(stationary) && isempty(unresolved) && isempty(residual_ambiguous) ? :pass : :inconclusive
+    uniqueness = complete && status == :pass ?
+        (length(stationary) == 1 ? :established : :nonunique) : :not_established
+    # Even in complete spectra, all-zero or unresolved spectra have no resolved
+    # relaxation rate. Retain detected kernel evidence without inventing a gap.
+    gap_status = status == :pass && candidate === nothing ? :inconclusive : status
+    return (; status=gap_status, uniqueness, detected_zero_modes=length(stationary),
+        stationary_indices=stationary, unresolved_indices=unresolved, unstable_indices=unstable,
+        residual_ambiguous_indices=residual_ambiguous,
+        first_resolved_rate=candidate, gap_index, zero_thresholds=thresholds,
+        operator_scale=scale, complete, evidence=:numerical,
+        zero_classification=:compatible_with_zero,
+        scope=complete ? :complete_small_system : :captured_ritz_pairs,
+        spectral_gap=isempty(unstable) && isempty(unresolved) && isempty(residual_ambiguous) && !isempty(stationary) && candidate !== nothing ? candidate : T(NaN))
+end
+
+# Preserve raw eigensolver modes. Phase/trace normalisation is explicit and is
+# followed by validity tests, with no Hermitian projection or positivity repair.
+function _spectral_fixed_point(vecs, indices, dim; rtol=1e-9)
+    for i in indices
+        raw = reshape(copy(vecs[i]),dim,dim)
+        trace_value = tr(raw)
+        abs(trace_value) > sqrt(eps(typeof(real(trace_value))))*sqrt(dim)*norm(raw) || continue
+        normalized = raw / trace_value
+        checks = state_diagnostics(normalized;rtol)
+        valid = all(getproperty(checks,k).status == :pass for k in (:finiteness,:trace,:hermiticity,:positivity))
+        return (; state=normalized, checks, valid, index=i, raw_trace=trace_value,
+            normalisation_multiplier=inv(trace_value), repair_norm=0.0)
+    end
+    return (; state=fill(ComplexF64(NaN),dim,dim),
+        checks=_skipped("No zero-compatible mode with a stable nonzero trace; request more modes."),
+        valid=false,index=nothing,raw_trace=nothing,normalisation_multiplier=nothing,repair_norm=0.0)
 end

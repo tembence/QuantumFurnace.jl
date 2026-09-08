@@ -32,7 +32,7 @@ Run `KrylovKit.eigsolve`, enlarging `krylovdim` by 50% after partial convergence
 """
 function _eigsolve_with_retry(f, x0, howmany::Int, which::Symbol;
     krylovdim::Int=30, tol::Real=1e-10, maxiter::Int=100, max_retries::Int=3,
-    krylov_kwargs...)
+    accept_invariant_subspace::Bool=false, krylov_kwargs...)
 
     current_krylovdim = krylovdim
     local vals, vecs, info
@@ -42,7 +42,8 @@ function _eigsolve_with_retry(f, x0, howmany::Int, which::Symbol;
             Arnoldi(; krylovdim=current_krylovdim, tol=tol, maxiter=maxiter, verbosity=0);
             krylov_kwargs...)
 
-        if info.converged >= howmany
+        if info.converged >= howmany ||
+            (accept_invariant_subspace && !isempty(vals) && info.converged == length(vals))
             return vals, vecs, info
         end
 
@@ -359,7 +360,12 @@ checked across Krylov dimensions and structurally different seeds.
 
 # Returns
 A named tuple with eigenvalues, gap, stationary state, gap mode, residuals,
-convergence metadata, and spectral-mode diagnostics.
+convergence metadata, and spectral-mode diagnostics. `spectral_gap` is the first
+resolved rate beyond all detected zero-compatible modes, or `NaN` for unresolved,
+all-zero or unstable spectra. It is a captured estimate, never a global-gap
+certificate. Inspect `spectrum_diagnostics` and `fixed_point_diagnostics`;
+`raw_eigenvectors` are retained without state normalisation/repair. `normres`
+contains recomputed relative Ritz residuals (in raw operator units).
 """
 function krylov_spectral_gap(
     config::Config{Lindbladian},
@@ -401,7 +407,7 @@ function krylov_spectral_gap(
     vals, vecs, info = _eigsolve_with_retry(
         lindbladian_matvec, x0, howmany, :LR;
         krylovdim=krylovdim, tol=tol, max_retries=max_retries,
-        krylov_kwargs...)
+        accept_invariant_subspace=true, krylov_kwargs...)
 
     # Sort eigenvalues by |Re(lambda)| ascending (steady state first, then gap mode)
     perm = sortperm(vals; by=v -> abs(real(v)))
@@ -409,18 +415,16 @@ function krylov_spectral_gap(
     eigenvalues_sorted = vals[perm]
     vecs_sorted = vecs[perm]
 
-    # Extract fixed point after fixing the arbitrary stationary-mode phase.
-    fixed_point = reshape(vecs_sorted[1], dim, dim)
-    _normalize_stationary_mode!(fixed_point)
-
-    # Extract gap_mode (eigenvector 2): reshape only
-    gap_mode = reshape(vecs_sorted[2], dim, dim)
-
-    # Spectral gap = abs(real(lambda_2))
-    spectral_gap = abs(real(eigenvalues_sorted[2]))
-
-    # Residual norms (reorder to match sorted eigenvalues)
-    normres = Float64.(info.normres[perm])
+    # Recompute residuals on owned, unnormalised Ritz modes; preserve raw data.
+    normres = [norm(lindbladian_matvec(vecs_sorted[i]) - eigenvalues_sorted[i]*vecs_sorted[i]) /
+        norm(vecs_sorted[i]) for i in eachindex(vecs_sorted)]
+    scale = maximum((norm(lindbladian_matvec(v))/norm(v) for v in vecs_sorted);init=0.0)
+    spectrum_diagnostics = spectral_gap_diagnostics(eigenvalues_sorted,normres;operator_scale=scale)
+    fixed_point_diagnostics = _spectral_fixed_point(vecs_sorted,spectrum_diagnostics.stationary_indices,dim)
+    fixed_point = fixed_point_diagnostics.state
+    gap_index = spectrum_diagnostics.gap_index
+    gap_mode = gap_index === nothing ? fill(ComplexF64(NaN),dim,dim) : reshape(copy(vecs_sorted[gap_index]),dim,dim)
+    spectral_gap = spectrum_diagnostics.spectral_gap
 
     spectral_modes = _operator_spectral_modes(eigenvalues_sorted, vecs_sorted, dim)
 
@@ -430,10 +434,14 @@ function krylov_spectral_gap(
         fixed_point = Complex{Float64}.(fixed_point),
         gap_mode = Complex{Float64}.(gap_mode),
         converged = info.converged,
-        matvec_count = info.numops,
+        matvec_count = info.numops + 2length(vecs_sorted),
         num_restarts = info.numiter,
         normres,
         spectral_modes,
+        spectrum_diagnostics,
+        fixed_point_diagnostics,
+        raw_eigenvectors = vecs_sorted,
+        gap_mode_index = gap_index,
         channel_eigenvalues = nothing,
         delta_used = nothing,
     )
@@ -446,7 +454,7 @@ Compute the faithful channel spectrum with `:LM` targeting.
 
 The captured mode closest to `mu=1` is placed first; remaining modes are
 ordered by decreasing `abs(mu)`. The reported generator-equivalent gap is
-`-log(abs(mu_2)) / delta`; the `eigenvalues` field retains the legacy
+`-log(abs(mu_gap)) / delta` beyond the detected stationary subspace; the `eigenvalues` field retains the legacy
 first-order conversion `(mu - 1) / delta` for diagnostics, while
 `channel_eigenvalues` contains the raw discrete spectrum.
 
@@ -517,7 +525,7 @@ function krylov_spectral_gap(
     vals, vecs, info = _eigsolve_with_retry(
         channel_matvec, x0, howmany, :LM;
         krylovdim=krylovdim, tol=tol, max_retries=max_retries,
-        krylov_kwargs...)
+        accept_invariant_subspace=true, krylov_kwargs...)
 
     # Store raw channel eigenvalues before conversion
     channel_eigenvalues_raw = Complex{Float64}.(vals)
@@ -534,18 +542,16 @@ function krylov_spectral_gap(
     vecs_sorted = vecs[perm]
     channel_eigenvalues_sorted = channel_eigenvalues_raw[perm]
 
-    # Extract fixed point after fixing the arbitrary stationary-mode phase.
-    fixed_point = reshape(vecs_sorted[1], dim, dim)
-    _normalize_stationary_mode!(fixed_point)
-
-    # Extract gap_mode (eigenvector 2): reshape only
-    gap_mode = reshape(vecs_sorted[2], dim, dim)
-
-    # If mu_2 = 0 the mode vanishes in one step, hence an infinite log-rate.
-    spectral_gap = _channel_spectral_gap(channel_eigenvalues_sorted, delta)
-
-    # Residual norms (reorder to match sorted eigenvalues)
-    normres = Float64.(info.normres[perm])
+    normres = [norm(channel_matvec(vecs_sorted[i]) - channel_eigenvalues_sorted[i]*vecs_sorted[i]) /
+        norm(vecs_sorted[i]) for i in eachindex(vecs_sorted)]
+    scale = maximum((norm(channel_matvec(v))/norm(v) for v in vecs_sorted);init=0.0)
+    spectrum_diagnostics = spectral_gap_diagnostics(channel_eigenvalues_sorted,normres;
+        operator_scale=scale,channel_delta=delta)
+    fixed_point_diagnostics = _spectral_fixed_point(vecs_sorted,spectrum_diagnostics.stationary_indices,dim)
+    fixed_point = fixed_point_diagnostics.state
+    gap_index = spectrum_diagnostics.gap_index
+    gap_mode = gap_index === nothing ? fill(ComplexF64(NaN),dim,dim) : reshape(copy(vecs_sorted[gap_index]),dim,dim)
+    spectral_gap = spectrum_diagnostics.spectral_gap
 
     # Diagnostics use converted generator-rate units.
     spectral_modes = _operator_spectral_modes(eigenvalues_sorted, vecs_sorted, dim)
@@ -556,10 +562,14 @@ function krylov_spectral_gap(
         fixed_point = Complex{Float64}.(fixed_point),
         gap_mode = Complex{Float64}.(gap_mode),
         converged = info.converged,
-        matvec_count = info.numops,
+        matvec_count = info.numops + 2length(vecs_sorted),
         num_restarts = info.numiter,
         normres,
         spectral_modes,
+        spectrum_diagnostics,
+        fixed_point_diagnostics,
+        raw_eigenvectors = vecs_sorted,
+        gap_mode_index = gap_index,
         channel_eigenvalues = channel_eigenvalues_sorted,
         delta_used = Float64(delta),
         trace_preserving_assumed = true,
@@ -614,6 +624,9 @@ function run_krylov_spectrum(
     wall_time = time() - t_start
     metadata = _capture_metadata(wall_time_seconds=wall_time)
     metadata[:spectral_modes] = krylov_result.spectral_modes
+    metadata[:spectrum_diagnostics] = krylov_result.spectrum_diagnostics
+    metadata[:fixed_point_diagnostics] = krylov_result.fixed_point_diagnostics
+    metadata[:gap_mode_index] = krylov_result.gap_mode_index
     if config isa Config{Thermalize}
         metadata[:trace_preserving_assumed] = krylov_result.trace_preserving_assumed
         metadata[:physical_channel] = krylov_result.physical_channel

@@ -407,7 +407,7 @@ function kms_parent_spectrum(
 
     powers = gibbs_fractional_powers(gibbs)
     parent_norm = T(opnorm(parent))
-    scale = max(parent_norm, one(T))
+    scale = parent_norm
     tolerance = if kernel_tolerance === nothing
         T(100) * T(n) * eps(T) * scale
     else
@@ -425,8 +425,7 @@ function kms_parent_spectrum(
         value
     end
 
-    hermiticity_defect = T(opnorm(parent - parent')) /
-                          max(T(2) * parent_norm, eps(T))
+    hermiticity_defect = T(_scaled_residual(opnorm(parent - parent'), T(2) * parent_norm))
     hermitian_parent = Hermitian((parent + parent') / T(2))
     eigenvalues = Vector{T}(eigvals(hermitian_parent))
     kernel_count = count(value -> abs(value) <= tolerance, eigenvalues)
@@ -470,6 +469,8 @@ Compute the dense Hermitian-discriminant spectrum.
 
 # Returns
 A `DiscriminantSpectrum`. Dense eigendecomposition costs `O(d^6)`.
+Its legacy gap field uses the second mode and assumes a unique resolved kernel;
+use `kms_parent_spectrum` for complete kernel-aware parent evidence.
 """
 function discriminant_spectrum(
     L::AbstractMatrix{<:Complex},
@@ -538,7 +539,10 @@ Verify KMS detailed balance from the dense quantum discriminant.
 
 # Returns
 A `DBVerificationResult` containing the defect, fixed-point residual, and
-dense gap cross-check. The calculation costs `O(d^6)`.
+dense gap cross-check. The calculation costs `O(d^6)`. The legacy gap fields
+use the second mode, assuming a unique resolved stationary kernel. They are
+not reliable for nonunique or unresolved kernels; use `workspace_diagnostics`
+and `spectral_gap_diagnostics` for that classification.
 """
 function verify_detailed_balance(
     L::AbstractMatrix{<:Complex},

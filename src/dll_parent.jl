@@ -304,6 +304,10 @@ function dense_dll_irreducibility(
 ) where {T<:AbstractFloat}
     isempty(jumps) && throw(ArgumentError("jumps must be nonempty."))
     _validate_dense_dll_parent_filter(hamiltonian, filter)
+    # The source conversion preserves the complete filtered generator. Parent
+    # blocks retain their Hermitian contract; this family-level witness accepts
+    # validated adjoint pairs without changing their rates.
+    jumps = _dll_hermitian_sources(jumps,hamiltonian)
     channels = collect(_filter_channels_for_dll_oft(filter))
     filtered_operators = Matrix{Complex{T}}[]
     sizehint!(filtered_operators, length(jumps) * length(channels))
@@ -401,4 +405,22 @@ function dense_dll_parent(
 
     return DenseDLLParent{T, typeof(filter)}(
         filter, blocks, total_parent, coherent, irreducibility, spectrum)
+end
+
+# Replace an adjoint-closed source family by an equivalent Hermitian family.
+# Summing Re(A), Im(A) over BOTH partners cancels cross terms and preserves
+# sum L†L and thus the canonical B. The /2 here preserves original multiplicity.
+function _dll_hermitian_sources(jumps::AbstractVector{<:JumpOp},ham::HamHam)
+    jumps = prepare_jumps(jumps,ham).jumps
+    result = JumpOp[]
+    for jump in jumps
+        if jump.hermitian
+            push!(result,jump)
+        else
+            for A in ((jump.data+jump.data')/2,(jump.data-jump.data')/(2im))
+                push!(result,JumpOp(A,ham))
+            end
+        end
+    end
+    return result
 end

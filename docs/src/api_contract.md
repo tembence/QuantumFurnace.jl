@@ -263,3 +263,32 @@ reject explicitly. Unknown integrated transform tails stay `:not_run`.
 `state_diagnostics(rho)` also works independently. No state repair is applied.
 A complete numerical kernel result is scoped to this finite system and the
 reported tolerance; it does not establish uniform mixing.
+
+### Implemented spectral extraction (T07)
+
+`krylov_spectral_gap` now selects the first resolved decay rate beyond the
+entire detected stationary space. It retains raw eigenvalues/vectors and adds
+`spectrum_diagnostics`, `fixed_point_diagnostics`, and `gap_mode_index`.
+`NaN` in the legacy scalar gap means no resolved relaxation rate (including
+unstable or unresolved peripheral modes). A positive candidate from a partial
+Krylov spectrum still has `:inconclusive` global reliability and never establishes
+uniqueness. Single-vector Arnoldi can miss multiplicities and slow sectors;
+independent-start refinement is T08. Residual-compatible zeros are numerical
+resolution statements, not exact kernel certificates. Residuals do not bound
+eigenvalue errors for a general nonnormal operator.
+
+`fixed_point` is phase/trace-normalised without Hermitian or positivity repair;
+inspect its validity report before using it. If no zero-compatible mode has a
+stable nonzero trace, this legacy matrix field contains NaNs. The raw modes
+remain unmodified. `run_krylov_spectrum` retains diagnostic reports in metadata.
+Channel residuals remain in raw channel units and the legacy converted
+`eigenvalues=(mu-1)/delta` convention is unchanged.
+
+`extract_leading_eigendata` now uses the complete dense spectrum for its gap.
+Older `compute_fixed_point_distance`/`run_exact_diagnostics` retain their legacy
+state-repair path, and overlap/defect/discriminant convenience fields retain
+second-mode semantics as documented in their docstrings. Use the new checks
+for nonunique or unresolved systems. `kms_parent_spectrum` uses a homogeneous
+operator-scale tolerance; `dense_dll_irreducibility` also accepts validated
+adjoint pairs through an equivalent Hermitian source family. Its finite-system
+commutant witness still requires a faithful invariant Gibbs state.
