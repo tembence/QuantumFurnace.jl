@@ -82,10 +82,12 @@ end
 Evaluate the DLL coherent frequency kernel for two Bohr frequencies.
 """
 @inline function dll_coherent_kernel_bohr(
-    filter::Union{DLLGaussianFilter{T}, DLLMetropolisFilter{T}},
+    filter::AbstractFilter,
     ν::Real,
     νp::Real,
-) where {T<:AbstractFloat}
+)
+    _require_admissible_dll_filter(filter)
+    T = typeof(float(filter.beta))
     β = filter.beta
     pref = one(T) / (2im)
     th = tanh(β * (νp - ν) / 4)
@@ -120,10 +122,9 @@ function dll_coherent_op_bohr(
     n = length(eigvals)
     CT = Complex{T}
 
-    # Both supported frequency filters are real-valued.
-    f_mat = Matrix{T}(undef, n, n)
+    f_mat = Matrix{CT}(undef, n, n)
     @inbounds for j in 1:n, k in 1:n
-        f_mat[k, j] = T(freq_kernel(filter, eigvals[k] - eigvals[j]))
+        f_mat[k, j] = CT(freq_kernel(filter, eigvals[k] - eigvals[j]))
     end
 
     # Math: $T_(i j) = tanh(beta (lambda_j-lambda_i)/4)$ is antisymmetric.
@@ -144,6 +145,16 @@ function dll_coherent_op_bohr(
     pref = CT(1) / (2im)
     @. G = pref * tanh_mat * G
     return G
+end
+
+# Production Bohr correction uses precisely the retained implemented loss.
+# The standalone constructor above remains an independent source-product path.
+function _dll_coherent_from_loss(R::AbstractMatrix{CT}, eigvals, beta) where {CT<:Complex}
+    B = similar(R)
+    @inbounds for j in axes(R, 2), i in axes(R, 1)
+        B[i,j] = (im / 2) * tanh((beta / 4) * (eigvals[i]-eigvals[j])) * R[i,j]
+    end
+    return B
 end
 
 # The Gaussian DLL kernel separates after the variables

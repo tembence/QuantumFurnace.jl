@@ -381,3 +381,11 @@ used. Raw all-mode low-level predictor payloads without a stationary projection
 reject the mixing-time helper rather than silently dropping their stationary
 contribution. Predictor Time-domain use rejects; direct Krylov Time remains
 available. Portable combined-result serialization remains T19.
+
+T10 compiles each DLL Bohr channel into an owned complex frequency table before
+source construction or threading. Every sampled value is finite and the full
+sampled set passes weighted conjugate reflection at working precision. This is
+finite-spectrum numerical evidence; no continuum or implementation theorem is
+inferred. Gain, loss and coherent construction share these samples, and the
+workspace forms its canonical correction from the retained loss matrix.
+Standalone coherent construction retains an independent source-product path.

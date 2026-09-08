@@ -52,6 +52,10 @@ DLLMultiChannelFilter(channels::Vector{F}, beta::T) where
 # Multi-channel time kernels are sums of per-channel `Complex{T}` kernels;
 # `Complex{T}` is the right element type regardless of which sub-filters appear.
 Base.eltype(::DLLMultiChannelFilter{T}) where {T} = Complex{T}
+function dll_coherent_kernel_bohr(f::DLLMultiChannelFilter, nu::Real, nup::Real)
+    _require_admissible_dll_filter(f)
+    return sum(c -> dll_coherent_kernel_bohr(c, nu, nup), f.channels)
+end
 @inline _is_admissible_dll_filter(f::DLLMultiChannelFilter) =
     isfinite(f.beta) && f.beta > zero(f.beta) && !isempty(f.channels) &&
     all(c -> _is_admissible_dll_filter(c) && hasproperty(c, :beta) &&
@@ -65,9 +69,9 @@ Base.eltype(::DLLMultiChannelFilter{T}) where {T} = Complex{T}
 Return the diagnostic sum of the channel weights.
 """
 @inline function q_weight(f::DLLMultiChannelFilter{T}, nu::Real) where {T}
-    s = zero(T)
-    @inbounds for c in f.channels
-        s += T(q_weight(c, nu))
+    s = q_weight(first(f.channels), nu)
+    @inbounds for i in 2:length(f.channels)
+        s += q_weight(f.channels[i], nu)
     end
     return s
 end
@@ -78,11 +82,18 @@ end
 Return the diagnostic sum of the channel frequency kernels.
 """
 @inline function freq_kernel(f::DLLMultiChannelFilter{T}, nu::Real) where {T}
-    s = zero(T)
-    @inbounds for c in f.channels
-        s += T(freq_kernel(c, nu))
+    s = freq_kernel(first(f.channels), nu)
+    @inbounds for i in 2:length(f.channels)
+        s += freq_kernel(f.channels[i], nu)
     end
     return s
+end
+
+function _prepare_dll_bohr_filter(f::DLLMultiChannelFilter, eigvals::AbstractVector{T}; beta=f.beta) where {T<:AbstractFloat}
+    _require_admissible_dll_filter(f; beta)
+    return DLLMultiChannelFilter(
+        [_prepare_dll_bohr_filter(c, eigvals; beta) for c in f.channels],
+        eltype(eigvals)(beta))
 end
 
 """

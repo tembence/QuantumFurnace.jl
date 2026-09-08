@@ -63,6 +63,49 @@ function time_kernel end
 function freq_kernel end
 function filter_time_cutoff end
 
+# Owned finite-frequency evidence, not a continuum filter certificate. Sampling
+# happens before threading and is shared by gain, loss and coherent construction.
+struct _DLLBohrFilter{T<:AbstractFloat} <: AbstractFilter
+    beta::T
+    values::Dict{T,Complex{T}}
+    function _DLLBohrFilter(beta::T, values::Dict{T,Complex{T}}) where {T<:AbstractFloat}
+        isfinite(beta) && beta > 0 || throw(ArgumentError("DLL beta must be finite and positive."))
+        for (nu, value) in values
+            isfinite(nu) && isfinite(value) || throw(ArgumentError("Nonfinite DLL Bohr amplitude at $nu."))
+            haskey(values, iszero(nu) ? nu : -nu) || throw(ArgumentError("DLL Bohr table must include both frequency signs."))
+            nu < 0 && continue
+            expected = exp(-(beta / T(2)) * nu) * conj(values[iszero(nu) ? nu : -nu])
+            scale = max(abs(value), abs(expected))
+            abs(value - expected) <= T(128) * eps(T) * scale || throw(ArgumentError(
+                "DLL weighted reflection failed at frequency $nu; supply a balanced amplitude (thermal weight exactly once)."))
+        end
+        new{T}(beta, copy(values))
+    end
+end
+Base.eltype(::_DLLBohrFilter{T}) where {T} = Complex{T}
+_is_admissible_dll_filter(::_DLLBohrFilter) = true
+freq_kernel(f::_DLLBohrFilter{T}, nu::Real) where {T} = f.values[T(nu)]
+function q_weight(f::_DLLBohrFilter{T}, nu::Real) where {T}
+    x = abs(T(nu))
+    value = freq_kernel(f, iszero(x) ? zero(T) : -x) * exp(-(f.beta / T(4)) * x)
+    return nu < 0 ? value : conj(value)
+end
+
+function _prepare_dll_bohr_filter(filter::AbstractFilter, eigvals::AbstractVector{T};
+                                  beta=filter.beta) where {T<:AbstractFloat}
+    isapprox(filter.beta, beta; atol=zero(T), rtol=10eps(T)) ||
+        throw(ArgumentError("DLL filter beta must match construction beta."))
+    frequencies = sort!(unique!(T[a-b for a in eigvals for b in eigvals]))
+    values = Dict{T,Complex{T}}()
+    for nu in frequencies
+        value = freq_kernel(filter, nu)
+        value isa Number && isfinite(value) || throw(ArgumentError(
+            "DLL callback must return a finite amplitude at frequency $nu."))
+        values[nu] = Complex{T}(value)
+    end
+    return _DLLBohrFilter(T(beta), values)
+end
+
 """
     time_kernel(filter::GaussianFilter, t) -> Real
 

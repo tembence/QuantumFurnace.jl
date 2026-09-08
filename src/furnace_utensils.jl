@@ -111,7 +111,9 @@ function _precompute_data(
     config::Config{Lindbladian, BohrDomain, DLL},
     hamiltonian::HamHam,
 )
-    return (filter = _resolve_filter(config),)
+    filter = _prepare_dll_bohr_filter(_resolve_filter(config), hamiltonian.eigvals;
+                                      beta=config.beta)
+    return (; filter)
 end
 
 """

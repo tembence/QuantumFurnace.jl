@@ -613,7 +613,9 @@ function Workspace(
     hermitianize!(R_total)
 
     # Keep the requested domain's coherent correction, including Time quadrature.
-    G = Matrix{CT}(_precompute_coherent_B(jumps, hamiltonian, config, precomputed_data))
+    G = config.domain isa BohrDomain ?
+        _dll_coherent_from_loss(R_total, hamiltonian.eigvals, config.beta) :
+        Matrix{CT}(_precompute_coherent_B(jumps, hamiltonian, config, precomputed_data))
 
     # Schrödinger coherent action: -i[G,rho].
     G_left  = Matrix{CT}(-1im .* G .- 0.5 .* R_total)

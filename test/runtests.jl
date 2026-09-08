@@ -31,6 +31,7 @@ const SANDBOX_FILES = String[
     "test_research_hamiltonian.jl",
     "test_research_jumps.jl",
     "test_research_config.jl",
+    "test_research_filters.jl",
     "test_research_diagnostics.jl",
     "test_research_gap_reliability.jl",
     "test_research_interface.jl",
