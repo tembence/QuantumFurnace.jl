@@ -63,6 +63,10 @@ filter_evidence(f::DLLSourceFilters)=(;sources=map(filter_evidence,f.assignments
 
 # Compare prescriptions, never merely sampled values or callback display names.
 _dll_same_prescription(a,b)=typeof(a)===typeof(b) && isequal(a,b)
+_dll_same_prescription(a::AbstractFilter,b::DLLMultiChannelFilter)=
+    length(b.channels)==1 && _dll_same_prescription(a,only(b.channels))
+_dll_same_prescription(a::DLLMultiChannelFilter,b::AbstractFilter)=
+    length(a.channels)==1 && _dll_same_prescription(only(a.channels),b)
 function _dll_same_prescription(a::DLLMultiChannelFilter,b::DLLMultiChannelFilter)
     length(a.channels)==length(b.channels) || return false
     matched=falses(length(b.channels))

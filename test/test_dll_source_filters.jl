@@ -36,6 +36,9 @@ using Test, QuantumFurnace, LinearAlgebra
     pair=Workspace(H;beta_phys,jumps=[A,A'],filter=DLLSourceFilters((nested,DLLMultiChannelFilter(reverse(nested.channels),beta_phys)),beta_phys))
     globalpair=Workspace(H;beta_phys,jumps=[A,A'],filter=nested)
     @test dense(pair) ≈ dense(globalpair) atol=1e-12
+    singleton=Workspace(H;beta_phys,jumps=[A,A'],filter=DLLSourceFilters((g,DLLMultiChannelFilter((g,),beta_phys)),beta_phys))
+    @test dense(singleton) ≈ dense(Workspace(H;beta_phys,jumps=[A,A'],filter=g)) atol=1e-12
+    @test_throws ArgumentError Workspace(H;beta_phys,jumps=[A,A'],filter=DLLSourceFilters((g,DLLMultiChannelFilter((g,g),beta_phys)),beta_phys))
     single=Workspace(H;beta_phys,jumps=[X],filter=g)
     twice=Workspace(H;beta_phys,jumps=[X],filter=DLLMultiChannelFilter((g,g),beta_phys))
     @test dense(twice) ≈ 2dense(single) atol=1e-12
