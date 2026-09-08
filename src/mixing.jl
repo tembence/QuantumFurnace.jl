@@ -747,6 +747,13 @@ function eigenmode_mixing_time(traj::NamedTuple, target_epsilon::Real; kwargs...
             traj.rho_inf, traj.sigma_beta, target_epsilon, traj.delta_used;
             kwargs...)
     end
+    if get(traj,:raw_reconstruction,false)
+        haskey(traj,:stationary_projection_scope) || throw(ArgumentError(
+            "Raw all-mode predictor payload needs a stationary projection before mixing-time estimation; use the facade modal_crossing report."))
+        # The facade already separated its numerical stationary projection;
+        # do not discard genuinely slow retained rates with a fixed cutoff.
+        kwargs = merge((;eigenvalue_zero_tol=0.),(;kwargs...))
+    end
     return eigenmode_mixing_time(
         ComplexF64.(traj.eigenvalues), traj.c, traj.R_modes,
         traj.rho_inf, traj.sigma_beta,

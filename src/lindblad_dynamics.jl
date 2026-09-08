@@ -1,6 +1,16 @@
 # Matrix-free Krylov integration of Lindbladian and discriminant flows.
 # Math: $dot(rho) = L(rho)$ and $psi = sigma^(-1/4) rho sigma^(-1/4)$.
 
+function _validate_time_grid(times; require_zero::Bool=false)
+    isempty(times) && throw(ArgumentError("times must be nonempty."))
+    all(t -> t isa Real && isfinite(t) && t >= 0,times) ||
+        throw(ArgumentError("times must be finite nonnegative real generator times."))
+    all(i -> times[i] > times[i-1],2:length(times)) ||
+        throw(ArgumentError("times must be strictly increasing."))
+    !require_zero || iszero(first(times)) || throw(ArgumentError("times must start at zero."))
+    return nothing
+end
+
 """
     lindblad_action_integrate(L_apply!, rho_0, sigma_beta, t_grid;
                               krylovdim=30, tol=1e-10, save_states=false)
@@ -17,90 +27,95 @@ Integrate a matrix-free Lindblad equation over an ordered time grid.
 - `krylovdim`: Arnoldi subspace size.
 - `tol`: Per-step Krylov tolerance.
 - `save_states`: Retain every propagated state.
+- `repair_states`: Legacy Hermitian/trace correction (default true); false retains raw states.
+- `record_diagnostics`: Record raw validity checks before correction and every repair norm.
+- `matvec_callback`, `work_callback`: Optional cooperative budget checks; exhaustion
+  returns completed samples with a failure reason.
 
 # Returns
 A named tuple with times, trace distances, final state, matvec count,
 convergence status, and optional states.
 """
+
 function lindblad_action_integrate(
-    L_apply!::F,
-    rho_0::Matrix{T},
-    sigma_beta::Matrix{T},
-    t_grid::AbstractVector{<:Real};
-    krylovdim::Int = 30,
-    tol::Real = 1e-10,
-    save_states::Bool = false,
-)::NamedTuple where {T<:Complex, F}
-    d = size(rho_0, 1)
-    @assert size(rho_0, 2) == d  "rho_0 must be square"
-
-    # Persistent buffers captured by the closure (no allocations in the hot loop).
-    rho_buf = Matrix{T}(undef, d, d)
-    out_buf = Matrix{T}(undef, d, d)
-
-    # KrylovKit-side closure on flat vectors. KrylovKit may overwrite the
-    # buffer `out_buf` on the next call, so we MUST `copy(vec(out_buf))`
-    # before returning; we also `copyto!` the input into our private buffer
-    # in case `v` aliases internal state.
+    L_apply!::F, rho_0::Matrix{T}, sigma_beta::Matrix{T},
+    t_grid::AbstractVector{<:Real}; krylovdim::Int=30, tol::Real=1e-10,
+    save_states::Bool=false, repair_states::Bool=true,
+    record_diagnostics::Bool=false, dense_max_dim::Integer=64,
+    max_dense_bytes::Integer=64*1024^2,
+    matvec_callback=nothing, work_callback=nothing,
+)::NamedTuple where {T<:Complex,F}
+    _validate_time_grid(t_grid)
+    d = size(rho_0,1)
+    size(rho_0) == size(sigma_beta) == (d,d) || throw(ArgumentError("State dimensions must match."))
+    krylovdim > 0 && isfinite(tol) && tol > 0 || throw(ArgumentError("Require positive krylovdim and finite positive tol."))
+    rho_buf = Matrix{T}(undef,d,d)
+    out_buf = similar(rho_buf)
+    count = Ref(0)
     function L_vec_apply(v::AbstractVector)
-        copyto!(rho_buf, reshape(v, d, d))
-        L_apply!(out_buf, rho_buf)
+        matvec_callback === nothing || matvec_callback()
+        count[] += 1
+        copyto!(rho_buf,reshape(v,d,d))
+        L_apply!(out_buf,rho_buf)
         return copy(vec(out_buf))
     end
-
-    n_steps   = length(t_grid)
-    distances = Vector{Float64}(undef, n_steps)
-    states    = save_states ? Vector{Matrix{T}}(undef, n_steps) : Matrix{T}[]
-
-    # Initial state: defensive copy + trace-distance.
-    rho     = copy(rho_0)
-    distances[1] = sum(svdvals(rho - sigma_beta)) / 2
-    save_states && (states[1] = copy(rho))
-
-    # Working flat vector for Krylov.
-    v_rho   = copy(vec(rho))
-
-    total_matvecs = 0
+    work() = work_callback === nothing ? nothing : work_callback()
+    rho = copy(rho_0)
+    distances = Float64[sum(svdvals(rho-sigma_beta))/2]
+    states = save_states ? [copy(rho)] : Matrix{T}[]
+    state_rtol = max(1e-9,100eps(real(T)))
+    raw_checks = NamedTuple[]
+    repair_norms = Float64[0.]
+    record_diagnostics && push!(raw_checks,state_diagnostics(rho;
+        rtol=state_rtol,dense_max_dim,max_dense_bytes))
     all_converged = true
-
-    @inbounds for i in 1:(n_steps - 1)
-        dt = float(t_grid[i + 1] - t_grid[i])
-
-        v_next, info = exponentiate(L_vec_apply, dt, v_rho;
-                                    krylovdim = krylovdim,
-                                    tol = tol,
-                                    ishermitian = false)
-        total_matvecs += info.numops
-        if info.converged == 0
+    failure = nothing
+    completed = 1
+    for i in 2:length(t_grid)
+        try
+            work()
+            dt = float(t_grid[i]-t_grid[i-1])
+            # Form the dimensionless action dt*L before Arnoldi. Calling
+            # exponentiate(L,dt,...) can mistake slow-clock L for a zero map
+            # under its absolute breakdown threshold, even when dt*L is O(1).
+            step_apply(v) = dt .* L_vec_apply(v)
+            v_next,info = exponentiate(step_apply,one(dt),vec(rho);
+                krylovdim,tol,ishermitian=false)
+            work()
+            candidate = reshape(copy(v_next),d,d)
+            all(isfinite,candidate) || error("Propagation returned a nonfinite state.")
+            checks = record_diagnostics ? state_diagnostics(candidate;rtol=state_rtol,dense_max_dim,max_dense_bytes) : nothing
+            original = repair_states ? copy(candidate) : nothing
+            if repair_states
+                hermitianize!(candidate)
+                trace_value = real(tr(candidate))
+                iszero(trace_value) || (candidate ./= trace_value)
+            end
+            distance = sum(svdvals(candidate-sigma_beta))/2
+            # Publish a point atomically, only after its measurements succeeded.
+            push!(distances,distance)
+            record_diagnostics && push!(raw_checks,checks)
+            push!(repair_norms,repair_states ? norm(candidate-original) : 0.)
+            save_states && push!(states,copy(candidate))
+            rho = candidate
+            completed = i
+            if info.converged == 0
+                all_converged = false
+                failure = (;reason=:nonconvergence,message="Krylov propagation did not converge at the final returned sample.")
+                break
+            end
+        catch err
+            err isa InterruptException && rethrow()
+            # Existing unbudgeted low-level callers retain their exception semantics.
+            matvec_callback === nothing && work_callback === nothing && rethrow()
             all_converged = false
-            @warn "L-mode exponentiate did not converge at step" i numops=info.numops
+            failure = (;reason=err isa _WorkLimit ? err.reason : :solver_failure,message=sprint(showerror,err))
+            break
         end
-        copyto!(v_rho, v_next)
-
-        # Reshape into rho, then defensively re-Hermitise + re-trace-normalise:
-        # Davies preserves Hermiticity and trace exactly in the continuum, but
-        # Krylov truncation introduces O(tol)-level violations.
-        copyto!(rho, reshape(v_rho, d, d))
-        hermitianize!(rho)
-        # rho is now Hermitian; re-vec and renormalise trace (only the real diagonal).
-        tr_now = real(tr(rho))
-        if tr_now != 0
-            rho ./= tr_now
-        end
-        copyto!(v_rho, vec(rho))
-
-        distances[i + 1] = sum(svdvals(rho - sigma_beta)) / 2
-        save_states && (states[i + 1] = copy(rho))
     end
-
-    return (
-        t              = collect(t_grid),
-        distances      = distances,
-        rho_final      = copy(rho),
-        total_matvecs  = total_matvecs,
-        all_converged  = all_converged,
-        states         = states,
-    )
+    return (;t=collect(t_grid[1:completed]),distances,rho_final=copy(rho),
+        total_matvecs=count[],all_converged,states,raw_checks,repair_norms,
+        repair_policy=repair_states ? :hermitian_trace : :none,failure)
 end
 
 

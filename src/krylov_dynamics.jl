@@ -94,7 +94,7 @@ function _krylov_spectral_decomposition(
 
     Q, H, broke = _arnoldi_factorize(fwd_vec, x0, m_target)
     m = size(H, 1)
-    m >= 2 || error("Arnoldi broke down with only $m basis vectors; cannot decompose")
+    m >= 1 || error("Arnoldi returned no basis vectors")
     matvec_count = m
 
     # Diagonalise H densely. eigen returns columns of W as right eigvecs;
@@ -161,6 +161,7 @@ function _krylov_spectral_decomposition(
         matvec_count = matvec_count,
         converged    = !broke,
         trace_preserving_assumed = assume_trace_preserving,
+        invariant_subspace = broke || m == dim2,
     )
 end
 
@@ -188,6 +189,8 @@ symmetry may hide unpopulated sectors.
 - `tol`: Forwarded to the optional gap solve; otherwise reserved.
 - `save_states`: Retain every reconstructed state.
 - `workspace`: Matching precomputed operator workspace.
+- `raw_reconstruction`: Retain every captured mode without repair (facade use);
+  a stationary projection is required before passing this raw payload to mixing-time helpers.
 
 # Returns
 A named tuple with the time grid, trace distances, optional states, captured
@@ -207,7 +210,13 @@ function predict_lindbladian_trajectory(
     allow_unpaired_nonhermitian::Bool = false,
     workspace::Union{Nothing, Workspace{KrylovSpectrum}} = nothing,
     compute_true_gap::Bool = false,
+    raw_reconstruction::Bool = false,
+    matvec_callback=nothing, work_callback=nothing,
+    dense_max_dim::Integer=64, max_dense_bytes::Integer=64*1024^2,
 )::NamedTuple where {T<:Complex}
+    isempty(t_grid) && throw(ArgumentError("t_grid must be nonempty."))
+    work() = work_callback === nothing ? nothing : work_callback()
+    work()
     d = size(rho_0, 1)
     @assert size(rho_0, 2) == d  "rho_0 must be square"
 
@@ -219,6 +228,7 @@ function predict_lindbladian_trajectory(
         caller="predict_lindbladian_trajectory")
     fwd! = let ws = ws, config = config, ham = hamiltonian
         (out::AbstractMatrix, x::AbstractMatrix) -> begin
+            matvec_callback === nothing || matvec_callback()
             apply_lindbladian!(ws, x, config, ham)
             copyto!(out, ws.scratch.rho_out)
             return out
@@ -227,7 +237,7 @@ function predict_lindbladian_trajectory(
 
     decomp = _krylov_spectral_decomposition(
         fwd!, rho_0, d;
-        krylovdim=krylovdim, tol=tol,
+        krylovdim=krylovdim, tol=tol, assume_trace_preserving=!raw_reconstruction,
     )
 
     sigma_beta = Matrix{T}(hamiltonian.gibbs)
@@ -237,17 +247,23 @@ function predict_lindbladian_trajectory(
     rho_t = Matrix{T}(undef, d, d)
     h = length(decomp.eigenvalues)
 
+    raw_checks = NamedTuple[]
     @inbounds for k in 1:n_t
+        work()
         t = float(t_grid[k])
         copyto!(rho_t, decomp.rho_inf)
         for i in 1:h
             # Skip the steady-state mode (its c is ~0 by trace preservation).
-            abs(decomp.eigenvalues[i]) < 1e-10 && continue
+            !raw_reconstruction && abs(decomp.eigenvalues[i]) < 1e-10 && continue
             phase = exp(decomp.eigenvalues[i] * t)
             rho_t .+= (decomp.c[i] * phase) .* decomp.R_modes[i]
         end
         # Defensive Hermitisation (mirrors lindblad_action_integrate).
-        hermitianize!(rho_t)
+        if raw_reconstruction
+            push!(raw_checks,state_diagnostics(rho_t;rtol=max(1e-9,100eps(real(T))),dense_max_dim,max_dense_bytes))
+        else
+            hermitianize!(rho_t)
+        end
         distances[k] = sum(svdvals(rho_t .- sigma_beta)) / 2
         save_states && (states[k] = copy(rho_t))
     end
@@ -272,7 +288,7 @@ function predict_lindbladian_trajectory(
         spectral_gap  = length(decomp.eigenvalues) >= 2 ?
                         abs(real(decomp.eigenvalues[2])) : 0.0
         total_matvecs = decomp.matvec_count
-        all_converged = decomp.converged
+        all_converged = raw_reconstruction ? decomp.invariant_subspace : decomp.converged
     end
 
     return (
@@ -289,6 +305,12 @@ function predict_lindbladian_trajectory(
         R_modes        = decomp.R_modes,
         spectral_modes = spectral_mode_diagnostics(decomp.eigenvalues, decomp.R_modes, decomp.c),
         sigma_beta     = sigma_beta,
+        raw_checks,
+        repair_norms = raw_reconstruction ? zeros(n_t) : fill(NaN,n_t),
+        repair_policy = raw_reconstruction ? :none : :legacy_hermitian,
+        failure = nothing,
+        raw_reconstruction,
+        invariant_subspace = decomp.invariant_subspace,
     )
 end
 

@@ -24,7 +24,7 @@ using Dates
 # --- Public API ---
 
 # --- Lindbladian ---
-export run_lindblad, construct_lindbladian
+export run_lindblad, construct_lindbladian, simulate_gibbs, GibbsSimulationResult
 export LindbladResults
 export apply_lindbladian!, apply_adjoint_lindbladian!
 export krylov_spectral_gap, apply_delta_channel!, apply_adjoint_delta_channel!
@@ -203,6 +203,7 @@ include("superop_distance.jl")
 include("results.jl")
 include("fitting.jl")
 include("mixing.jl")
+include("research_interface.jl")
 include("scaling_fit.jl")
 include("simulation_time.jl")
 

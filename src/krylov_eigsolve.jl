@@ -777,15 +777,16 @@ function robust_spectral_gap(ws::Workspace{KrylovSpectrum}; diagnostics::Symbol=
     comparison = _compare_gap_runs(runs;gap_rtol,subspace_tol)
     reference = nothing
     parent = _skipped("Optional KMS-parent action not requested or complete gates unavailable.")
-    if diagnostics == :strict && isempty(failures)
+    if isempty(failures)
         remaining = max(big(0),big(max_bytes)-basebytes-Base.summarysize(runs))
         try
             budget.check()
             densebytes = big(16)*(d^4+d^2)*sizeof(eltype(ws.G_left))
-            if d <= dense_max_dim && densebytes <= remaining
+            reference_dim = diagnostics == :strict ? dense_max_dim : 0
+            if d <= reference_dim && densebytes <= remaining
                 peak = max(peak,basebytes+Base.summarysize(runs)+densebytes)
             end
-            reference = workspace_diagnostics(ws,cfg,ham;dense_max_dim,
+            reference = workspace_diagnostics(ws,cfg,ham;dense_max_dim=reference_dim,
                 max_dense_bytes=remaining,rtol=gap_rtol,matvec_callback=budget.tick,
                 work_callback=budget.check)
             if parent_action && reference.checks.kms.status == :pass &&
@@ -823,7 +824,7 @@ function robust_spectral_gap(ws::Workspace{KrylovSpectrum}; diagnostics::Symbol=
     candidate = isempty(runs) ? NaN : minimum((r.result.spectral_gap for r in runs if isfinite(r.result.spectral_gap));init=Inf)
     isfinite(candidate) || (candidate=NaN)
     reliability = :inconclusive
-    if reference !== nothing && reference.checks.kernel.status == :pass &&
+    if reference !== nothing && reference.parent_spectrum !== nothing && reference.checks.kernel.status == :pass &&
         isfinite(reference.parent_spectrum.first_positive_eigenvalue) &&
         reference.parent_spectrum.first_positive_eigenvalue > 0 && isempty(failures)
         exact_gap = reference.parent_spectrum.first_positive_eigenvalue

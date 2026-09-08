@@ -1,7 +1,7 @@
 # DLL research interface contract
 
-This page freezes the interface planned by tasks T00–T21. The new facade and
-filter constructors below are **target API, not yet available**. Existing
+This page freezes the interface planned by tasks T00–T21. The built-in DLL facade is available through T09; the custom
+filter constructors below remain **target API, not yet available**. Existing
 `Config`, `HamHam`, `JumpOp`, `Workspace` and result APIs keep their meanings.
 `test/test_research_contract.jl` verifies the repaired T00–T02 regressions
 and is registered in the default test runner.
@@ -9,11 +9,11 @@ and is registered in the default test runner.
 ## Entry points and units
 
 `pauli_hamiltonian` and `HamHam(H; beta_phys)` are available after T03.
-The names `simulate_gibbs`, `KMSFilter`, `FrequencyFilter`, `RateFilter`,
-`TimeFilter`, and `GibbsSimulationResult` remain reserved target API. `Workspace` gains
-a convenience constructor; it remains the existing compiled workspace type.
+`simulate_gibbs`, `GibbsSimulationResult`, and the physical-input `Workspace`
+constructor are available. `KMSFilter`, `FrequencyFilter`, `RateFilter`, and
+`TimeFilter` remain reserved target API. `Workspace` remains the existing type.
 
-Target example (Hamiltonian input: T03; configuration: T05; facade: T09):
+Executable built-in DLL example:
 
 ```julia
 H = pauli_hamiltonian(3, [
@@ -318,3 +318,66 @@ Strict mode separately budgets complete KMS/kernel checks through
 `dense_max_dim`; `parent_action=true` also measures a transformed Ritz residual
 using the existing KMS-parent action after conditioning and Hermiticity pass.
 This optional probe adds no continuum or exhaustive-spectrum guarantee.
+
+## Built-in simulation facade (T09)
+
+```julia
+ws = Workspace(0.3X + 0.4Y + 0.7Z; beta_phys=0.8)
+r = simulate_gibbs(ws; times=range(0, 12; length=61))
+r.convergence          # sampled, initial-state-specific threshold evidence
+r.trajectory.distances # trace distance, half the trace norm
+r.trajectory.trace_norms
+r.spectrum.agreement   # independent captured operator modes
+r.diagnostics          # stationarity and available KMS/kernel checks
+```
+
+`simulate_gibbs(H; beta_phys, times, ...)` combines these two steps. Built-in DLL
+Bohr and explicitly discretised Time paths are supported; CKG/GNS retain their
+legacy APIs. `temperature` is an alternative to `beta_phys`, with `k_B=1`.
+`transition_weight` must be `nothing` for DLL. The canonical coherent correction
+is included. The onsite preset is always assembled in computational coordinates;
+`basis=:eigen` changes supplied state/output coordinates and supplied matrix-source
+coordinates, not the definition of the preset.
+
+`dry_run=true` checks the dimension, physical settings, source/channel upper
+bounds and memory estimates before Hamiltonian diagonalisation. Quantities that
+require spectral preparation, such as `beta_alg` for a matrix input, remain
+`nothing` and appear in `unresolved`. Source pairing/basis correspondence and
+cached spectral data receive their full checks during compilation. A permitted
+preflight is not evidence of KMS, mixing or accuracy. `max_bytes` gates construction
+and trajectory working-set estimates; `max_saved_bytes` separately caps retained
+states. Estimates include per-thread scratch and temporary output rotations.
+
+Times must start at zero and be finite, nonnegative and strictly increasing.
+The default initial state is computational `|+><+|` tensor power. State storage
+is off by default; final/saved states and predictor modes use the declared basis.
+Independent `spectrum` modes explicitly use `spectrum.basis=:eigen`; its clock is
+the declared compiled generator clock. Continuous semigroup time, wall seconds
+and channel-step counts are separate; this facade's `channel_steps` is `nothing`.
+
+The default `method=:krylov` uses existing Krylov exponentiation. Raw validity
+checks precede any optional `repair_states=true` Hermitian/trace correction;
+`repair_norms` records its size. No positivity clipping occurs. `max_matvecs` and
+`max_seconds` bound trajectory work cooperatively. Diagnostic work has a separate
+bounded budget, adjustable with `gap_options=(;max_matvecs=..., max_seconds=...)`.
+Completed trajectory samples survive diagnostic exhaustion. Physical checks
+skipped by that exhausted budget remain `not_run`.
+
+The threshold `epsilon` refers to trace distance. `threshold_time` is the first
+sample at or below it, without interpolation. `:not_reached_by_horizon` does not
+assert nonergodicity. `:already_within_threshold` and `:reached_threshold` require
+successful propagation and raw validity checks at their numerical tolerances;
+they are not worst-case mixing certificates. The numerical floor remains unknown.
+`max_extensions=0` disables automatic extension; a positive count allows bounded
+horizon doubling, capped by `max_time`, only while the target remains unreached.
+
+Optional `method=:predictor` retains all captured modes and performs independent
+full-state spot checks at the initial, middle and final samples. Those checks are
+sampled evidence, not a uniform-time certificate. `modal_crossing` uses
+`eigenmode_mixing_time` on this predictor's own retained decay modes and stationary
+projection, and is explicitly labelled unpropagated. It may lie beyond the actual
+horizon and never changes the sampled convergence status. No biexponential fit is
+used. Raw all-mode low-level predictor payloads without a stationary projection
+reject the mixing-time helper rather than silently dropping their stationary
+contribution. Predictor Time-domain use rejects; direct Krylov Time remains
+available. Portable combined-result serialization remains T19.

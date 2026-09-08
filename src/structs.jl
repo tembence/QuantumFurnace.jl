@@ -368,4 +368,27 @@ struct Workspace{S<:AbstractSimulation, D<:AbstractDomain, C<:AbstractConstructi
 
     # Cached construction config for workspace-reuse validation.
     cached_cfg::Union{Nothing, Config}
+
+    # Optional physical input/clock provenance for the researcher constructor.
+    research_provenance::Union{Nothing, NamedTuple}
+
+    # Preserve the original positional construction, with optional provenance.
+    function Workspace{S,D,C,T}(
+        jump_eigenbases, jump_hermitian, jumps, dll_lindblads,
+        G_left, G_right, transition, gamma_norm_factor,
+        energy_labels, oft_domain_prefactor, oft_nufft_prefactors, bohr_alpha,
+        bohr_keys, bohr_is, bohr_js, b_minus,
+        b_plus, ham_or_trott, K0s, U_residuals,
+        U_coherents, scratch, cached_cfg,
+        research_provenance=nothing,
+    ) where {S<:AbstractSimulation,D<:AbstractDomain,C<:AbstractConstruction,T<:AbstractFloat}
+        return new{S,D,C,T}(
+            jump_eigenbases, jump_hermitian, jumps, dll_lindblads,
+            G_left, G_right, transition, gamma_norm_factor,
+            energy_labels, oft_domain_prefactor, oft_nufft_prefactors, bohr_alpha,
+            bohr_keys, bohr_is, bohr_js, b_minus,
+            b_plus, ham_or_trott, K0s, U_residuals,
+            U_coherents, scratch, cached_cfg,
+            research_provenance)
+    end
 end
