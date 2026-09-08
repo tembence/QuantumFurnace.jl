@@ -391,3 +391,129 @@ function validate_jump_pairing(jumps::AbstractVector{<:JumpOp};
         "index/indices $(unpaired_indices). Pass " *
         "`allow_unpaired_nonhermitian=true` for unit-test fixtures only."))
 end
+
+# Relative comparisons keep arbitrarily small sources from being mistaken for zero.
+_jump_matches(A, B, rtol) = size(A) == size(B) && isapprox(A, B; atol=0, rtol)
+
+"""
+    JumpOp(A::AbstractMatrix, ham::HamHam; basis=:computational)
+
+Snapshot a finite source, rotate it into the other basis, and derive the flags.
+`basis=:eigen` means the eigenvectors stored in `ham`. No amplitude normalisation
+or adjoint completion is performed by this single-source constructor.
+"""
+function JumpOp(A::AbstractMatrix, ham::HamHam{T}; basis::Symbol=:computational) where {T}
+    basis in (:computational, :eigen) || throw(ArgumentError(
+        "basis must be :computational or :eigen."))
+    size(A) == size(ham.data) || throw(ArgumentError("Jump dimensions must match ham."))
+    eltype(A) <: Number && all(isfinite, A) || throw(ArgumentError(
+        "Jump entries must be finite numbers."))
+    source = Matrix{Complex{T}}(A)
+    all(isfinite, source) || throw(ArgumentError("Jump overflows Hamiltonian precision."))
+    U = ham.eigvecs
+    data, eb = basis == :computational ? (source, U' * source * U) :
+        (U * source * U', source)
+    rtol = 100eps(T)
+    return JumpOp(data, eb, _jump_matches(data, transpose(data), rtol),
+        _jump_matches(data, data', rtol) && _jump_matches(eb, eb', rtol))
+end
+
+"""
+    JumpOp(jump::JumpOp, ham::HamHam)
+
+Validate both stored bases and flags against `ham`, then return owned matrices.
+Use this at preparation boundaries to detect stale or mutated source data.
+"""
+function JumpOp(jump::JumpOp, ham::HamHam{T}) where {T}
+    fresh = JumpOp(jump.data, ham)
+    all(isfinite, jump.in_eigenbasis) &&
+        _jump_matches(jump.in_eigenbasis, fresh.in_eigenbasis, 100eps(T)) ||
+        throw(ArgumentError("Stored jump eigenbasis is inconsistent with ham; rebuild JumpOp."))
+    jump.hermitian == fresh.hermitian && jump.orthogonal == fresh.orthogonal ||
+        throw(ArgumentError("Stored jump flags are inconsistent with its matrices."))
+    return fresh
+end
+
+"""
+    prepare_jumps(sources, ham; basis=:computational, rates=1, complete_adjoint=false)
+
+Return `(jumps, provenance)` with owned `JumpOp` matrices. `sources` is a vector
+of matrices/JumpOps or `:onsite_paulis` (all `3n` Paulis, amplitude `1/sqrt(3n)`).
+Supplied amplitudes and multiplicities are retained. Finite positive `rates`
+(one scalar or one per input) multiply amplitudes by their square roots.
+
+By default non-Hermitian sources require adjoint partners with equal rates.
+Explicit completion appends only missing partners with the same rate; an
+existing partner with an unequal rate is an error even with completion enabled.
+Completion is idempotent on the returned jumps with default rates. Provenance
+records original indices, appended partners, rates, and the proposal amplitude.
+Adjoint closure does not establish uniqueness or convergence to Gibbs.
+"""
+function prepare_jumps(sources, ham::HamHam{T}; basis::Symbol=:computational,
+                       rates=one(T), complete_adjoint::Bool=false) where {T}
+    basis in (:computational, :eigen) || throw(ArgumentError(
+        "basis must be :computational or :eigen."))
+    onsite = sources === :onsite_paulis
+    if onsite
+        basis == :computational || throw(ArgumentError(
+            "The onsite Pauli preset is defined in the computational basis."))
+        n = trailing_zeros(size(ham.data, 1))
+        inputs = _jumps_in_basis(n, ham.eigvecs)
+    else
+        sources isa AbstractVector || throw(ArgumentError(
+            "sources must be a vector or :onsite_paulis."))
+        inputs = sources
+    end
+    owned = JumpOp{Matrix{Complex{T}}}[]
+    for source in inputs
+        if source isa JumpOp
+            basis == :computational || throw(ArgumentError(
+                "JumpOp already stores both bases; do not specify basis=:eigen."))
+            push!(owned, JumpOp(source, ham))
+        elseif source isa AbstractMatrix
+            push!(owned, JumpOp(source, ham; basis))
+        else
+            throw(ArgumentError("Every source must be a matrix or JumpOp."))
+        end
+    end
+    raw_rates = rates isa Real ? fill(rates, length(owned)) : collect(rates)
+    length(raw_rates) == length(owned) || throw(ArgumentError("One rate is required per source."))
+    all(r -> r isa Real && isfinite(r) && r > 0, raw_rates) ||
+        throw(ArgumentError("Source rates must be finite and positive; use a zero matrix for a zero source."))
+    rates isa Real && !(isfinite(rates) && rates > 0) &&
+        throw(ArgumentError("Source rates must be finite and positive."))
+    resolved_rates = T.(raw_rates)
+    all(r -> isfinite(r) && r > 0, resolved_rates) || throw(ArgumentError(
+        "Source rates are not representable at Hamiltonian precision."))
+    origins = collect(eachindex(owned))
+    added = falses(length(owned))
+    matched = falses(length(owned))
+    rtol = 100eps(T)
+    for k in eachindex(inputs)
+        (owned[k].hermitian || matched[k]) && continue
+        candidates = [j for j in eachindex(owned) if j != k && !matched[j] &&
+            !owned[j].hermitian && _jump_matches(owned[j].data, owned[k].data', rtol)]
+        partner = findfirst(j -> isapprox(resolved_rates[j], resolved_rates[k];
+            atol=0, rtol), candidates)
+        if partner === nothing
+            isempty(candidates) || throw(ArgumentError("Adjoint partners must have equal source rates."))
+            complete_adjoint || throw(ArgumentError(
+                "Missing adjoint partner for source $k; set complete_adjoint=true to append it."))
+            push!(owned, JumpOp(owned[k].data', ham))
+            push!(resolved_rates, resolved_rates[k])
+            push!(origins, k)
+            push!(added, true)
+            push!(matched, true)
+        else
+            matched[candidates[partner]] = true
+        end
+        matched[k] = true
+    end
+    jumps = JumpOp[JumpOp(sqrt(rate) .* jump.data, ham) for (jump, rate) in zip(owned, resolved_rates)]
+    provenance = (; input_basis=basis, source_indices=origins, added_adjoint=added,
+        rates=copy(resolved_rates), input_count=length(inputs), source_count=length(jumps),
+        proposal_normalisation=onsite ? :qf_averaged : :user_amplitudes,
+        proposal_amplitude=onsite ? inv(sqrt(T(length(inputs)))) : one(T),
+        clock_label=:raw_generator, generator_multiplier=one(T))
+    return (; jumps, provenance)
+end

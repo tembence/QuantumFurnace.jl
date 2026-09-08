@@ -85,6 +85,28 @@ derived-clock object. A zero generator has no positive derived rate. The
 existing frame record covers built-in support/shift/weight, not arbitrary
 callback identity or phase; retain additional filter provenance separately.
 
+The T04 source preparation API is executable:
+
+```julia
+ham = HamHam(0.4X + 0.7Z; beta_phys=0.8)
+jump = JumpOp(Y, ham) # owns computational and eigenbasis matrices
+prepared = prepare_jumps(:onsite_paulis, ham)
+paired = prepare_jumps([ComplexF64[0 1; 0 0]], ham;
+    complete_adjoint=true, rates=2.0)
+# Pass prepared.jumps to the existing low-level constructors.
+```
+
+`prepare_jumps` returns `jumps` and `provenance`. Matrices retain their input
+amplitudes; each positive rate contributes its square root to the source.
+Adjoint completion preserves multiplicity, appends only missing partners, and
+rejects unequal rates on existing partners. Re-preparing the returned jumps
+with default rates is idempotent. Stored `JumpOp` inputs are checked against
+both bases and flags, then copied. `orthogonal` retains the legacy meaning of
+transpose symmetry. Zero, identity and dephasing sources are accepted without
+asserting ergodicity. The onsite preset records its `1/sqrt(3n)` amplitude;
+user matrices receive no proposal normalisation. Nonuniform rates change the
+generator and are recorded per source, without inventing a single clock factor.
+
 ## Filter and rate authoring
 
 These routes are reserved for T11–T17; names do not assert current support.

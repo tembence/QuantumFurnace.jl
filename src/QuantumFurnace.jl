@@ -87,7 +87,7 @@ export dll_gaussian_chebyshev_data, evaluate_bohr_chebyshev,
        exact_dll_bohr_patch, approximate_dll_bohr_patch
 export trace_distance_h, trace_distance_nh, trace_norm_h, trace_norm_nh,
        fidelity, is_density_matrix, random_density_matrix,
-       hermitianize!, validate_jump_pairing
+       hermitianize!, validate_jump_pairing, prepare_jumps
 export gibbs_state, gibbs_state_in_eigen,
        build_heis_1d, build_local_heis_1d, build_tfim_2d, load_hamiltonian,
        materialize_local_hamiltonian, materialize_local_jump,

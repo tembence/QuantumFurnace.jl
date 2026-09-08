@@ -189,7 +189,7 @@ Jump operator stored in computational and Hamiltonian eigenbases.
 # Fields
 - `data`: Computational-basis matrix.
 - `in_eigenbasis`: Matrix in the construction basis.
-- `orthogonal`: Whether the operator is self-orthogonal.
+- `orthogonal`: Legacy flag for transpose symmetry in the computational basis.
 - `hermitian`: Whether both stored matrices are Hermitian.
 """
 struct JumpOp{T <: AbstractMatrix{<:Complex}}
