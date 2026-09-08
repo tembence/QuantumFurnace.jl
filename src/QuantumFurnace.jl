@@ -74,7 +74,7 @@ export Config, AbstractSimulation, Lindbladian, Thermalize, KrylovSpectrum,
        TensorNetworkSpectrum
 export AbstractConstruction, KMS, GNS, DLL, with_coherent
 export Workspace, LiouvillianScratch, ThermalizeScratch, KrylovScratch
-export AbstractResults, save_result, load_result
+export AbstractResults, save_result, load_result, register_filter!
 export BohrDomain, EnergyDomain, TimeDomain, TrotterDomain
 export HamHam, AbstractTrotter, TrottTrott, TrotterTriple, JumpOp
 export LocalTerm1D, LocalHamiltonian1D, LocalJump1D, LocalDLLBlock1D
@@ -213,6 +213,7 @@ include("results.jl")
 include("fitting.jl")
 include("mixing.jl")
 include("research_interface.jl")
+include("research_results.jl")
 include("scaling_fit.jl")
 include("simulation_time.jl")
 

@@ -3,7 +3,7 @@
 
 """Combined trajectory, independent spectrum, checks and physical-input provenance.
 `trajectory.distances` is the half trace norm; `trajectory.trace_norms` is twice it.
-No portable save/load schema is provided before the result-persistence task.
+`save_result` retains portable evidence and a recipe for rebuilding workspaces.
 """
 struct GibbsSimulationResult{T,S,D,P,C} <: AbstractResults
     trajectory::T
@@ -130,6 +130,8 @@ function Workspace(H::Union{AbstractMatrix,NamedTuple,HamHam};dry_run::Bool=fals
     provenance = merge(ws.research_provenance === nothing ? (;) : ws.research_provenance,
         p.provenance,
         (;basis=preflight.basis,preflight))
+    provenance = merge(provenance,(;replay=_research_replay_snapshot(ws,provenance)))
+    provenance = merge(provenance,(;portable_provenance=_portable_pack(provenance;grid=:metadata)))
     return typeof(ws)((getfield(ws,i) for i in 1:fieldcount(typeof(ws))-1)...,provenance)
 end
 
@@ -339,9 +341,17 @@ function simulate_gibbs(ws::Workspace{KrylovSpectrum};times,rho0=nothing,
     provenance = ws.research_provenance === nothing ?
         (;beta_phys=cfg.beta_phys,beta_alg=cfg.beta,clock_label=:compiled_generator,
             input_preparation=:legacy_workspace) : ws.research_provenance
+    provenance = haskey(provenance,:portable_provenance) ? _portable_unpack(provenance.portable_provenance) : provenance
     provenance = merge(provenance,(;basis,initial_state=rho0===nothing ? :computational_plus_product : :user_supplied,
         method,coherent=true,resources=controls,trajectory_matvecs=budget.count[],
-        simulated_time=last(trajectory.t),channel_steps=nothing,wall_seconds=budget.elapsed()))
+        simulated_time=last(trajectory.t),channel_steps=nothing,wall_seconds=budget.elapsed(),
+        initial_density_matrix=copy(basis==:computational ? initial : rho),
+        requested_times=collect(times),
+        solver_controls=(;diagnostics,method,save_states,max_saved_bytes,epsilon,krylovdim,tol,
+            max_matvecs,max_seconds,max_bytes,max_extensions,max_time,repair_states,gap_options),
+        rng=(;algorithm=:MersenneTwister,gap_seed=get(gap_options,:seed,0x708),
+            scope=:independent_gap_starts,trajectory_randomness=:none),
+        runtime=_runtime_provenance()))
     return GibbsSimulationResult(trajectory,spectrum,physical,provenance,convergence)
 end
 

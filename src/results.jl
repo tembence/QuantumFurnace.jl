@@ -54,8 +54,8 @@ function _config_to_dict(config::Config)
     d[:with_gqsp]               = config.with_gqsp
     d[:gqsp_degree]             = config.gqsp_degree
     d[:jump_selection]          = config.jump_selection
-    d[:filter]                  = config.filter
-    d[:transition_weight]       = config.transition_weight
+    d[:filter]                  = _portable_pack(config.filter)
+    d[:transition_weight]       = _portable_pack(config.transition_weight)
 
     # Thermalize-specific fields
     if config.sim isa Thermalize
@@ -137,7 +137,7 @@ function _dict_to_config_kwargs(d::Dict, domain)
     )
         val = get(d, key, nothing)
         if val !== nothing
-            kwargs[key] = val
+            kwargs[key] = key in (:filter, :transition_weight) ? _portable_unpack(val;restore=true) : val
         end
     end
 
@@ -202,7 +202,7 @@ Capture the current HEAD commit hash via LibGit2. Returns "unknown" on failure.
 """
 function _capture_git_hash()
     try
-        project_root = dirname(Pkg.project().path)
+        project_root = dirname(@__DIR__)
         repo = LibGit2.GitRepo(project_root)
         hash = string(LibGit2.head_oid(repo))
         close(repo)
@@ -355,7 +355,9 @@ Load a typed Result from a BSON file. Auto-detects the result type via the
 function load_result(path::String)
     d = BSON.load(path)
     tag = d[:result_type]
-    if tag == "lindblad"
+    if tag == "gibbs_simulation"
+        return _dict_to_gibbs_results(d)
+    elseif tag == "lindblad"
         return _dict_to_lindblad_results(d)
     elseif tag == "thermalize"
         return _dict_to_thermalize_results(d)

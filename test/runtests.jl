@@ -54,6 +54,7 @@ const SANDBOX_FILES = String[
     "test_threading.jl",
     "test_gns.jl",
     "test_results.jl",
+    "test_research_results.jl",
     "test_save_every.jl",
     "test_diagnostics.jl",
     "test_spectral_mode_diagnostics.jl",
