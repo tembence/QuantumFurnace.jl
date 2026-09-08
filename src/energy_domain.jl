@@ -15,6 +15,12 @@ pick_transition(config::Config{<:Any, <:Any, GNS}) = _pick_transition_gns(config
 
 # 2-arg forms: compute transition value directly via dispatch (zero allocation on hot path)
 function pick_transition(config::Config{<:Any, <:Any, KMS}, w::Real)
+    if config.transition_weight !== nothing
+        # Keep the open Config field from erasing scalar inference in the
+        # existing frequency loops, including configurations with no typed rate.
+        T = promote_type(typeof(config.beta),typeof(w))
+        return T(transition_value(config.transition_weight,w))::T
+    end
     if !(config.with_linear_combination)
         return exp(-(w + config.gaussian_parameters[1])^2 / (2 * config.gaussian_parameters[2]^2))
     end
@@ -51,6 +57,7 @@ end
 
 
 function _pick_transition_kms(config::Config{<:Any, <:Any, KMS})
+    config.transition_weight === nothing || return w -> transition_value(config.transition_weight,w)
 
     if !(config.with_linear_combination)
         return w -> begin
@@ -112,12 +119,15 @@ end
 """
     pick_gamma_sup(config::Config) -> Real
 
-Return the continuum supremum of the configured transition rate.
+Return the fixed divisor used to normalise the configured transition rate.
 
-All supported Gaussian and Metropolis families are normalised so
-`\$norm(gamma)_infinity = 1\$`; the result does not depend on a sampled grid.
+Legacy Gaussian and Metropolis families retain divisor one. Typed Gaussian
+mixtures use one for `normalization=:none`, or their explicit fixed upper
+bound for `:bound`; the latter need not equal the exact supremum. No sampled
+grid maximum enters this divisor.
 """
-pick_gamma_sup(config::Config{<:Any, <:Any, KMS}) = 1.0
+pick_gamma_sup(config::Config{<:Any, <:Any, KMS}) =
+    config.transition_weight === nothing ? 1.0 : _transition_divisor(config.transition_weight)
 pick_gamma_sup(config::Config{<:Any, <:Any, GNS}) = 1.0
 
 
@@ -134,6 +144,9 @@ function _truncate_energy_labels(
     cutoff::Real=1e-12
     )
 
+    # Custom mixtures have no legacy Metropolis/Gaussian grid-tail heuristic.
+    # Retain the entire explicitly requested outer grid.
+    config.transition_weight isa GaussianMixtureTransition && return energy_labels
     transition = pick_transition(config)
     gaussfilter(w, nu) = exp(- (w - nu)^2 / (4 * config.sigma^2)) * sqrt(1 / (config.sigma * sqrt(2 * pi)))
     integrand_lb(w, nu1, nu2) = transition(w) * gaussfilter(w, nu1) * gaussfilter(w, nu2)

@@ -22,11 +22,17 @@ end
 
 # Preflight intentionally does not call HamHam or rotate/diagonalise any matrix.
 function _gibbs_preflight(H; beta_phys=nothing,temperature=nothing,
-    filter=DLLGaussianFilter,jumps=:onsite_paulis,rates=1,complete_adjoint::Bool=false,
+    filter=nothing,jumps=:onsite_paulis,rates=1,complete_adjoint::Bool=false,
     basis::Symbol=:computational,domain::AbstractDomain=BohrDomain(),
     construction::AbstractConstruction=DLL(),time_step=nothing,num_energy_bits=nothing,
-    clock=nothing,transition_weight=nothing,max_bytes::Integer=256*1024^2)
-    construction isa DLL || throw(ArgumentError("The built-in facade currently supports DLL; CKG/GNS use the legacy Config API."))
+    clock=nothing,transition_weight=nothing,energy_step=nothing,max_bytes::Integer=256*1024^2)
+    if construction isa KMS
+        return _ckg_preflight(H;beta_phys,temperature,filter,jumps,rates,complete_adjoint,basis,
+            domain,time_step,num_energy_bits,clock,transition_weight,energy_step,max_bytes)
+    end
+    energy_step===nothing || throw(ArgumentError("DLL does not use energy_step."))
+    filter===nothing && (filter=DLLGaussianFilter)
+    construction isa DLL || throw(ArgumentError("The facade supports DLL and CKG KMS; GNS uses the legacy Config API."))
     domain isa Union{BohrDomain,TimeDomain} || throw(ArgumentError("DLL facade supports BohrDomain and TimeDomain."))
     transition_weight === nothing || throw(ArgumentError("DLL already includes the thermal amplitude; transition_weight must be nothing."))
     basis in (:computational,:eigen) || throw(ArgumentError("basis must be :computational or :eigen."))
@@ -106,7 +112,7 @@ end
 """
     Workspace(H; beta_phys=nothing, temperature=nothing, jumps=:onsite_paulis, ...)
 
-Compile built-in DLL physical inputs once into the existing workspace. A
+Compile physical DLL or typed CKG inputs once into the existing workspace. A
 preflight allocation estimate is checked before Hamiltonian diagonalisation.
 `dry_run=true` returns that estimate and resolved physical settings; algorithm
 coordinates and source-basis checks requiring diagonalisation remain explicit.
@@ -117,7 +123,9 @@ function Workspace(H::Union{AbstractMatrix,NamedTuple,HamHam};dry_run::Bool=fals
     dry_run && return preflight
     preflight.permitted || throw(ArgumentError("Construction working-set estimate $(preflight.estimated_construction_bytes) exceeds max_bytes=$max_bytes; inspect dry_run=true."))
     source_basis = get(kwargs,:jumps,:onsite_paulis) isa Symbol ? :computational : preflight.basis
-    p = prepare_gibbs_inputs(H;merge((;kwargs...),(;filter=preflight.filter,basis=source_basis))...)
+    resolved_transition = get(preflight, :transition_weight, transition_weight)
+    p = prepare_gibbs_inputs(H;merge((;kwargs...),
+        (;filter=preflight.filter,basis=source_basis,transition_weight=resolved_transition))...)
     ws = Workspace(p.config,p.hamiltonian,p.jumps)
     provenance = merge(ws.research_provenance === nothing ? (;) : ws.research_provenance,
         p.provenance,
@@ -129,7 +137,7 @@ end
     simulate_gibbs(H; times, beta_phys, diagnostics=:standard, ...)
     simulate_gibbs(ws; times, rho0=nothing, basis=:computational, ...)
 
-Evolve the full DLL generator by matrix-free Krylov exponentiation. Inputs and
+Evolve the full DLL or CKG generator by matrix-free Krylov exponentiation. Inputs and
 outputs use the declared basis; default rho0 is computational |+><+| tensor power.
 The returned initial-state-specific threshold refers to trace distance (half
 trace norm), never worst-case mixing. `:not_reached_by_horizon` is not a claim of
@@ -203,8 +211,8 @@ function simulate_gibbs(ws::Workspace{KrylovSpectrum};times,rho0=nothing,
     repair_states::Bool=false,gap_options::NamedTuple=NamedTuple())
     _validate_time_grid(times;require_zero=true)
     cfg,ham = ws.cached_cfg,ws.ham_or_trott
-    cfg isa Config{Lindbladian} && cfg.construction isa DLL && ham isa HamHam ||
-        throw(ArgumentError("Built-in DLL Lindbladian workspace required."))
+    cfg isa Config{Lindbladian} && cfg.construction isa Union{DLL,KMS} && ham isa HamHam ||
+        throw(ArgumentError("A DLL or CKG KMS Lindbladian workspace is required."))
     _validate_reused_krylov_workspace(ws,cfg,ham,nothing,ws.jumps)
     basis in (:computational,:eigen) || throw(ArgumentError("basis must be :computational or :eigen."))
     method == :predictor && cfg.domain isa TimeDomain && throw(ArgumentError("The spectral predictor supports BohrDomain; use method=:krylov for TimeDomain."))

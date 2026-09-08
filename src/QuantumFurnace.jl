@@ -2,6 +2,8 @@ module QuantumFurnace
 
 export PreparedFilterTransform, prepare_filter_transform, transform_values, fourier_sum
 export KMSFilter, FrequencyFilter, RateFilter, TimeFilter, filter_evidence
+export AbstractCKGTransition, GaussianTransition, MetropolisTransition, SmoothMetropolisTransition
+export GaussianMixtureTransition, prepare_gaussian_mixture, transition_value, transition_alpha
 
 using Pkg
 using Base
@@ -15,7 +17,7 @@ using Statistics: median
 using ProgressMeter
 using Roots
 using DataStructures
-using SpecialFunctions: erfc, besselj
+using SpecialFunctions: erfc, erfcx, besselj
 using QuadGK
 using Base.Threads
 using FINUFFT
@@ -174,6 +176,7 @@ include("trotter_domain.jl")
 include("filters.jl")
 include("filter_transforms.jl")
 include("nufft.jl")
+include("transition_weights.jl")
 include("structs.jl")
 include("dense_lindbladian_workspace.jl")
 include("qi_tools.jl")

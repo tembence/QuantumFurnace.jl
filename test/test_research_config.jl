@@ -92,7 +92,9 @@ BLAS.set_num_threads(1)
     for domain in (EnergyDomain(),TrotterDomain())
         @test_throws ArgumentError prepare_gibbs_inputs(H; beta_phys=beta,domain)
     end
-    @test_throws ArgumentError prepare_gibbs_inputs(H; beta_phys=beta,construction=KMS())
+    ckg=prepare_gibbs_inputs(H; beta_phys=beta,construction=KMS())
+    @test ckg.config.transition_weight isa GaussianTransition
+    @test_throws ArgumentError prepare_gibbs_inputs(H; beta_phys=beta,construction=GNS())
     @test_throws ArgumentError prepare_gibbs_inputs(H; beta_phys=beta,filter=GaussianFilter(1.))
     @test_throws ArgumentError prepare_gibbs_inputs(H; beta_phys=beta,domain=TimeDomain())
     @test_throws ArgumentError prepare_gibbs_inputs(H; beta_phys=beta,time_step=.1,num_energy_bits=8)

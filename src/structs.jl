@@ -31,14 +31,20 @@ struct GNS <: AbstractConstruction end
 struct DLL <: AbstractConstruction end
 
 # Concrete cached callable used by Bohr-domain KMS/GNS workspaces.
-struct BohrAlphaKernel{C<:AbstractConstruction, T<:AbstractFloat} <: Function
+struct BohrAlphaKernel{C<:AbstractConstruction, T<:AbstractFloat,
+                       W<:Union{Nothing,AbstractCKGTransition}} <: Function
     with_linear_combination::Bool
     beta::T
     sigma::T
     a::T
     s::T
     gaussian_parameters::Tuple{T, T}
+    transition_weight::W
 end
+BohrAlphaKernel{C,T}(linear,beta,sigma,a,s,gaussian) where {C,T} =
+    BohrAlphaKernel{C,T}(linear,beta,sigma,a,s,gaussian,nothing)
+BohrAlphaKernel{C,T}(linear,beta,sigma,a,s,gaussian,weight::W) where {C,T,W} =
+    BohrAlphaKernel{C,T,W}(linear,beta,sigma,a,s,gaussian,weight)
 
 """Return whether a detailed-balance construction includes the coherent term."""
 with_coherent(::KMS) = true
@@ -67,6 +73,8 @@ presence is determined by `with_coherent(C())`.
 - `jump_selection`: `:sweep` or `:random` for full-DM channel evolution.
 - `filter`: Construction-specific filter. KMS/GNS accept `nothing` or a
   `GaussianFilter` matching `sigma`; DLL requires an explicit DLL filter.
+- `transition_weight`: Optional typed CKG rate tied to the Gaussian OFT.
+  `nothing` retains the legacy rate fields; DLL/GNS reject typed CKG rates.
 
 Each register obeys `\$w0_X t0_X = 2 pi / 2^r_X\$`. Unsuffixed register fields
 are compatibility fallbacks promoted by `validate_config!`.
@@ -126,6 +134,7 @@ are compatibility fallbacks promoted by `validate_config!`.
     # `nothing` selects the CKG Gaussian with width `sigma` for KMS/GNS.
     # DLL constructions require an explicit DLL filter.
     filter::Union{Nothing, AbstractFilter} = nothing
+    transition_weight::Union{Nothing,AbstractCKGTransition} = nothing
 end
 
 """Return the dissipative time cutoff, falling back to the common register."""

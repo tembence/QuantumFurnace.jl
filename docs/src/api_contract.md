@@ -121,8 +121,7 @@ Hamiltonian working precision. Gaussian widths set by beta, Metropolis support
 and symmetric frequency shifts convert together. Channel weights are unchanged.
 The helper supports the existing DLL Gaussian, Metropolis, symmetric-translate
 and multichannel families, plus custom frequency, q and rate specifications in BohrDomain. It rejects negative symmetric shifts explicitly (supply `abs(shift)` if
-intended). CKG/GNS retain their existing low-level `Config` APIs; this helper
-currently accepts DLL only. The simulation facade uses these same preparation rules.
+intended). CKG also accepts typed transitions in Bohr/Energy through `construction=KMS()`, as described below. GNS retains its low-level `Config` API. The simulation facade uses these same preparation rules.
 
 For DLL Time, supply `domain=TimeDomain()`, physical `time_step` and
 `num_energy_bits`; the algorithm time step is `R*time_step`. Prepared filters accept independent coherent controls as described below. Legacy
@@ -197,7 +196,7 @@ DLL validation no longer requires CKG transition-rate parameters. DLL
 | DLL built-ins, adjoint-paired sources | Available | Available | Available | Available | Rejected | T01–T02 complete |
 | DLL existing global multichannel filters | Available, separate channels | Available | Available, separate channels | Available | Rejected | T01–T02 and T14 complete; source assignments preserve channel multiplicity |
 | DLL custom complex filters | Available, finite Bohr checks | Available, retained samples | Available with prepared transforms | Available with prepared transforms | Rejected | T10–T14 complete |
-| CKG built-in Gaussian OFT/rates | Available | Available | Available | Available | Available with valid registers/local Trotter cache | Preserve; T15 typed rates; T20 release checks |
+| CKG built-in Gaussian OFT/rates | Available | Available | Available | Available | Available with valid registers/local Trotter cache | T15 typed rates available; T20 release checks |
 | CKG general joint filter/rate | Unavailable | Unavailable | Unavailable | Unavailable | General Energy pending; custom Trotter gated | T16 Bohr/Energy; T17 Time and explicit Trotter gate |
 
 DLL GQSP remains rejected (T02 keeps the rejection); DLL Energy/Trotter and a
@@ -330,8 +329,8 @@ r.diagnostics          # stationarity and available KMS/kernel checks
 ```
 
 `simulate_gibbs(H; beta_phys, times, ...)` combines these two steps. Built-in DLL
-Bohr and explicitly discretised Time paths are supported; CKG/GNS retain their
-legacy APIs. `temperature` is an alternative to `beta_phys`, with `k_B=1`.
+Bohr and explicitly discretised Time paths are supported. Typed CKG rates support
+Bohr/Energy through `construction=KMS()`; other legacy CKG/GNS paths remain available. `temperature` is an alternative to `beta_phys`, with `k_B=1`.
 `transition_weight` must be `nothing` for DLL. The canonical coherent correction
 is included. The onsite preset is always assembled in computational coordinates;
 `basis=:eigen` changes supplied state/output coordinates and supplied matrix-source
@@ -564,3 +563,56 @@ indices, channel counts, physical/algorithm filters, and per-channel Time
 reports. Filter callbacks run during serial preparation, and matrix-free actions
 use only retained matrices. No continuum tail or ergodicity theorem follows
 from these finite-system checks.
+
+
+### Typed CKG rates and Gaussian mixtures (T15)
+
+Select `construction=KMS()` and a typed `transition_weight`. `GaussianTransition`,
+`MetropolisTransition` and `SmoothMetropolisTransition` replace the legacy rate
+parameter combinations while retaining their analytic coefficients, coherent
+term and clock. Each prescription takes physical beta and physical OFT width
+`sigma` (default `1/beta_phys`). The default CKG prescription is Gaussian.
+
+`GaussianMixtureTransition` accepts finite nonnegative weights and positive
+centres `x`, where the rate Gaussian is centred at `-x` and has variance
+`2x/beta_phys - sigma^2`. Thus every component obeys
+`beta_phys = 2x/(sigma^2 + sigma_gamma^2)`. The variance must be strictly positive;
+the singular zero-variance endpoint rejects. These rates require the normalised
+Gaussian OFT, `C(w)=(2π sigma^2)^(-1/4) exp(-w^2/(4sigma^2))`, implemented using
+`GaussianFilter` and the existing external normalisation. An arbitrary OFT
+substitution is rejected; general joint-kernel validation belongs to T16.
+
+```julia
+beta_phys = 0.8
+rate = GaussianMixtureTransition(beta_phys; sigma=0.35,
+    centers=(0.2, 0.6), weights=(0.3, 0.8))
+H = ComplexF64[0 0; 0 1]
+ws = Workspace(H; beta_phys, construction=KMS(), transition_weight=rate)
+result = simulate_gibbs(ws; times=[0.0, 0.1], diagnostics=:quick)
+```
+
+Mixtures default to `normalization=:none`, preserving their weights. Explicit
+`normalization=:bound, supremum_bound=M` divides the **entire generator**,
+including B, by the fixed positive bound `M >= sum(weights)`. This bound need not
+be the exact supremum. Changing an outer-frequency grid never changes it.
+A separate `GeneratorClock` remains an additional explicit multiplier.
+
+`prepare_gaussian_mixture(beta_phys; sigma, density, interval=(lo, hi),
+regularity=:continuous_nonnegative, panels=64)` uses positive midpoint weights
+and retains the doubled-panel approximation. Continuity and nonnegativity are
+caller assumptions; callback samples cannot certify them. The report includes
+mass and alpha-probe refinement differences. An infinite upper interval also
+requires a finite `cutoff` and a caller-supplied integrated `tail_mass_bound`
+below `tail_atol`; this assumption bounds omitted rate and alpha entries.
+Refinement differences are numerical evidence, not rigorous quadrature bounds.
+For bound normalisation use the same declared `supremum_bound` across refinements.
+
+BohrDomain retains analytic alpha and B. EnergyDomain additionally requires
+physical `energy_step` and `num_energy_bits`, controlling a separate outer
+frequency grid; the full requested grid is retained for mixtures. Physical
+widths, centres and energy steps are divided by the Hamiltonian rescaling factor;
+the normalised OFT and integration measure cancel their Jacobians in alpha.
+Mixture Time/Trotter and GQSP execution reject pending the later compiler tasks.
+Existing built-in Time/Trotter configurations remain available through the legacy
+API. Retained finite-mixture parameters can be saved with Config; the original
+continuum density or arbitrary callbacks are not reconstructed by that snapshot.

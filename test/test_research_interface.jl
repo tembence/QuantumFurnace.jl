@@ -75,7 +75,8 @@ BLAS.set_num_threads(1)
     end
     @test_throws ArgumentError simulate_gibbs(H;beta_phys=.8,times,filter=DLLGaussianFilter(.4),dry_run=true)
     @test_throws ArgumentError simulate_gibbs(H;beta_phys=.8,times,transition_weight=x->1)
-    @test_throws ArgumentError simulate_gibbs(H;beta_phys=.8,times,construction=KMS())
+    @test simulate_gibbs(H;beta_phys=.8,times,construction=KMS(),dry_run=true).construction==:CKG_KMS
+    @test_throws ArgumentError simulate_gibbs(H;beta_phys=.8,times,construction=GNS())
     @test_throws ArgumentError simulate_gibbs(w;times,rho0=ComplexF64[1.2 0;0 -.2])
     @test_throws ArgumentError simulate_gibbs(w;times,rho0=ones(3,3))
     @test_throws ArgumentError simulate_gibbs(w;times,max_time=1.)

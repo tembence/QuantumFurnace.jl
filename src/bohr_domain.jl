@@ -126,6 +126,10 @@ function _B_bohr_chunk!(
 end
 
 function _pick_f(config::Config{<:Any, <:Any, KMS})
+    if config.transition_weight !== nothing
+        alpha = _pick_alpha(config)
+        return (u,v) -> tanh(-config.beta*(u-v)/4)*alpha(u,v)/(2im)
+    end
 
     beta = config.beta
     sigma = config.sigma
@@ -173,6 +177,7 @@ _pick_alpha(config::Config{<:Any, <:Any, GNS}) = _pick_alpha_gns(config)
 
 # 2-arg forms: compute alpha directly via dispatch (zero allocation on hot path)
 function _pick_alpha(config::Config{<:Any, <:Any, KMS}, nu_1::Real, nu_2::Real)
+    config.transition_weight === nothing || return transition_alpha(config.transition_weight,nu_1,nu_2)
     if config.with_linear_combination
         return create_alpha(nu_1, nu_2, config.beta, config.sigma, config.a, config.s)
     else
@@ -189,6 +194,11 @@ function _pick_alpha(config::Config{<:Any, <:Any, GNS}, nu_1::Real, nu_2::Real)
 end
 
 function _pick_alpha_kms(config::Config{<:Any, <:Any, KMS})
+    if config.transition_weight !== nothing
+        T=typeof(config.beta)
+        return BohrAlphaKernel{KMS,T}(false,config.beta,config.sigma,zero(T),zero(T),
+            (zero(T),zero(T)),config.transition_weight)
+    end
     if config.with_linear_combination
         return BohrAlphaKernel{KMS, typeof(config.beta)}(
             true, config.beta, config.sigma,
@@ -203,6 +213,7 @@ function _pick_alpha_kms(config::Config{<:Any, <:Any, KMS})
 end
 
 @inline function (alpha::BohrAlphaKernel{KMS})(nu_1::Real, nu_2::Real)
+    alpha.transition_weight === nothing || return transition_alpha(alpha.transition_weight,nu_1,nu_2)
     if alpha.with_linear_combination
         return create_alpha(nu_1, nu_2, alpha.beta, alpha.sigma, alpha.a, alpha.s)
     else

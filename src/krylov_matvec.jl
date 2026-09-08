@@ -294,6 +294,14 @@ function apply_lindbladian!(
         BLAS.gemm!('N', 'N', half, rho, neg_R, CT, sc.rho_out)
     end
 
+    # The workspace also stores typed CKG kernels. Keep the legacy call concrete
+    # so the scalar normalisation is not boxed at the function barrier.
+    if config.transition_weight === nothing
+        legacy_alpha = alpha::BohrAlphaKernel{typeof(config.construction),typeof(config.beta),Nothing}
+        return _apply_bohr_dissipator!(
+            sc, rho, jump_eigenbases, hamiltonian.bohr_freqs,
+            hamiltonian.bohr_dict, legacy_alpha, gamma_norm_factor, Val(false))
+    end
     return _apply_bohr_dissipator!(
         sc, rho, jump_eigenbases, hamiltonian.bohr_freqs,
         hamiltonian.bohr_dict, alpha, gamma_norm_factor, Val(false))
@@ -332,6 +340,12 @@ function apply_adjoint_lindbladian!(
         BLAS.gemm!('N', 'N', half, rho, neg_R, CT, sc.rho_out)
     end
 
+    if config.transition_weight === nothing
+        legacy_alpha = alpha::BohrAlphaKernel{typeof(config.construction),typeof(config.beta),Nothing}
+        return _apply_bohr_dissipator!(
+            sc, rho, jump_eigenbases, hamiltonian.bohr_freqs,
+            hamiltonian.bohr_dict, legacy_alpha, gamma_norm_factor, Val(true))
+    end
     return _apply_bohr_dissipator!(
         sc, rho, jump_eigenbases, hamiltonian.bohr_freqs,
         hamiltonian.bohr_dict, alpha, gamma_norm_factor, Val(true))

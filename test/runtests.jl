@@ -33,6 +33,7 @@ const SANDBOX_FILES = String[
     "test_research_config.jl",
     "test_research_filters.jl",
     "test_dll_source_filters.jl",
+    "test_research_ckg.jl",
     "test_filter_transforms.jl",
     "test_research_diagnostics.jl",
     "test_research_gap_reliability.jl",

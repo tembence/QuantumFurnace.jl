@@ -222,6 +222,8 @@ function validate_config!(
         end
     end
 
+    _collect_ckg_transition_errors!(errors,config)
+
     # --- Domain-Specific Validation ---
     _collect_config_errors!(errors, config)
     _collect_simulation_errors!(errors, config)
@@ -230,7 +232,7 @@ function validate_config!(
     # GNS coherent check removed: type system enforces with_coherent(::GNS) = false via trait.
 
     # DLL carries its thermal weighting in the filter, without a CKG rate.
-    if !(config.construction isa DLL)
+    if !(config.construction isa DLL) && !(config.transition_weight isa GaussianMixtureTransition)
         if !(config.with_linear_combination) && config.gaussian_parameters == (nothing, nothing)
             push!(errors, "If with_linear_combination is false, gaussian_parameters must be set.")
         end
@@ -506,13 +508,19 @@ declaration, not an estimated spectral gap. For `L_new=m*L_raw`, decay rates
 multiply by `m`, and an equal evolution uses `t_new=t_raw/m`.
 """
 function prepare_gibbs_inputs(H; beta_phys::Union{Nothing,Real}=nothing,
-    temperature::Union{Nothing,Real}=nothing, filter=DLLGaussianFilter,
+    temperature::Union{Nothing,Real}=nothing, filter=nothing,
     jumps=:onsite_paulis, rates=1, complete_adjoint::Bool=false,
     basis::Symbol=:computational, domain::AbstractDomain=BohrDomain(),
     construction::AbstractConstruction=DLL(), time_step::Union{Nothing,Real}=nothing,
-    num_energy_bits::Union{Nothing,Int}=nothing, clock=nothing)
+    num_energy_bits::Union{Nothing,Int}=nothing, clock=nothing, transition_weight=nothing, energy_step=nothing)
+    if construction isa KMS
+        return _prepare_ckg_inputs(H;beta_phys,temperature,filter,jumps,rates,complete_adjoint,
+            basis,domain,time_step,num_energy_bits,clock,transition_weight,energy_step)
+    end
+    transition_weight===nothing && energy_step===nothing || throw(ArgumentError("DLL does not use a CKG transition_weight or energy_step."))
+    filter===nothing && (filter=DLLGaussianFilter)
     construction isa DLL || throw(ArgumentError(
-        "prepare_gibbs_inputs currently supports DLL; use the legacy Config API for CKG/GNS."))
+        "prepare_gibbs_inputs supports DLL and typed CKG KMS; use the legacy Config API for GNS."))
     domain isa Union{BohrDomain,TimeDomain} || throw(ArgumentError(
         "DLL preparation supports BohrDomain and TimeDomain only."))
     (beta_phys === nothing) != (temperature === nothing) || throw(ArgumentError(

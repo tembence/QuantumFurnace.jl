@@ -55,6 +55,7 @@ function _config_to_dict(config::Config)
     d[:gqsp_degree]             = config.gqsp_degree
     d[:jump_selection]          = config.jump_selection
     d[:filter]                  = config.filter
+    d[:transition_weight]       = config.transition_weight
 
     # Thermalize-specific fields
     if config.sim isa Thermalize
@@ -132,7 +133,7 @@ function _dict_to_config_kwargs(d::Dict, domain)
         :num_energy_bits_D, :t0_D, :w0_D,
         :num_energy_bits_b_minus, :t0_b_minus, :w0_b_minus,
         :num_energy_bits_b_plus, :t0_b_plus, :w0_b_plus,
-        :filter,
+        :filter, :transition_weight,
     )
         val = get(d, key, nothing)
         if val !== nothing
