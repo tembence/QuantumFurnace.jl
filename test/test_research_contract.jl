@@ -1,5 +1,5 @@
 # Standalone T00/T01 regressions. Deliberately not in runtests.jl until T02
-# repairs the three baseline @test_broken cases; then promote them to @test.
+# repairs the two remaining @test_broken cases; then promote them to @test.
 using Test, QuantumFurnace, LinearAlgebra, Random
 
 @testset "Research contract: DLL baseline regressions" begin
@@ -24,7 +24,7 @@ using Test, QuantumFurnace, LinearAlgebra, Random
     Lth = construct_lindbladian(hermitian, cfg(TimeDomain()), ham)
     @test isapprox(Lb, Lbh; atol=1e-12, rtol=0)
     # T01: same grid and same linear source span must give the same generator.
-    @test_broken isapprox(Lt, Lth; atol=1e-12, rtol=0)
+    @test isapprox(Lt, Lth; atol=1e-12, rtol=0)
     @info "T00 paired-source baseline" full_error=opnorm(Lt-Lb) hermitian_error=opnorm(Lth-Lbh) gibbs_residual=norm(Lt*vec(Matrix(ham.gibbs)))
 
     # Capture the precise baseline failure, rather than accepting any exception.

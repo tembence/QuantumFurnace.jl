@@ -73,7 +73,7 @@ function dll_lindblad_op_time(
     return L
 end
 
-# DLL coherent kernel. The time-domain operator order is `A(t') A(t)`, as
+# DLL coherent kernel. The time-domain operator order is `A(t')' A(t)`, as
 # obtained by substituting the Bohr decomposition into the inverse transform.
 
 """
@@ -194,7 +194,7 @@ Construct the Gaussian-filter DLL coherent operator by time quadrature.
 
 # Returns
 The Hamiltonian-eigenbasis coherent matrix. A closed-form Gaussian kernel and
-2D type-3 NUFFT evaluate the ordered product `A(t') A(t)`.
+2D type-3 NUFFT evaluate `A(t')' A(t)`, or `A(t') A(t)` for Hermitian sources.
 """
 function dll_coherent_op_time(
     jumps::AbstractVector{<:JumpOp},
@@ -218,7 +218,7 @@ function dll_coherent_op_time(
         g_tt[m, nidx] = _dll_g_closed_form(βT, time_labels[m], time_labels[nidx], J_val)
     end
 
-    # Contract the sampled kernel with the ordered products $A(t') A(t)$.
+    # Contract the sampled kernel with the ordered products $A(t')^dagger A(t)$.
     return _dll_coherent_from_g_tt(jumps, hamiltonian, g_tt, time_labels, τ)
 end
 
@@ -232,7 +232,7 @@ Construct a DLL coherent operator from a controlled frequency window.
 The two-dimensional trapezoidal rule samples the paper's coherent kernel
 `(2i)^(-1) tanh(beta*(nu'-nu)/4) fhat(nu) conj(fhat(nu'))`, transforms it to
 the time grid with a type-3 NUFFT, and contracts the ordered products
-`A(t')A(t)`.
+`A(t')' A(t)`.
 """
 function _dll_coherent_op_time_frequency_grid(
     jumps::AbstractVector{<:JumpOp},
@@ -306,7 +306,7 @@ function _dll_coherent_op_time_frequency_grid(
         g_tt[m, nn] = CT(out_g[idx_t] * norm_factor)
     end
 
-    # Contract the sampled kernel with the ordered products $A(t') A(t)$.
+    # Contract the sampled kernel with the ordered products $A(t')^dagger A(t)$.
     return _dll_coherent_from_g_tt(jumps, hamiltonian, g_tt, time_labels, τ)
 end
 
@@ -384,14 +384,17 @@ function _dll_coherent_from_g_tt(
 
     Q_ijk = reshape(out_q, n, n, n) .* (τ^2)
 
-    # Math: $G_(i j) = sum_(a,k) A^a_(i k) A^a_(k j) Q_(i j k)$.
+    # Math: $G_(i j) = sum_(a,k) conj(A^a_(k i)) A^a_(k j) Q_(i j k)$.
+    # Adjoint evolution has the same (lambda_i-lambda_k) phase; only the
+    # source coefficient changes. Retain the Hermitian fast path.
     G = zeros(CT, n, n)
     @inbounds for jump in jumps
         A_eb = jump.in_eigenbasis
+        A_left = jump.hermitian ? A_eb : adjoint(A_eb)
         for j in 1:n, i in 1:n
             acc = CT(0)
             for k in 1:n
-                acc += A_eb[i, k] * A_eb[k, j] * Q_ijk[i, j, k]
+                acc += A_left[i, k] * A_eb[k, j] * Q_ijk[i, j, k]
             end
             G[i, j] += acc
         end
@@ -481,7 +484,7 @@ function dll_coherent_op_time_legacy(
                 for j in 1:n, i in 1:n
                     Atm[i, j] = phases_t[m, i] * conj(phases_t[m, j]) * A_eb[i, j]
                 end
-                mul!(prod_buf, Atn, Atm)
+                mul!(prod_buf, jump.hermitian ? Atn : adjoint(Atn), Atm)
                 w = g_tt[m, nidx] * weight_outer
                 for j in 1:n, i in 1:n
                     G[i, j] += w * prod_buf[i, j]

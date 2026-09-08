@@ -442,3 +442,88 @@
         end
     end
 end
+
+@testset "DLL Time adjoint pairs and controlled full-generator references" begin
+    ham = HamHam(build_heis_1d(2, [0.8, 0.7, 1.2]; seed=14,
+        periodic=false, disorder_strength=0.2); beta_phys=0.5)
+    beta = beta_alg(ham, 0.5)
+    rho_beta = Matrix(ham.gibbs)
+    makejump(A) = JumpOp(Matrix(A), ham.eigvecs' * A * ham.eigvecs,
+                        false, ishermitian(A))
+    cfg(domain, filter) = Config(; sim=Lindbladian(), domain,
+        construction=DLL(), num_qubits=2, with_linear_combination=true,
+        beta, beta_phys=0.5, sigma=1/beta, a=beta/30, s=0.25,
+        num_energy_bits_D=8, t0_D=0.5, filter)
+    random_source = randn(QuantumFurnace.Random.MersenneTwister(42), ComplexF64, 4, 4) / 4
+    raising = Matrix(pad_term([(X + im*Y)/2], 2, 1)) / 2
+    xy = Matrix(pad_term([X + Y], 2, 1)) / 4
+
+    @testset "Pair equivalence: $label, $(typeof(f))" for (label, A) in
+        ((:complex, random_source), (:raising_lowering, raising), (:complex_hermitian, xy)),
+        f in (DLLGaussianFilter(beta), DLLMetropolisFilter(beta; S=2.0))
+        paired = JumpOp[makejump(A), makejump(A')]
+        hermitian = JumpOp[makejump((A+A')/sqrt(2)), makejump((A-A')/(im*sqrt(2)))]
+        Lb = construct_lindbladian(paired, cfg(BohrDomain(), f), ham)
+        Lbh = construct_lindbladian(hermitian, cfg(BohrDomain(), f), ham)
+        Lt = construct_lindbladian(paired, cfg(TimeDomain(), f), ham)
+        Lth = construct_lindbladian(hermitian, cfg(TimeDomain(), f), ham)
+        @test isapprox(Lb, Lbh; atol=1e-12, rtol=0)
+        @test isapprox(Lt, Lth; atol=1e-12, rtol=0)
+        pd = QuantumFurnace._precompute_data(cfg(TimeDomain(), f), ham)
+        Bt = dll_coherent_op_time(paired, ham, pd.time_labels, f, beta, pd.t0)
+        Bth = dll_coherent_op_time(hermitian, ham, pd.time_labels, f, beta, pd.t0)
+        Bb = dll_coherent_op_bohr(paired, ham, f, beta)
+        @test isapprox(Bt, Bth; atol=1e-12, rtol=0)
+        # Production truncation still couples the coherent and dissipative
+        # cutoffs (T13). Verify the NH defects equal the Hermitian floor;
+        # the explicit-window checks below separately reach 1e-9.
+        Dt = materialize_discriminant(Lt, rho_beta)
+        Dth = materialize_discriminant(Lth, rho_beta)
+        @test isapprox(norm(Lt*vec(rho_beta)), norm(Lth*vec(rho_beta)); atol=1e-12, rtol=0)
+        @test isapprox(opnorm(Dt-Dt'), opnorm(Dth-Dth'); atol=1e-12, rtol=0)
+        @info "DLL pair production grid" label filter=typeof(f) coherent_error=opnorm(Bt-Bb) full_error=opnorm(Lt-Lb) gibbs_residual=norm(Lt*vec(rho_beta)) kms_defect=opnorm(Dt-Dt')/opnorm(Dt)
+        if !ishermitian(A)
+            for domain in (BohrDomain(), TimeDomain())
+                @test_throws ArgumentError construct_lindbladian(paired[1:1], cfg(domain, f), ham)
+                @test_throws ArgumentError construct_lindbladian(vcat(paired, paired[1:1]), cfg(domain, f), ham)
+            end
+        end
+    end
+
+    @testset "Explicit-window refinement: $(typeof(f))" for (f, windows) in (
+        (DLLGaussianFilter(beta), (10.0, 20.0)),
+        (DLLMetropolisFilter(beta; S=2.0), (40.0, 180.0)),
+    )
+        paired = JumpOp[makejump(random_source), makejump(random_source')]
+        Lb = construct_lindbladian(paired, cfg(BohrDomain(), f), ham)
+        Bb = dll_coherent_op_bohr(paired, ham, f, beta)
+        Id = Matrix{ComplexF64}(I, 4, 4)
+        full_errors, coherent_errors = Float64[], Float64[]
+        for tmax in windows
+            ts = collect(-tmax:0.5:tmax)
+            Bt = dll_coherent_op_time(paired, ham, ts, f, beta, 0.5)
+            # Independent column-vectorised GKLS assembly from direct time
+            # jumps and the full two-time B. No Bohr correction substitution.
+            Lt = -im .* (kron(Id, Bt) - kron(transpose(Bt), Id))
+            for jump in paired
+                M = dll_lindblad_op_time(jump, ham, ts, f, 0.5)
+                R = M' * M
+                Lt .+= kron(conj(M), M) - (kron(Id, R) + kron(transpose(R), Id))/2
+            end
+            push!(full_errors, opnorm(Lt-Lb))
+            push!(coherent_errors, opnorm(Bt-Bb))
+            if tmax == last(windows)
+                D = materialize_discriminant(Lt, rho_beta)
+                @test norm(Lt*vec(rho_beta)) < 1e-9
+                @test opnorm(D-D')/opnorm(D) < 1e-9
+                @test norm(Lt'*vec(Id)) < 1e-9
+                @test norm(Bt-Bt') < 1e-9
+            end
+        end
+        @test full_errors[end] < full_errors[1]
+        @test coherent_errors[end] < coherent_errors[1]
+        @test full_errors[end] < 1e-9
+        @test coherent_errors[end] < 1e-9
+        @info "DLL explicit-window refinement" filter=typeof(f) windows full_errors=Tuple(full_errors) coherent_errors=Tuple(coherent_errors)
+    end
+end

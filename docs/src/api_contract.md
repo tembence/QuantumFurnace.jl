@@ -112,6 +112,11 @@ This table describes **low-level Lindbladian** paths at the T00 baseline.
 The facade remains pending until T09. Existence of a domain type does not
 establish support. “Available” does not certify a chosen quadrature tolerance.
 
+T01 update: the missing Time source adjoint is repaired in the NUFFT and
+legacy direct contractions, retaining the Hermitian fast path. T02's Time
+workspace and false CKG-eta validation failures remain open. Per-source DLL
+`Thermalize` coherent-unitary routing is outside T01 and is not advertised here.
+
 | Construction/filter | Dense Bohr | Bohr workspace | Dense Time | Time workspace | Energy/Trotter | Implementing task |
 |---|---|---|---|---|---|---|
 | DLL built-ins, Hermitian sources | Available | Available | Available | Broken: missing `transition` | Rejected | T02 repairs workspace/validation; T09 facade |

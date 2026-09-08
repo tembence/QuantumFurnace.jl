@@ -240,3 +240,50 @@
         end
     end
 end
+
+@testset "DLL arbitrary-source two-time contraction" begin
+    ham = HamHam(build_heis_1d(2, [0.8, 0.7, 1.2]; seed=14,
+        periodic=false, disorder_strength=0.2); beta_phys=0.5)
+    beta = beta_alg(ham, 0.5)
+    rng = QuantumFurnace.Random.MersenneTwister(42)
+    A = randn(rng, ComplexF64, 4, 4) / 4
+    makejump(M; hermitian=ishermitian(M)) = JumpOp(Matrix(M),
+        ham.eigvecs' * M * ham.eigvecs, false, hermitian)
+    xy = Matrix(pad_term([X + Y], 2, 1)) / 4
+
+    @testset "NUFFT versus independent direct matrix products" begin
+        # A nonsymmetric kernel exposes sign, order, and conjugation errors
+        # independently of Fourier inversion and final Hermitian projection.
+        ts = collect(-1.0:0.5:1.0)
+        g = randn(rng, ComplexF64, length(ts), length(ts))
+        for jump in (makejump(A), makejump(xy), makejump(xy; hermitian=false))
+            evolved = [Diagonal(cis.(ham.eigvals .* t)) * jump.in_eigenbasis *
+                       Diagonal(cis.(-ham.eigvals .* t)) for t in ts]
+            direct = sum(g[m, n] .* (evolved[n]' * evolved[m])
+                         for m in eachindex(ts), n in eachindex(ts)) .* 0.5^2
+            fast = QuantumFurnace._dll_coherent_from_g_tt(
+                [jump], ham, g, ts, 0.5)
+            @test isapprox(fast, direct; atol=1e-11, rtol=1e-11)
+        end
+    end
+
+    @testset "Legacy and per-source Gaussian references" begin
+        ts = collect(-20.0:0.5:20.0)
+        f = DLLGaussianFilter(beta)
+        # Resolve the frequency integral explicitly; the legacy default grid
+        # is not a controlled reference for this beta and time window.
+        nus = collect(range(-13/beta, 11/beta; length=256))
+        paired = JumpOp[makejump(A), makejump(A')]
+        for jump in (paired..., makejump(xy))
+            B = dll_coherent_op_time([jump], ham, ts, f, beta, 0.5)
+            Blegacy = QuantumFurnace.dll_coherent_op_time_legacy(
+                [jump], ham, ts, f, beta, 0.5; nu_grid=nus)
+            Bbohr = dll_coherent_op_bohr([jump], ham, f, beta)
+            @test isapprox(B, Blegacy; atol=1e-10, rtol=0)
+            @test isapprox(B, Bbohr; atol=1e-9, rtol=0)
+        end
+        Bsum = sum(dll_coherent_op_time([j], ham, ts, f, beta, 0.5) for j in paired)
+        @test isapprox(dll_coherent_op_time(paired, ham, ts, f, beta, 0.5),
+                       Bsum; atol=1e-12, rtol=0)
+    end
+end
