@@ -655,8 +655,8 @@ end
 
 Qualified time-input specification with `F(nu)=integral f(t)*exp(i*nu*t) dt`.
 Support and tail declarations use time coordinates. Kernel evaluation is
-available; simulation requires the future numerical transform/coherent compiler
-(T12–T13) and currently rejects explicitly. No balance projection is performed.
+available; wrap in `prepare_filter_transform` with explicit numerical controls
+before simulation. No balance projection is performed.
 """
 struct TimeFilter{T<:AbstractFloat,F,M} <: _UserDLLFilter
     beta::T
@@ -759,11 +759,11 @@ function time_kernel(f::TimeFilter, t::Real)
     return _finite_filter_value(f.kernel(x),f,x)
 end
 freq_kernel(::TimeFilter, ::Real) = throw(ArgumentError(
-    "TimeFilter simulation needs the numerical Fourier compiler (T12–T13); supply a frequency specification for BohrDomain."))
+    "Wrap TimeFilter in prepare_filter_transform with a declared support or numerical window before simulation."))
 time_kernel(::Union{KMSFilter,FrequencyFilter,RateFilter}, ::Real) = throw(ArgumentError(
-    "Custom DLL time transforms are not available yet (T12–T13); use BohrDomain."))
+    "Wrap the frequency specification in prepare_filter_transform with numerical controls for TimeDomain."))
 filter_time_cutoff(::_UserDLLFilter, ::Real) = throw(ArgumentError(
-    "A custom time cutoff cannot be inferred from frequency samples; numerical transforms are T12–T13."))
+    "A custom time cutoff cannot be inferred from frequency samples; prepare_filter_transform uses explicit TimeDomain grids."))
 
 """
     filter_evidence(filter)

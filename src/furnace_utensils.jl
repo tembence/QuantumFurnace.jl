@@ -135,7 +135,11 @@ function _precompute_data(
     t0_D = register_t0_D(config)
     N = 2^r_D
     raw_time_labels = collect((-N÷2):(N÷2 - 1)) .* t0_D
-    oft_time_labels = _truncate_time_labels_for_oft(raw_time_labels, config.sigma; filter=filter)
+    oft_time_labels = filter isa PreparedFilterTransform ? raw_time_labels :
+        _truncate_time_labels_for_oft(raw_time_labels, config.sigma; filter=filter)
+    if filter isa PreparedFilterTransform
+        _prepare_dll_bohr_filter(filter,hamiltonian.eigvals;beta=config.beta)
+    end
 
     # Single-slice NUFFT at ω = 0 per channel; replaces the per-jump explicit
     # `cis()` triple loop in `dll_lindblad_op_time` with a single FINUFFT eval.
@@ -144,10 +148,18 @@ function _precompute_data(
     sub_filters = _filter_channels_for_dll_oft(filter)
     oft_nufft_at_zero_list = Matrix{Complex{T}}[]
     for sub in sub_filters
-        nufft = _prepare_oft_nufft_prefactors(
-            hamiltonian.bohr_freqs, oft_time_labels, T[zero(T)], sub; eps=1e-12,
-        )
-        push!(oft_nufft_at_zero_list, Matrix(@view nufft.data[:, :, 1]))
+        if sub isa PreparedFilterTransform
+            values=transform_values(sub,oft_time_labels;window_refinements=0)
+            values.status==:unresolved && throw(ArgumentError("Dissipative Fourier quadrature budget exhausted."))
+            prefactors=fourier_sum(oft_time_labels,values.values,vec(hamiltonian.bohr_freqs);
+                backend=sub.controls.coherent.backend)
+            push!(oft_nufft_at_zero_list,reshape(Complex{T}.(prefactors),size(hamiltonian.bohr_freqs)))
+        else
+            nufft = _prepare_oft_nufft_prefactors(
+                hamiltonian.bohr_freqs, oft_time_labels, T[zero(T)], sub; eps=1e-12,
+            )
+            push!(oft_nufft_at_zero_list, Matrix(@view nufft.data[:, :, 1]))
+        end
     end
 
     return (

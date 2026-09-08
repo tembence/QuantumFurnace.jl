@@ -38,7 +38,10 @@ Cache filling is serial preparation, never a source matvec operation.
 """
 function prepare_filter_transform(f::AbstractFilter; window=nothing,
     breakpoints=Real[], rtol::Real=1e-12, atol::Real=1e-13,
-    maxevals::Int=200000, max_panels::Int=4096, analytic::Bool=true)
+    maxevals::Int=200000, max_panels::Int=4096, analytic::Bool=true,
+    coherent::NamedTuple=(;))
+    f isa Union{DLLMultiChannelFilter,PreparedFilterTransform} && throw(ArgumentError(
+        "Prepare a single unprepared filter; numerical channel families require separate compilation (T14)."))
     T = typeof(real(zero(eltype(f))))
     support = _transform_support(f)
     radius = support === nothing ? window : support
@@ -49,6 +52,8 @@ function prepare_filter_transform(f::AbstractFilter; window=nothing,
         throw(ArgumentError("window must be a positive finite radius."))
     all(x -> isfinite(x) && x >= 0, (rtol,atol)) && max(rtol,atol)>0 ||
         throw(ArgumentError("Require nonnegative finite quadrature tolerances, at least one positive."))
+    isfinite(T(rtol)) && isfinite(T(atol)) && max(T(rtol),T(atol))>0 ||
+        throw(ArgumentError("Quadrature tolerances are not representable in working precision."))
     maxevals > 0 && max_panels > 0 || throw(ArgumentError("Quadrature budgets must be positive."))
     points = sort!(unique!(T.(collect(breakpoints))))
     all(isfinite,points) || throw(ArgumentError("Breakpoints must be finite."))
@@ -56,7 +61,8 @@ function prepare_filter_transform(f::AbstractFilter; window=nothing,
         throw(ArgumentError("Breakpoints must lie strictly inside the integration window."))
     # Include the reflection origin even for arbitrary user specifications.
     points = sort!(unique!(vcat(points,T[0])))
-    controls = (;window=radius === nothing ? nothing : T(radius), support,
+    coherent = _coherent_transform_controls(coherent,T)
+    controls = (;coherent,window=radius === nothing ? nothing : T(radius), support,
         breakpoints=Tuple(points),rtol=T(rtol),atol=T(atol),maxevals,max_panels,
         analytic=analytic && builtin_pair, input=_transform_input(f))
     beta = hasproperty(f,:beta) ? T(f.beta) : one(T) # CKG adapter is not DLL admissible.
@@ -93,7 +99,7 @@ function _transform_value(p::PreparedFilterTransform{T}, x::Real, direction::Sym
         factor = direction == :forward ? one(T) : inv(2T(pi))
         input = direction == :forward ? time_kernel : _transform_frequency
         integrand = t -> Complex{T}(input(p.base,t))*cis(sign*y*t)*factor
-        value,err = QuadGK.quadgk(integrand,edges...;rtol=c.rtol,atol=c.atol,maxevals=c.maxevals)
+        value,err = QuadGK.quadgk(integrand,edges;rtol=c.rtol,atol=c.atol,maxevals=c.maxevals)
         status = err <= max(c.atol,c.rtol*abs(value)) ? :estimated : :unresolved_quadrature
         result = (Complex{T}(value),T(err),status)
     end
@@ -101,8 +107,14 @@ function _transform_value(p::PreparedFilterTransform{T}, x::Real, direction::Sym
     p.cache[key] = result
     return result
 end
-freq_kernel(p::PreparedFilterTransform,x::Real) = first(_transform_value(p,x,:forward))
-time_kernel(p::PreparedFilterTransform,x::Real) = first(_transform_value(p,x,:inverse))
+function _checked_transform_value(p,x,direction)
+    value,error,status=_transform_value(p,x,direction)
+    status==:unresolved_quadrature && throw(ArgumentError(
+        "Fourier quadrature budget exhausted at $x; inspect transform_values for partial evidence."))
+    return value
+end
+freq_kernel(p::PreparedFilterTransform,x::Real) = _checked_transform_value(p,x,:forward)
+time_kernel(p::PreparedFilterTransform,x::Real) = _checked_transform_value(p,x,:inverse)
 
 """
     transform_values(prepared, targets; direction=:inverse)
@@ -131,6 +143,8 @@ function transform_values(p::PreparedFilterTransform{T},targets;direction::Symbo
     end
     tail === nothing || isfinite(tail) || throw(ArgumentError("Tail bound overflows working precision."))
     differences = T[]
+    refinement_errors = T[]
+    refinement_statuses = Symbol[]
     if numerical && p.controls.support === nothing && window_refinements > 0
         previous = Complex{T}[r[1] for r in rows]
         c = p.controls
@@ -138,16 +152,20 @@ function transform_values(p::PreparedFilterTransform{T},targets;direction::Symbo
             refined = prepare_filter_transform(p.base;window=c.window*T(2)^level,
                 breakpoints=collect(c.breakpoints),rtol=c.rtol,atol=c.atol,
                 maxevals=c.maxevals,max_panels=c.max_panels,analytic=false)
-            values = Complex{T}[first(_transform_value(refined,x,direction)) for x in targets]
+            refined_rows = [_transform_value(refined,x,direction) for x in targets]
+            values = Complex{T}[row[1] for row in refined_rows]
+            push!(refinement_errors,maximum((row[2] for row in refined_rows);init=zero(T)))
+            push!(refinement_statuses,any(row->row[3]==:unresolved_quadrature,refined_rows) ? :unresolved : :estimated)
             push!(differences,maximum(abs.(values-previous);init=zero(T)))
             previous = values
         end
     end
     return (;values=Complex{T}[r[1] for r in rows],quadrature_estimates=T[r[2] for r in rows],
-        status=any(r -> r[3]==:unresolved_quadrature,rows) ? :unresolved : numerical ? :estimated : :evaluated,
+        status=(any(r -> r[3]==:unresolved_quadrature,rows) || :unresolved in refinement_statuses) ? :unresolved : numerical ? :estimated : :evaluated,
         methods=Symbol[r[3] for r in rows],tail_bound=tail,
         tail_status=!numerical ? :not_applicable : p.controls.support !== nothing ? :declared_support : provider === nothing ? :unknown : :user_supplied_unverified,
-        window_refinement_differences=differences,window_refinement_scope=:numerical_not_tail_bound,
+        window_refinement_differences=differences,window_refinement_quadrature_estimates=refinement_errors,
+        window_refinement_statuses=refinement_statuses,window_refinement_scope=:numerical_not_tail_bound,
         aliasing=:not_estimated,interpolation=:not_used,precision=T,
         convention=:forward_plus_inverse_minus_2pi,window=p.controls.window)
 end
@@ -157,3 +175,37 @@ function filter_evidence(p::PreparedFilterTransform)
         transform_controls=p.controls,callback_ownership=:deepcopy_deterministic_captures,
         cached_targets=length(p.cache),implementation_theorem=:not_established))
 end
+
+# These controls belong to a resolved filter/frame, independently of Config's
+# dissipative time registers. Their defaults preserve the explicitly given grid.
+function _coherent_transform_controls(options::NamedTuple,::Type{T}) where {T}
+    defaults=(;time_step=nothing,time_window=nothing,frequency_window=nothing,
+        frequency_grid_size=257,backend=:finufft,method=:time,
+        tolerance=T(1e-9),policy=:warn,refine=true,repair=false,max_points=2049)
+    all(k->haskey(defaults,k),keys(options)) || throw(ArgumentError("Unknown coherent transform control."))
+    c=merge(defaults,options)
+    for x in (c.time_step,c.time_window,c.frequency_window)
+        x===nothing || (x isa Real && isfinite(x) && x>0) || throw(ArgumentError("Coherent windows/steps must be finite and positive."))
+    end
+    c.frequency_grid_size isa Int && c.frequency_grid_size>=3 &&
+        c.max_points isa Int && c.max_points>=3 || throw(ArgumentError("Coherent grid sizes must be integers >= 3."))
+    c.backend in (:direct,:finufft) && c.method in (:time,:hybrid) &&
+        c.policy in (:warn,:error) || throw(ArgumentError("Invalid coherent backend/method/policy."))
+    c.refine isa Bool && c.repair isa Bool || throw(ArgumentError("refine and repair must be Boolean."))
+    isfinite(c.tolerance) && c.tolerance>0 || throw(ArgumentError("Coherent tolerance must be finite and positive."))
+    return c
+end
+_is_dll_bohr_spec(p::PreparedFilterTransform) = !(p.base isa GaussianFilter)
+# A numerical plan is accepted through the finite-sampling preparation boundary,
+# not as a structural channel certificate. Prepared channel families await T14.
+_is_admissible_dll_filter(::PreparedFilterTransform) = false
+_dll_time_supported(::PreparedFilterTransform) = true
+function _require_admissible_dll_filter(p::PreparedFilterTransform;beta=nothing)
+    _is_dll_bohr_spec(p) || throw(ArgumentError("Legacy CKG Gaussian is not a DLL filter."))
+    beta===nothing || isapprox(p.beta,beta;rtol=10eps(typeof(p.beta)),atol=0) ||
+        throw(ArgumentError("Prepared filter beta must match construction beta."))
+    # Raw/time specifications are checked on the actual Bohr set at compilation;
+    # this dispatch is a capability check, never a global balance certificate.
+    return p
+end
+filter_time_cutoff(::PreparedFilterTransform,::Real) = Inf

@@ -67,6 +67,14 @@ function _precompute_coherent_B(
     precomputed_data,
     )
     (; filter, time_labels, t0) = precomputed_data
+    if filter isa PreparedFilterTransform
+        T=eltype(hamiltonian.eigvals)
+        R=zeros(Complex{T},size(hamiltonian.data))
+        for jump in jumps, L in _dll_workspace_lindblads(jump,hamiltonian,precomputed_data,TimeDomain())
+            R .+= L'*L
+        end
+        return _prepared_dll_coherent(jumps,hamiltonian,filter,time_labels,t0;loss=R).B
+    end
     return dll_coherent_op_time(jumps, hamiltonian, time_labels, filter, config.beta, t0)
 end
 

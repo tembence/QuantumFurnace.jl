@@ -147,7 +147,7 @@ function _collect_dll_filter_errors!(
     end
 
     if filter isa TimeFilter
-        push!(errors, "TimeFilter simulation requires the numerical Fourier compiler (T12–T13); use a Bohr frequency specification.")
+        push!(errors, "Wrap TimeFilter in prepare_filter_transform with a declared support or numerical window.")
         return nothing
     end
     if !_is_admissible_dll_filter(filter) && !_is_dll_bohr_spec(filter)
@@ -312,7 +312,7 @@ function validate_config!(
         if config.construction isa DLL
             _collect_dll_filter_errors!(errors, config.filter, config.beta)
             if config.domain isa TimeDomain && !_dll_time_supported(config.filter)
-                push!(errors, "Custom DLL Time simulation requires T12–T13; use BohrDomain.")
+                push!(errors, "Custom DLL Time requires prepare_filter_transform with numerical controls.")
             end
         elseif !(config.filter isa GaussianFilter)
             push!(errors,
@@ -480,8 +480,8 @@ A prebuilt Hamiltonian must already cache the requested Gibbs state; explicitly
 use `HamHam(ham; beta_phys=new_beta)` to change temperature without diagonalising.
 
 Bohr needs no registers. Time requires an explicit physical `time_step` and
-`num_energy_bits`; the current implementation uses their shared time grid for
-both dissipation and the canonical coherent correction. No accuracy certificate
+`num_energy_bits`; legacy filters use their shared time grid for both terms. Prepared filters
+accept independent coherent controls via prepare_filter_transform. No accuracy certificate
 or default quadrature resolution is inferred from these controls.
 
 The default clock is `:raw_generator`, multiplier one. An optional existing
@@ -817,12 +817,11 @@ struct _RescaledDLLFilter{T<:AbstractFloat,F<:_UserDLLFilter,M} <: _UserDLLFilte
     metadata::M
 end
 function _physical_dll_filter(f::_UserDLLFilter, R::T, beta::T) where {T<:AbstractFloat}
-    f isa TimeFilter && throw(ArgumentError("TimeFilter execution requires T12–T13."))
     isone(R) && typeof(f.beta) == T && f.beta == beta && return f
     metadata = _user_filter_metadata(beta;name=f.metadata.name,version=f.metadata.version,
         parameters=f.metadata.parameters,
         support=f.metadata.support === nothing ? nothing : f.metadata.support/R,
-        tail_bound=f.metadata.tail_bound)
+        tail_bound=f.metadata.tail_bound===nothing ? nothing : W->f.metadata.tail_bound(R*W)/R)
     return _RescaledDLLFilter(beta,f,R,metadata)
 end
 freq_kernel(f::_RescaledDLLFilter, nu::Real) =
@@ -836,3 +835,30 @@ function _filter_frame(f::_UserDLLFilter, frame::Symbol, ::Type{T}) where {T<:Ab
     return DLLFilterFrame{T}(f.metadata.name,
         f.metadata.support === nothing ? nothing : T(f.metadata.support),zero(T),one(T),frame)
 end
+
+# Coordinate conversion includes the Fourier Jacobian: F_alg(v)=F_phys(R*v),
+# f_alg(t)=f_phys(t/R)/R. Tail providers retain their declared input L1 meaning.
+function _physical_dll_filter(f::TimeFilter,R::T,beta::T) where {T<:AbstractFloat}
+    base=deepcopy(f)
+    return TimeFilter(beta;kernel=t->time_kernel(base,t/R)/R,
+        name=f.metadata.name,version=f.metadata.version,parameters=f.metadata.parameters,
+        support=f.metadata.support===nothing ? nothing : T(f.metadata.support*R),
+        tail_bound=f.metadata.tail_bound===nothing ? nothing : W->f.metadata.tail_bound(W/R))
+end
+function _physical_dll_filter(p::PreparedFilterTransform,R::T,beta::T) where {T<:AbstractFloat}
+    c=p.controls
+    scale=c.input==:time ? R : inv(R)
+    coherent=merge(c.coherent,(;
+        time_step=c.coherent.time_step===nothing ? nothing : T(c.coherent.time_step*R),
+        time_window=c.coherent.time_window===nothing ? nothing : T(c.coherent.time_window*R),
+        frequency_window=c.coherent.frequency_window===nothing ? nothing : T(c.coherent.frequency_window/R)))
+    base=_physical_dll_filter(p.base,R,beta)
+    controls=merge(c,(;coherent,window=c.window===nothing ? nothing : T(c.window*scale),
+        support=c.support===nothing ? nothing : T(c.support*scale),
+        breakpoints=Tuple(T(x*scale) for x in c.breakpoints),rtol=T(c.rtol),
+        atol=T(c.atol*(c.input==:frequency ? inv(R) : one(T)))))
+    return PreparedFilterTransform(beta,deepcopy(base),controls,
+        Dict{Tuple{Symbol,T},Tuple{Complex{T},T,Symbol}}())
+end
+_filter_frame(p::PreparedFilterTransform,frame::Symbol,::Type{T}) where {T<:AbstractFloat} =
+    _filter_frame(p.base,frame,T)

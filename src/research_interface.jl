@@ -55,7 +55,7 @@ function _gibbs_preflight(H; beta_phys=nothing,temperature=nothing,
         throw(ArgumentError("filter must be a built-in DLL instance or physical-beta factory."))
     physical isa AbstractFilter || throw(ArgumentError("Filter factory must return an AbstractFilter."))
     domain isa TimeDomain && !_dll_time_supported(physical) && throw(ArgumentError(
-        "Custom DLL Time simulation requires T12–T13; use BohrDomain."))
+        "Custom DLL Time requires prepare_filter_transform with numerical controls."))
     errors = String[]
     T = typeof(real(float(zero(eltype(matrix)))))
     _collect_dll_filter_errors!(errors,physical,T(beta);label="physical filter")
@@ -74,7 +74,21 @@ function _gibbs_preflight(H; beta_phys=nothing,temperature=nothing,
     source_bound = complete_adjoint && !(jumps isa Symbol) ? 2count : count
     # Includes Hamiltonian spectral copies/Bohr caches, owned input/filtered
     # sources, per-thread matvec storage, and Time pair-grid temporaries.
-    bytes = big(16)*d^2*(80+12source_bound*channels+20Threads.nthreads()) + big(64)*nt^2
+    coherent_bytes=big(0)
+    if domain isa TimeDomain && physical isa PreparedFilterTransform
+        c=physical.controls.coherent
+        c.backend==:finufft && !(T in (Float32,Float64)) && throw(ArgumentError("FINUFFT uses Float64; select coherent.backend=:direct."))
+        if c.method==:time
+            dt=c.time_step===nothing ? time_step : c.time_step
+            W=c.time_window===nothing ? (nt÷2)*time_step : c.time_window
+            points=2ceil(BigInt,W/dt)+1
+            largest_time=c.refine ? 2points-1 : points
+            largest_freq=c.refine ? 2big(c.frequency_grid_size)-1 : big(c.frequency_grid_size)
+            max(largest_time,largest_freq)<=c.max_points || throw(ArgumentError("Coherent controls/refinements exceed max_points=$(c.max_points)."))
+            coherent_bytes=big(128)*(largest_time^2+largest_freq^2)
+        end
+    end
+    bytes = big(16)*d^2*(80+12source_bound*channels+20Threads.nthreads()) + big(64)*nt^2 + coherent_bytes
     return (;dimension=d,num_qubits=n,construction=:DLL,domain=Symbol(nameof(typeof(domain))),
         beta_phys=beta,beta_alg=H isa AbstractMatrix ? nothing : beta*H.rescaling_factor,
         rescaling_factor=H isa AbstractMatrix ? nothing : H.rescaling_factor,

@@ -266,8 +266,11 @@ function _dll_coherent_op_time_frequency_grid(
     nu_min::Real,
     nu_max::Real,
     nu_grid_size::Int = 256,
+    backend::Symbol = :finufft,
 ) where {T<:AbstractFloat}
     _require_admissible_dll_filter(filter; beta=beta)
+    backend in (:direct,:finufft) || throw(ArgumentError("Unknown coherent backend."))
+    backend == :finufft && !(T in (Float32,Float64)) && throw(ArgumentError("Coherent FINUFFT uses Float64; select :direct for higher precision."))
     nu_grid_size >= 2 || throw(ArgumentError("nu_grid_size must be >= 2."))
     nu_lo = T(nu_min)
     nu_hi = T(nu_max)
@@ -289,6 +292,16 @@ function _dll_coherent_op_time_frequency_grid(
     @inbounds for q in 1:Nν, p in 1:Nν
         th = tanh(βT * (nu[q] - nu[p]) / 4)
         g_hat[p, q] = pref_g * th * f_vec[p] * conj(f_vec[q])
+    end
+
+    if backend == :direct
+        weights = fill(Δν,Nν); weights[1]/=2; weights[end]/=2
+        phi = CT[cis(-v*t)*w for t in time_labels for (v,w) in zip(nu,weights)]
+        phi = transpose(reshape(phi,Nν,Nt))
+        psi = CT[cis(v*t)*w for t in time_labels for (v,w) in zip(nu,weights)]
+        psi = transpose(reshape(psi,Nν,Nt))
+        g_tt = (phi*g_hat*transpose(psi))/(2T(pi))^2
+        return _dll_coherent_from_g_tt(jumps,hamiltonian,g_tt,time_labels,τ;backend=:direct)
     end
 
     # FINUFFT uses $exp(i(s_x t_x + s_y t_y))$; negate the first source axis.
@@ -368,13 +381,28 @@ function _dll_coherent_from_g_tt(
     hamiltonian::HamHam{T},
     g_tt::AbstractMatrix{<:Complex},
     time_labels::AbstractVector{<:Real},
-    τ::Real,
+    τ::Real;
+    backend::Symbol=:finufft,
 ) where {T<:AbstractFloat}
     eigvals = hamiltonian.eigvals
     n = length(eigvals)
     Nt = length(time_labels)
     CT = Complex{T}
     @assert size(g_tt) == (Nt, Nt)
+
+    if backend == :direct
+        G=zeros(CT,n,n)
+        for k in 1:n,j in 1:n,i in 1:n
+            left=CT[cis((eigvals[k]-eigvals[j])*t) for t in time_labels]
+            right=CT[cis((eigvals[i]-eigvals[k])*t) for t in time_labels]
+            q=sum(left .* (g_tt*right))*T(τ)^2
+            for jump in jumps
+                A=jump.in_eigenbasis
+                G[i,j] += conj(A[k,i])*A[k,j]*q
+            end
+        end
+        return G
+    end
 
     # Math: $Q_(i j k) = tau^2 sum_(m,n) g_(m n)
     # exp(i[(lambda_i-lambda_k)t_n + (lambda_k-lambda_j)t_m])$.
@@ -565,4 +593,94 @@ function dll_kossakowski_bohr(
     bohr_freqs = sort!(collect(keys(hamiltonian.bohr_dict)))
     α = dll_kossakowski_bohr(filter, bohr_freqs)
     return α, bohr_freqs
+end
+
+# Explicit finite-grid time representation and an algebraic hybrid reference.
+# Refinement differences are measurements, not global generator error bounds.
+function _prepared_dll_coherent(jumps,ham,p::PreparedFilterTransform,labels,step;
+    loss=nothing)
+    T=eltype(ham.eigvals); c=p.controls.coherent
+    dt=c.time_step===nothing ? T(step) : T(c.time_step)
+    Wt=c.time_window===nothing ? maximum(abs,labels) : T(c.time_window)
+    Wnu=c.frequency_window
+    if Wnu===nothing
+        Wnu=p.controls.input==:frequency ? p.controls.window : nothing
+        Wnu===nothing && p.base isa DLLGaussianFilter && (Wnu=T(16)/p.beta)
+    end
+    # Time-kernel input gives no frequency-tail estimate automatically.
+    c.method==:hybrid || Wnu!==nothing || throw(ArgumentError(
+        "A two-time kernel needs coherent.frequency_window for time-input filters."))
+    R=loss===nothing ? zeros(Complex{T},length(ham.eigvals),length(ham.eigvals)) : loss
+    if loss===nothing
+        for jump in jumps
+            A=dll_lindblad_op_time(jump,ham,labels,p,step)
+            R .+= A'*A
+        end
+    end
+    hybrid=_dll_coherent_from_loss(R,ham.eigvals,p.beta)
+    bohr=_prepare_dll_bohr_filter(p,ham.eigvals)
+    # Direct amplitude discrepancy exposes dissipative window/spacing error;
+    # it is finite-spectrum evidence and does not bound coherent tails.
+    implemented=fourier_sum(collect(labels),time_kernel.(Ref(p),labels).*step,
+        vec(ham.bohr_freqs);backend=c.backend)
+    exact=freq_kernel.(Ref(bohr),vec(ham.bohr_freqs))
+    dissipative_error=norm(implemented-exact)/max(norm(exact),eps(T))
+    function assemble(twindow,tstep,nwindow,ncount)
+        half=ceil(Int,twindow/tstep)
+        2half+1 <= c.max_points && ncount <= c.max_points || throw(ArgumentError(
+            "Coherent refinement exceeds max_points=$(c.max_points); reduce controls or explicitly increase budget."))
+        grid=collect(-half:half).*tstep
+        return _dll_coherent_op_time_frequency_grid(jumps,ham,grid,p,p.beta,tstep;
+            nu_min=-nwindow,nu_max=nwindow,nu_grid_size=ncount,backend=c.backend)
+    end
+    B=c.method==:hybrid ? hybrid : assemble(Wt,dt,Wnu,c.frequency_grid_size)
+    scale=max(norm(B),norm(R),eps(T))
+    differences=if c.method==:time && c.refine
+        # Preserve frequency spacing when enlarging its window.
+        (;frequency_window=norm(assemble(Wt,dt,2Wnu,2c.frequency_grid_size-1)-B)/scale,
+          frequency_grid=norm(assemble(Wt,dt,Wnu,2c.frequency_grid_size-1)-B)/scale,
+          time_window=norm(assemble(2Wt,dt,Wnu,c.frequency_grid_size)-B)/scale,
+          time_grid=norm(assemble(Wt,dt/2,Wnu,c.frequency_grid_size)-B)/scale)
+    else
+        nothing
+    end
+    any(row->row[3]==:unresolved_quadrature,values(p.cache)) && throw(ArgumentError(
+        "Coherent Fourier quadrature budget exhausted; tighten transform controls."))
+    defect=norm(B-B')/scale
+    hybrid_error=norm(B-hybrid)/scale
+    unresolved=dissipative_error>c.tolerance || defect>c.tolerance || hybrid_error>c.tolerance ||
+        (differences!==nothing && maximum(values(differences))>c.tolerance)
+    if unresolved
+        message="DLL Time accuracy unresolved: dissipative amplitude error=$dissipative_error, coherent refinements=$differences, implemented-loss comparison=$hybrid_error, Hermiticity defect=$defect. Tighten independent windows/grids."
+        c.policy==:error ? throw(ArgumentError(message)) : (@warn message)
+    end
+    # A materially non-Hermitian B would cease to define the advertised GKLS
+    # generator. Never repair it silently, even under the warning policy.
+    defect <= max(T(1e-11),T(128)*eps(T)) || throw(ArgumentError(
+        "Coherent quadrature is not Hermitian at roundoff; repair is not a KMS correction."))
+    repair_size=c.repair ? norm((B+B')/2-B) : zero(T)
+    c.repair && (B=(B+B')/2)
+    evidence=(;method=c.method==:hybrid ? :time_jumps_implemented_loss_correction : :full_two_time_quadrature,
+        status=unresolved ? :unresolved : c.refine || c.method==:hybrid ? :estimated : :not_checked,
+        dissipative_amplitude_error=dissipative_error,coherent_refinements=differences,
+        coherent_refinement_scope=:numerical_differences_not_bounds,
+        coherent_time_step=dt,coherent_time_window=ceil(Wt/dt)*dt,
+        requested_coherent_time_window=Wt,coherent_frequency_window=Wnu,
+        coherent_frequency_grid_size=c.frequency_grid_size,
+        frequency_tail=:not_certified,time_tail=:not_certified,
+        transform_quadrature_estimate=maximum((row[2] for row in values(p.cache));init=zero(T)),
+        transform_estimate_scope=:individual_kernel_evaluations_not_operator_bound,
+        aliasing=:covered_only_by_grid_refinement,interpolation=:not_used,
+        hybrid_difference=hybrid_error,
+        hermiticity_defect_before_repair=defect,hermitian_repair_norm=repair_size,
+        backend=c.backend,transform_precision=c.backend==:finufft ? Float64 : T,
+        tolerance=c.tolerance,callbacks_in_matvec=false,
+        kms_restoration=:not_claimed)
+    return (;B,evidence)
+end
+
+function dll_coherent_op_time(jumps::AbstractVector{<:JumpOp},ham::HamHam,
+    labels::AbstractVector{<:Real},p::PreparedFilterTransform,beta::Real,step::Real)
+    _require_admissible_dll_filter(p;beta)
+    return _prepared_dll_coherent(jumps,ham,p,labels,step).B
 end

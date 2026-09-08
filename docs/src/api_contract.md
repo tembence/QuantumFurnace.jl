@@ -1,7 +1,6 @@
 # DLL research interface contract
 
-This page freezes the interface planned by tasks T00–T21. The DLL facade and custom frequency specifications are available through T11.
-Automatic custom time transforms remain T12–T13 work. Existing
+This page freezes the interface planned by tasks T00–T21. The DLL facade, custom frequency specifications and prepared numerical Time filters are available through T13. Existing
 `Config`, `HamHam`, `JumpOp`, `Workspace` and result APIs keep their meanings.
 `test/test_research_contract.jl` verifies the repaired T00–T02 regressions
 and is registered in the default test runner.
@@ -126,8 +125,8 @@ intended). CKG/GNS retain their existing low-level `Config` APIs; this helper
 currently accepts DLL only. The simulation facade uses these same preparation rules.
 
 For DLL Time, supply `domain=TimeDomain()`, physical `time_step` and
-`num_energy_bits`; the algorithm time step is `R*time_step`. Both generator
-terms use the existing shared quadrature grid, whose accuracy must be checked.
+`num_energy_bits`; the algorithm time step is `R*time_step`. Prepared filters accept independent coherent controls as described below. Legacy
+built-ins retain their shared-grid defaults; accuracy must be checked.
 Bohr preparation needs no register or CKG rate parameters; the returned
 `Config.sigma=1` is an unused DLL compatibility value recorded as such.
 
@@ -183,8 +182,8 @@ unknown; T12–T13 provide direct references and independent refinement controls
 
 ## Construction and domain capabilities
 
-This table describes **low-level Lindbladian** paths after T02.
-The facade remains pending until T09. Existence of a domain type does not
+This table describes the available **Lindbladian** paths through T13.
+The DLL facade supports Bohr and Time execution. Existence of a domain type does not
 establish support. “Available” does not certify a chosen quadrature tolerance.
 
 T01 repaired the Time source adjoint. T02 supports DLL Time workspaces with
@@ -197,7 +196,7 @@ DLL validation no longer requires CKG transition-rate parameters. DLL
 | DLL built-ins, Hermitian sources | Available | Available | Available | Available | Rejected | T02 complete; T09 facade |
 | DLL built-ins, adjoint-paired sources | Available | Available | Available | Available | Rejected | T01–T02 complete |
 | DLL existing global multichannel filters | Available, separate channels | Available | Available, separate channels | Available | Rejected | T01–T02 complete; heterogeneous per-source expansion T14 |
-| DLL custom complex filters | Available, finite Bohr checks | Available, retained samples | Rejected pending transforms | Rejected pending transforms | Rejected | T10–T11 complete; T12–T13 Time; T14 per-source channels |
+| DLL custom complex filters | Available, finite Bohr checks | Available, retained samples | Available with prepared transforms | Available with prepared transforms | Rejected | T10–T13 complete; T14 per-source channels |
 | CKG built-in Gaussian OFT/rates | Available | Available | Available | Available | Available with valid registers/local Trotter cache | Preserve; T15 typed rates; T20 release checks |
 | CKG general joint filter/rate | Unavailable | Unavailable | Unavailable | Unavailable | General Energy pending; custom Trotter gated | T16 Bohr/Energy; T17 Time and explicit Trotter gate |
 
@@ -442,9 +441,9 @@ information and implementation-theorem applicability. The compiled report record
 finite-Bohr balance checks and flags active transition zeros as possibly reducing
 connectivity. Such zeros are allowed and are not a balance failure or a proof of
 nonergodicity. One global filter/channel family is applied to both adjoint partners;
-per-source assignments remain T14. `TimeFilter` can evaluate its named kernel,
-but all custom Time simulation rejects until T12–T13 provide the transforms and
-matching coherent correction.
+per-source assignments remain T14. Wrap `TimeFilter` or a custom frequency filter in `prepare_filter_transform`
+for numerical Time execution. Unprepared callbacks still reject in TimeDomain
+because their numerical windows and controls have not been specified.
 
 ### Prepared numerical Fourier transforms (T12)
 
@@ -478,3 +477,52 @@ p = prepare_filter_transform(f; window=16.0)
 evidence = transform_values(p, [-1.0, 0.0, 1.0])
 # evidence.tail_status == :unknown; this is not a continuum certificate.
 ```
+
+### Independent coherent controls and custom DLL Time (T13)
+
+Prepared filters accept `coherent=(; ...)` with independent `time_step`,
+`time_window`, `frequency_window` and `frequency_grid_size`. Omitted coherent
+time controls inherit the supplied dissipative grid. Frequency-input filters
+inherit their transform window; time-input filters must declare a coherent
+frequency window. All supplied coordinates are physical in the facade and
+algorithm coordinates in legacy Config. Conversion includes the Jacobian
+`f_alg(t)=f_phys(t/R)/R`; it changes no generator clock.
+
+```julia
+H = ComplexF64[0.2 0.3im; -0.3im -0.2]
+f = KMSFilter(0.8; q_positive=x -> exp(-(0.8x)^2/8)*cis(0.2x), name=:phase_time)
+p = prepare_filter_transform(f; window=20.0,
+    coherent=(;time_step=0.12, time_window=6.0,
+        frequency_grid_size=257, policy=:error))
+ws = Workspace(H; beta_phys=0.8, filter=p, domain=TimeDomain(),
+    time_step=0.12, num_energy_bits=7)
+result = simulate_gibbs(ws; times=[0.0, 0.05], diagnostics=:quick)
+result.provenance.time_compilation
+```
+
+The default `method=:time` transforms the complex two-frequency kernel with
+factor `(2π)^(-2)`, then contracts `A(t′)'*A(t)`. `backend=:direct` supplies a
+precision-preserving finite-sum reference; `:finufft` uses Float64 internally.
+No quadrature or callback runs in a source matvec. The facade includes the
+largest refinement grids in its construction-memory estimate; `max_points`
+bounds each coherent axis (default 2049). Larger grids require explicit budgets.
+
+With `refine=true` (default), the report measures four independent changes:
+doubling the frequency window at fixed spacing, halving frequency spacing,
+doubling the time window, and halving time spacing. It also compares implemented
+dissipative amplitudes with the complete finite-Bohr input and compares B with
+the implemented-loss reference. `tolerance=1e-9` controls these **numerical
+checks**, not a rigorous continuum bound. `policy=:warn` returns an explicitly
+`:unresolved` result when a check fails; `:error` rejects it. `refine=false`
+retains the reference checks and records refinement status as `:not_checked`.
+Omitted tails remain uncertified even when measured differences are small.
+
+Explicit `method=:hybrid` uses time-integrated jumps with the canonical correction
+from their implemented loss R. Provenance calls this
+`:time_jumps_implemented_loss_correction`, distinct from
+`:full_two_time_quadrature`. It validates neither the two-time representation nor
+its implementation cost and does not restore KMS to inaccurate jumps.
+Hermiticity is checked before optional `repair=true` roundoff symmetrisation;
+a material defect rejects. The repair size is reported separately and is never
+called a KMS correction. Prepared custom channel families are deferred to T14;
+the existing built-in multichannel paths retain their behaviour.

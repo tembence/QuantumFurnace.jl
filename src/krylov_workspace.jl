@@ -630,9 +630,13 @@ function Workspace(
     hermitianize!(R_total)
 
     # Keep the requested domain's coherent correction, including Time quadrature.
+    time_compilation = config.domain isa TimeDomain && filter isa PreparedFilterTransform ?
+        _prepared_dll_coherent(jumps,hamiltonian,filter,precomputed_data.time_labels,
+            precomputed_data.t0;loss=R_total) : nothing
     G = config.domain isa BohrDomain ?
         _dll_coherent_from_loss(R_total, hamiltonian.eigvals, config.beta) :
-        Matrix{CT}(_precompute_coherent_B(jumps, hamiltonian, config, precomputed_data))
+        time_compilation===nothing ?
+        Matrix{CT}(_precompute_coherent_B(jumps, hamiltonian, config, precomputed_data)) : time_compilation.B
 
     # Schrödinger coherent action: -i[G,rho].
     G_left  = Matrix{CT}(-1im .* G .- 0.5 .* R_total)
@@ -654,7 +658,8 @@ function Workspace(
         config.domain isa BohrDomain ?
             (;basis=:computational,clock_label=:compiled_generator,
                 beta_phys=config.beta_phys,beta_alg=config.beta,input_preparation=:legacy_workspace,
-                filter_compilation=_dll_bohr_compilation_evidence(filter, jumps, hamiltonian)) : nothing,
+                filter_compilation=_dll_bohr_compilation_evidence(filter, jumps, hamiltonian)) :
+            time_compilation===nothing ? nothing : (;time_compilation=time_compilation.evidence),
     )
 end
 
