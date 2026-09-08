@@ -1,4 +1,60 @@
 """
+    pauli_hamiltonian(n, terms) -> Hermitian
+
+Build a sparse physical Hamiltonian on `n` qubits. Each term is
+`coefficient => (site => :Pauli, ...)`, with labels `:I`, `:X`, `:Y`, `:Z`.
+Site 1 is the leftmost Kronecker factor; sites need not be contiguous or sorted.
+An empty site tuple denotes the identity. Repeated terms add, but repeated
+sites within a term are invalid. Coefficients must be finite real numbers.
+An empty term collection gives zero. No rescaling or diagonalisation is done.
+
+```julia
+H = pauli_hamiltonian(3, [-1.0 => (1 => :Z, 3 => :Z),
+                          0.7 => (2 => :X,), 2.0 => ()])
+```
+"""
+function pauli_hamiltonian(n::Integer, terms)
+    0 < n < Sys.WORD_SIZE - 1 || throw(ArgumentError(
+        "n must be positive and 2^n must fit in Int."))
+    entries = collect(terms)
+    # Validate even zero-coefficient terms before allocating register matrices.
+    for entry in entries
+        entry isa Pair || throw(ArgumentError("Each term must be coefficient => site tuple."))
+        coefficient, sites = entry
+        coefficient isa Real && isfinite(coefficient) || throw(ArgumentError(
+            "Pauli coefficients must be finite real numbers."))
+        sites isa Union{Tuple, AbstractVector} || throw(ArgumentError(
+            "Term support must be a tuple or vector of site => Pauli pairs."))
+        seen = Set{Int}()
+        for factor in sites
+            factor isa Pair || throw(ArgumentError("Each factor must be site => Pauli."))
+            site, label = factor
+            site isa Integer && 1 <= site <= n || throw(ArgumentError(
+                "Pauli sites must be integers in 1:$n."))
+            label isa Symbol && label in (:I, :X, :Y, :Z) || throw(ArgumentError(
+                "Pauli labels must be :I, :X, :Y or :Z."))
+            site in seen && throw(ArgumentError("Duplicate site $site in a Pauli term."))
+            push!(seen, site)
+        end
+    end
+    T = isempty(entries) ? Float64 : float(promote_type(map(e -> typeof(first(e)), entries)...))
+    H = spzeros(Complex{T}, 2^Int(n), 2^Int(n))
+    for (coefficient, sites) in entries
+        iszero(coefficient) && continue
+        labels = fill("I", Int(n))
+        for (site, label) in sites
+            labels[site] = String(label)
+        end
+        # Full-register support lets the existing contiguous embedding express
+        # arbitrary sites without introducing periodic translations.
+        term = pad_term(pauli_string_to_matrix(labels), Int(n), 1; periodic=false)
+        H += T(coefficient) .* SparseMatrixCSC{Complex{T}, Int}(term)
+    end
+    all(isfinite, H) || throw(ArgumentError("Pauli Hamiltonian coefficients overflowed during assembly."))
+    return Hermitian(H)
+end
+
+"""
     pauli_string_to_matrix(paulistring) -> Vector{Matrix{ComplexF64}}
 
 Convert labels from `"I"`, `"X"`, `"Y"`, and `"Z"` to single-qubit matrices.

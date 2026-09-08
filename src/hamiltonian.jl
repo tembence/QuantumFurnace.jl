@@ -17,7 +17,7 @@ struct HamHam{T<:AbstractFloat}
     disordering_coeffs::Union{Vector{Vector{T}}, Nothing}
     eigvals::Vector{T}
     eigvecs::Matrix{Complex{T}}
-    nu_min::T  # Smallest bohr frequency
+    nu_min::T  # Smallest adjacent energy spacing; zero for degenerate spectra.
     shift::T
     rescaling_factor::T
     periodic::Bool
@@ -153,8 +153,8 @@ function _validate_raw_hamiltonian(
     issorted(eigvals) || throw(ArgumentError("raw.eigvals must be sorted in nondecreasing order."))
 
     width = last(eigvals) - first(eigvals)
-    isfinite(width) && width > zero(T) || throw(ArgumentError(
-        "raw.eigvals must have positive finite spectral width."))
+    isfinite(width) && width >= zero(T) || throw(ArgumentError(
+        "raw.eigvals must have nonnegative finite spectral width."))
     window_tolerance = T(atol) + T(rtol) * max(abs(first(eigvals)), abs(last(eigvals)), one(T))
     first(eigvals) >= -window_tolerance || throw(ArgumentError(
         "raw.eigvals must lie above the algorithmic lower bound 0."))
@@ -448,6 +448,49 @@ function HamHam(
 )
     rescale = raw.rescaling_factor
     return HamHam(raw, beta_phys * rescale; spectral_validation=spectral_validation)
+end
+
+"""
+    HamHam(H::AbstractMatrix; beta_phys::Real) -> HamHam
+
+Prepare a finite Hermitian qubit Hamiltonian in physical energy units. The
+matrix must be square, finite and exactly Hermitian, of dimension `2^n`, `n≥1`.
+Dense spectral preparation owns its data and supports Float32 and Float64
+precision (integer matrices use Float64). Other floating-point precisions
+reject explicitly. `gibbs` is stored in the eigenbasis.
+
+For nonconstant spectra the existing affine convention is
+`H_alg = H_phys / rescaling_factor + shift*I`, with spectrum in `[0, 0.45]`.
+For `H=c*I`, the finite reference scale is `rescaling_factor=1`, `shift=-c`;
+`H_alg=0`, `nu_min=0`, and the Gibbs state is maximally mixed.
+`beta_alg = beta_phys * rescaling_factor` in both cases.
+
+No local decomposition is inferred: `base_terms`/`base_coeffs` are empty,
+disorder fields are `nothing`, and the legacy `periodic=false` field conveys
+no geometry. Trotter synthesis requires a Hamiltonian with local-term data.
+"""
+function HamHam(H::AbstractMatrix; beta_phys::Real)
+    dim = size(H, 1)
+    size(H, 2) == dim || throw(ArgumentError("Hamiltonian matrix must be square."))
+    dim >= 2 && ispow2(dim) || throw(ArgumentError(
+        "Hamiltonian dimension must be 2^n for n >= 1, got $dim."))
+    eltype(H) <: Number || throw(ArgumentError("Hamiltonian matrix must be numeric."))
+    all(isfinite, H) || throw(ArgumentError("Hamiltonian matrix must contain only finite values."))
+    ishermitian(H) || throw(ArgumentError("Hamiltonian matrix must be Hermitian."))
+    isfinite(beta_phys) && beta_phys > 0 || throw(ArgumentError(
+        "beta_phys must be finite and > 0."))
+    T = isconcretetype(eltype(H)) ? typeof(float(real(zero(eltype(H))))) :
+        mapreduce(x -> typeof(float(real(x))), promote_type, H)
+    T <: Union{Float32, Float64} || throw(ArgumentError(
+        "Matrix spectral preparation supports Float32 and Float64; got $T."))
+    physical = Hermitian(Matrix{Complex{T}}(H))
+    scaled, rescale, shift = _rescale_hamiltonian(physical)
+    energies, vectors = eigen(scaled)
+    raw = (; matrix=Matrix(scaled), terms=Vector{Vector{Matrix{Complex{T}}}}(),
+        base_coeffs=T[], eigvals=energies, eigvecs=vectors,
+        nu_min=minimum(diff(energies)), shift, rescaling_factor=rescale,
+        periodic=false)
+    return HamHam(raw; beta_phys)
 end
 
 """
@@ -848,6 +891,13 @@ function _rescaling_data(hamiltonian::Hermitian)
         centered[i, i] -= scalar_gauge
     end
     centered_hamiltonian = Hermitian(centered)
+
+    # An exactly scalar input has no intrinsic energy width. Use one physical
+    # energy unit as an explicit finite reference, without perturbing the model.
+    if all(iszero, centered)
+        T = typeof(float(scalar_gauge))
+        return centered_hamiltonian, zero(T), one(T), -T(scalar_gauge)
+    end
 
     margin = 0.1  # Keep the upper endpoint below the algorithmic wrap at 0.5.
     eigenergies = eigvals(centered_hamiltonian)

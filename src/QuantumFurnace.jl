@@ -100,7 +100,7 @@ export pick_transition, pick_gamma_sup, create_alpha, create_alpha_gns, create_a
 # `default_smooth_s` remains internal; scripts may qualify it explicitly.
 export B_time, B_trotter, B_bohr
 export X, Y, Z, Had,
-       pad_term, expm_pauli_padded, pauli_string_to_matrix,
+       pad_term, expm_pauli_padded, pauli_string_to_matrix, pauli_hamiltonian,
        trotterize, group_hamiltonian_terms
 export validate_config!
 export register_t0_D, register_w0_D, register_r_D,

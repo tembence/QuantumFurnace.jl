@@ -208,9 +208,11 @@ using Statistics: median
         @test_throws ArgumentError QuantumFurnace._gibbs_weights([0.0, 1.0], Inf)
 
         constant_h = Hermitian(Matrix{ComplexF64}(2.0I, 2, 2))
-        @test_throws ArgumentError QuantumFurnace._rescaling_and_shift_factors(constant_h)
-        @test_throws ArgumentError HamHam(Vector{Vector{Matrix{ComplexF64}}}(),
-            Float64[], 1, 1.0)
+        constant_scale, constant_shift = QuantumFurnace._rescaling_and_shift_factors(constant_h)
+        @test isapprox(constant_scale, 1.0; atol=1e-15, rtol=0)
+        @test isapprox(constant_shift, -2.0; atol=1e-15, rtol=0)
+        empty_ham = HamHam(Vector{Vector{Matrix{ComplexF64}}}(), Float64[], 1, 1.0)
+        @test isapprox(empty_ham.gibbs, Matrix{ComplexF64}(I, 2, 2) / 2; atol=1e-15, rtol=0)
 
         identity_2 = Matrix{ComplexF64}(I, 2, 2)
         offset_ham = HamHam(

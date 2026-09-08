@@ -722,12 +722,11 @@ end
         beta_alg = 5.0
         ham_deg = _make_degenerate_bohr_ham(beta_alg)
         positive_zero = Set(ham_deg.bohr_dict[0.0])
-        negative_zero = Set(ham_deg.bohr_dict[-0.0])
         @test positive_zero == Set(vcat(
             CartesianIndex{2}.(1:4, 1:4),
-            [CartesianIndex(2, 3)],
+            [CartesianIndex(2, 3), CartesianIndex(3, 2)],
         ))
-        @test negative_zero == Set([CartesianIndex(3, 2)])
+        @test !haskey(ham_deg.bohr_dict, -0.0)
 
         jumps_deg = JumpOp[]
         for site in 1:2

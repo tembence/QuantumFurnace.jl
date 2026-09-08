@@ -341,8 +341,13 @@ function create_bohr_dict(bohr_freqs::Matrix{T}) where {T<:AbstractFloat}
     bohr_dict[zero(T)] = CartesianIndex{2}.(1:dim, 1:dim)
     for j in 1:dim
         for i in 1:(j - 1)
-            push!(bohr_dict[bohr_freqs[i, j]], CartesianIndex{2}(i, j))
-            push!(bohr_dict[-bohr_freqs[i, j]], CartesianIndex{2}(j, i))
+            nu = bohr_freqs[i, j]
+            # Dict distinguishes +0.0 and -0.0; degeneracies belong to the
+            # same physical zero-frequency sector as the diagonal entries.
+            forward = iszero(nu) ? zero(T) : nu
+            reverse = iszero(nu) ? zero(T) : -nu
+            push!(bohr_dict[forward], CartesianIndex{2}(i, j))
+            push!(bohr_dict[reverse], CartesianIndex{2}(j, i))
         end
     end
     return bohr_dict

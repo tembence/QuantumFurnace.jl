@@ -157,6 +157,15 @@ function compute_trotter_error(hamiltonian::HamHam, trotter::TrottTrott, t::Floa
     return norm(exact_time_evolution - trotter_time_evolution)
 end
 
+function _require_trotter_terms(ham::HamHam)
+    if isempty(ham.base_terms) &&
+       (ham.disordering_terms === nothing || isempty(ham.disordering_terms))
+        throw(ArgumentError(
+            "Trotter synthesis requires local-term data; an opaque matrix HamHam has no local decomposition."))
+    end
+    return nothing
+end
+
 """
     _check_1d_trotter_compatible(ham; tol=1e-10)
 
@@ -165,6 +174,7 @@ the physically irrelevant scalar shift.
 Returns the operator-norm deviation and throws when it exceeds `tol`.
 """
 function _check_1d_trotter_compatible(ham::HamHam{T}; tol::Real=1e-10) where {T<:AbstractFloat}
+    _require_trotter_terms(ham)
     isfinite(tol) && tol >= 0 || throw(ArgumentError("tol must be finite and >= 0."))
     n = Int(log2(size(ham.data, 1)))
     rescale = Float64(ham.rescaling_factor)
@@ -207,6 +217,7 @@ function _check_1d_trotter_compatible(ham::HamHam{T}; tol::Real=1e-10) where {T<
 end
 
 function _trotterize2(hamiltonian::HamHam, t::Float64, num_trotter_steps::Int64)
+    _require_trotter_terms(hamiltonian)
     # Second-order Strang Trotterization for 1D one- and two-site terms.
     # Math: $S_2(dt) = prod_gamma exp(i H_gamma dt/2)$ followed by the
     # same factors in reverse order.
@@ -270,6 +281,7 @@ Partition one- and two-site base terms for product-formula construction.
 The `commuting`, `noncommuting`, and `one_sites` term/coefficient groups.
 """
 function group_hamiltonian_terms(hamiltonian::HamHam{T}) where {T<:AbstractFloat}
+    _require_trotter_terms(hamiltonian)
     CT = Complex{T}
     list_of_kinda_commuting_2site_terms::Vector{Vector{Matrix{CT}}} = []
     coeffs_kinda_commuting_2site::Vector{T} = []
@@ -331,6 +343,7 @@ Approximate the time-`T` propagator with a first-order product formula.
 The dense approximate propagator.
 """
 function trotterize(hamiltonian::HamHam, T::Float64, num_trotter_steps::Int64)
+    _require_trotter_terms(hamiltonian)
     timestep::Float64 = T / num_trotter_steps
     num_qubits::Int64 = Int(log2(size(hamiltonian.data)[1]))
     periodic::Bool = hamiltonian.periodic

@@ -8,9 +8,9 @@ and is registered in the default test runner.
 
 ## Entry points and units
 
-The reserved names are `pauli_hamiltonian`, `simulate_gibbs`, `KMSFilter`,
-`FrequencyFilter`, `RateFilter`, `TimeFilter`, and `GibbsSimulationResult`.
-They have no existing package binding after T02. `Workspace` gains
+`pauli_hamiltonian` and `HamHam(H; beta_phys)` are available after T03.
+The names `simulate_gibbs`, `KMSFilter`, `FrequencyFilter`, `RateFilter`,
+`TimeFilter`, and `GibbsSimulationResult` remain reserved target API. `Workspace` gains
 a convenience constructor; it remains the existing compiled workspace type.
 
 Target example (Hamiltonian input: T03; configuration: T05; facade: T09):
@@ -31,9 +31,18 @@ result = simulate_gibbs(H; beta_phys=0.8, construction=DLL(),
 Each term occurs once at its listed sites; site 1 is the leftmost tensor
 factor. Identity terms use an empty site tuple. Labels are `:I`, `:X`, `:Y`,
 `:Z`; repeated sites in a term reject, repeated terms add. Coefficients are
-finite real numbers. Construction returns a physical Hermitian matrix without
-diagonalisation. Arbitrary Hermitian qubit matrices are accepted at simulation
-preparation; no local/Trotter decomposition is invented for an opaque matrix.
+finite real numbers. Construction returns a sparse physical Hermitian matrix
+without diagonalisation. `HamHam(H; beta_phys=0.8)` accepts finite, exactly
+Hermitian qubit matrices and performs dense spectral preparation in Float32 or
+Float64 (integer matrices use Float64; other floating precisions reject).
+It stores the Gibbs state in the eigenbasis. No local/Trotter decomposition is
+invented for matrix input; Trotter synthesis rejects even scalar matrix input.
+
+Zero and scalar Hamiltonians `H=c*I` use an explicit reference scale of one
+physical energy unit: `rescaling_factor=1`, `shift=-c`, `H_alg=0`, `nu_min=0`.
+Their Gibbs state is maximally mixed. A zero `nu_min` also occurs for ordinary
+degenerate spectra; it denotes the minimum adjacent spacing, not a positive
+frequency cutoff. Physical temperature must still be finite and positive.
 
 | Keyword/input | Frozen meaning | Task |
 |---|---|---|
