@@ -568,3 +568,168 @@ end
 # dissipator path then sums `L^(ℓ) ρ (L^(ℓ))† − …` per channel (no cross
 # terms in the multi-channel α).
 @inline _filter_channels_for_dll_oft(filter::DLLMultiChannelFilter) = filter.channels
+
+"""
+    ckg_to_dll(alpha, frequencies, beta; hamiltonian=nothing, jumps=nothing,
+        max_rank=nothing, rank_rtol=0, roundoff_rtol=nothing,
+        max_bohr_frequencies=65, max_bytes=64*1024^2)
+    ckg_to_dll(kernel::PreparedCKGJointKernel; kwargs...)
+
+Small-system finite-Bohr reference decomposition of a PSD KMS coefficient
+matrix. Rows of `alpha` follow the supplied distinct, reflection-closed
+`frequencies` (including zero). All inputs use the same energy frame and clock;
+no rate or source normalisation is added. Returns `filter`, reconstructed
+`alpha`, `frequencies`, and `evidence`. The filter contains separate tabulated
+DLL channels and has no continuum/time callback.
+
+The thermal tilt is diagonalised in a basis fixed by `Kz=P*conj(z)`, including
+imaginary odd vectors. This handles complex kernels and degenerate eigenvalues.
+Hermiticity, reflection and PSD defects exceeding `roundoff_rtol` are rejected.
+The default is `min(128*m*eps(T),sqrt(eps(T)))`; a supplied tolerance cannot
+exceed `sqrt(eps(T))`. Accepted symmetry repairs and eigenvalues removed within
+that tolerance are reported separately from requested rank compression.
+
+`max_rank` and `rank_rtol` discard eigenvalues of the **tilted** matrix. Rank
+compression requires `hamiltonian` and `jumps`, so both coefficient spectral
+norms and full-generator induced Hilbert–Schmidt norms are retained. Optional
+generator evidence uses the supplied source amplitudes, includes the canonical
+coherent correction, and is bounded before dense allocations by `max_bytes`.
+It is neither a diamond norm nor an implementation/mixing guarantee. A zero
+kernel uses one zero channel (`retained_rank=0`). Production CKG is unchanged.
+"""
+function ckg_to_dll(alpha::AbstractMatrix, frequencies, beta::Real;
+    hamiltonian=nothing, jumps=nothing, max_rank::Union{Nothing,Integer}=nothing,
+    rank_rtol::Real=0, roundoff_rtol::Union{Nothing,Real}=nothing,
+    max_bohr_frequencies::Integer=65, max_bytes::Integer=64*1024^2)
+    m=length(frequencies)
+    0<m<=max_bohr_frequencies && max_bytes>0 || throw(ArgumentError(
+        "Finite-Bohr reference requires 1 <= frequency count <= max_bohr_frequencies and positive max_bytes."))
+    size(alpha)==(m,m) || throw(ArgumentError("alpha must have one row/column per supplied frequency."))
+    T=promote_type(typeof(float(beta)),typeof(float(real(zero(eltype(alpha))))),float(eltype(frequencies)))
+    T in (Float32,Float64) || throw(ArgumentError("Finite-Bohr diagonalisation supports Float32 or Float64 inputs."))
+    b=T(beta)
+    isfinite(b)&&b>0 && isfinite(rank_rtol)&&0<=rank_rtol<1 || throw(ArgumentError(
+        "Require finite positive beta and 0 <= rank_rtol < 1."))
+    max_rank===nothing || 1<=max_rank<=m || throw(ArgumentError("max_rank must lie in 1:frequency_count."))
+    tol=roundoff_rtol===nothing ? min(T(128)*m*eps(T),sqrt(eps(T))) : T(roundoff_rtol)
+    isfinite(tol)&&0<=tol<=sqrt(eps(T)) || throw(ArgumentError(
+        "roundoff_rtol must lie between zero and sqrt(eps(T)); material defects cannot be repaired."))
+    (hamiltonian===nothing)==(jumps===nothing) || throw(ArgumentError("Supply both hamiltonian and jumps for generator evidence."))
+    compression=max_rank!==nothing || rank_rtol>0
+    compression && hamiltonian===nothing && throw(ArgumentError(
+        "Rank compression requires hamiltonian and jumps to retain the full-generator truncation norm."))
+    d=hamiltonian===nothing ? 0 : length(hamiltonian.eigvals)
+    # Includes eigensolver/SVD scratch, channel storage and sequential dense
+    # generator differences. BigInt arithmetic prevents overflow of the guard.
+    bytes=big(sizeof(Complex{T}))*(32big(m)^2+24big(d)^4+8big(m)*big(d)^2)
+    bytes<=max_bytes || throw(ArgumentError("Finite-Bohr reference working-set estimate $bytes exceeds max_bytes=$max_bytes."))
+    nus=T[iszero(u) ? zero(T) : T(u) for u in frequencies]
+    all(isfinite,nus)&&length(unique(nus))==m&&zero(T) in nus&&all(u->-u in nus,nus) ||
+        throw(ArgumentError("frequencies must be distinct, finite, reflection-closed and include zero."))
+    labels=Dict(u=>i for (i,u) in enumerate(nus)); opposite=[labels[iszero(u) ? zero(T) : -u] for u in nus]
+    a=Matrix{Complex{T}}(alpha)
+    all(isfinite,a) || throw(ArgumentError("alpha must be finite at working precision."))
+    if hamiltonian!==nothing
+        hamiltonian isa HamHam && jumps isa AbstractVector{<:JumpOp} || throw(ArgumentError(
+            "Generator evidence needs HamHam and a vector of compiled JumpOp sources in the same energy frame."))
+        validate_jump_pairing(jumps)
+        all(u->haskey(labels,T(u)),keys(hamiltonian.bohr_dict)) || throw(ArgumentError(
+            "The supplied frequencies must cover the complete Hamiltonian Bohr set."))
+        all(j->size(j.in_eigenbasis)==(d,d),jumps) || throw(ArgumentError("Source dimensions must match the Hamiltonian."))
+    end
+    exponents=(b/T(4)).*nus
+    all(x->isfinite(x)&&abs(x)<log(floatmax(T))/4,exponents) || throw(ArgumentError(
+        "Thermal tilt is outside the bounded reference precision; rescale inputs or reduce beta."))
+    tilt=exp.(exponents)
+    c=(tilt*transpose(tilt)).*a
+    all(isfinite,c) || throw(ArgumentError("Thermally tilted alpha overflows; rescale the coefficient clock."))
+    scale=opnorm(c)
+    hermiticity=opnorm(c-c')
+    reflection=opnorm(c-conj(c[opposite,opposite]))
+    all(isfinite,(scale,hermiticity,reflection)) || throw(ArgumentError(
+        "Tilted coefficient norm overflows working precision; rescale the coefficient clock."))
+    hermiticity<=tol*scale && reflection<=tol*scale || throw(ArgumentError(
+        "CKG coefficient fails finite-Bohr Hermiticity/KMS: tilted defects $hermiticity, $reflection exceed $(tol*scale)."))
+    # PHYSICS CHECK: U's columns satisfy P*conj(U)=U. Its real basis
+    # represents the antiunitary-fixed subspace, also in degenerate eigenspaces.
+    U=zeros(Complex{T},m,m); column=0
+    for i in 1:m
+        j=opposite[i]
+        i>j && continue
+        column+=1
+        if i==j
+            U[i,column]=one(T)
+        else
+            U[i,column]=U[j,column]=inv(sqrt(T(2)))
+            column+=1
+            U[i,column]=im/sqrt(T(2)); U[j,column]=-im/sqrt(T(2))
+        end
+    end
+    minimum_raw=minimum(eigvals(Hermitian((c+c')/2)))
+    minimum_raw>=-tol*scale || throw(ArgumentError(
+        "Material PSD defect: minimum tilted eigenvalue $minimum_raw < $(-tol*scale); no clipping performed."))
+    real_basis=real.(U'*c*U)
+    E=eigen(Symmetric((real_basis+transpose(real_basis))/2))
+    minimum(E.values)>=-tol*scale || throw(ArgumentError("Projected tilted kernel has a material PSD defect."))
+    positive=findall(>(tol*scale),E.values)
+    ordered=reverse(positive)
+    retained=filter(k->E.values[k]>T(rank_rtol)*maximum(E.values),ordered)
+    max_rank===nothing || resize!(retained,min(length(retained),Int(max_rank)))
+    function amplitudes(indices)
+        q=U*E.vectors[:,indices]*Diagonal(sqrt.(E.values[indices]))
+        return q./tilt
+    end
+    full=amplitudes(positive); kept=amplitudes(retained)
+    repaired=full*full'; reconstructed=kept*kept'
+    all(isfinite,repaired)&&all(isfinite,reconstructed) || throw(ArgumentError(
+        "Untilted reconstruction overflows working precision; rescale the coefficient clock."))
+    channels=isempty(retained) ? (_DLLBohrFilter(b,Dict(u=>zero(Complex{T}) for u in nus)),) :
+        Tuple(_DLLBohrFilter(b,Dict(u=>kept[i,k] for (i,u) in enumerate(nus))) for k in axes(kept,2))
+    family=DLLMultiChannelFilter(channels,b)
+    repair_norm=opnorm(repaired-a); truncation_norm=opnorm(reconstructed-repaired)
+    generator_norms=hamiltonian===nothing ? nothing : (
+        repair=_ckg_dll_generator_difference_norm(repaired-a,nus,b,hamiltonian,jumps),
+        truncation=_ckg_dll_generator_difference_norm(reconstructed-repaired,nus,b,hamiltonian,jumps),
+        total=_ckg_dll_generator_difference_norm(reconstructed-a,nus,b,hamiltonian,jumps))
+    evidence=(;scope=:finite_bohr_reference,frequency_count=m,channel_count=length(channels),
+        retained_rank=length(retained),numerical_rank=length(positive),
+        diagonalisation=:antiunitary_fixed_real_basis,roundoff_rtol=tol,
+        tilted_hermiticity_defect=hermiticity,tilted_reflection_defect=reflection,
+        minimum_tilted_eigenvalue=minimum_raw,tilted_eigenvalues=copy(E.values),
+        coefficient_norm=:spectral_2_norm,coefficient_repair_norm=repair_norm,
+        coefficient_truncation_norm=truncation_norm,coefficient_total_error_norm=opnorm(reconstructed-a),
+        generator_norm=:induced_hilbert_schmidt_full_generator,generator_error_norms=generator_norms,
+        max_rank,rank_rtol=T(rank_rtol),estimated_working_bytes=bytes,
+        continuum_filter=:not_defined,implementation_theorem=:not_established,
+        clock=:supplied_alpha_and_source_amplitudes)
+    return (;filter=family,alpha=reconstructed,frequencies=nus,evidence)
+end
+
+function ckg_to_dll(kernel::PreparedCKGJointKernel;kwargs...)
+    kernel.evidence.status==:pass || throw(ArgumentError("Only a passing prepared CKG kernel may enter DLL equivalence conversion."))
+    nus=sort!(collect(keys(kernel.oft.frequencies));by=u->kernel.oft.frequencies[u])
+    ckg_to_dll(kernel.alpha,nus,kernel.beta;kwargs...)
+end
+
+# Extend the existing dense two-source dissipator machinery for a coefficient
+# difference. This reference path never enters a production matvec.
+function _ckg_dll_generator_difference_norm(delta,nus,beta,ham,jumps)
+    CT=eltype(delta); d=length(ham.eigvals); labels=Dict(u=>i for (i,u) in enumerate(nus))
+    L=zeros(CT,d^2,d^2); R=zeros(CT,d,d)
+    ws=DenseLindbladianWorkspace(CT,d)
+    for jump in jumps
+        for (v,indices) in ham.bohr_dict
+            right=zeros(CT,d,d)
+            for index in indices
+                right[index]=jump.in_eigenbasis[index]
+            end
+            left=CT[delta[labels[ham.eigvals[i]-ham.eigvals[j]],labels[v]]*jump.in_eigenbasis[i,j]
+                for i in 1:d,j in 1:d]
+            _vectorize_liouv_diss_and_add!(L,left,right',one(real(zero(CT))),ws)
+            mul!(R,right',left,one(CT),one(CT))
+        end
+    end
+    B=_dll_coherent_from_loss(R,ham.eigvals,beta)
+    _vectorize_liouvillian_coherent!(L,B,ws)
+    return opnorm(L)
+end

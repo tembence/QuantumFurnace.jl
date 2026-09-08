@@ -3,7 +3,7 @@ module QuantumFurnace
 export PreparedFilterTransform, prepare_filter_transform, transform_values, fourier_sum
 export KMSFilter, FrequencyFilter, RateFilter, TimeFilter, filter_evidence
 export AbstractCKGTransition, GaussianTransition, MetropolisTransition, SmoothMetropolisTransition
-export CKGJointKernel, compile_ckg_kernel
+export CKGJointKernel, compile_ckg_kernel, ckg_to_dll
 export GaussianMixtureTransition, prepare_gaussian_mixture, transition_value, transition_alpha
 
 using Pkg
