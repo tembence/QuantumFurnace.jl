@@ -323,7 +323,8 @@ function validate_config!(
 
     # --- DLL construction validation (DLL-2) ---
     if config.construction isa DLL
-        if config.sim isa Thermalize
+        if config.sim isa Thermalize &&
+           !(_allow_hypothetical_dll_trotter && config.domain isa TrotterDomain)
             push!(errors, "DLL Thermalize channels are not supported; use Lindbladian evolution.")
         end
         # DLL needs an explicit DLL filter at the OFT stage (Eq. 3.4 weighting).
