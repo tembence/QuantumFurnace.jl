@@ -1,77 +1,38 @@
-# # Finding a thermal state
-#
-# This tutorial runs a short full-density-matrix simulation of a quantum Gibbs
-# sampler. The target state is
-# ```math
-# \rho_\beta = \frac{e^{-\beta H}}{\operatorname{tr}(e^{-\beta H})}.
-# ```
-# QuantumFurnace stores the example Hamiltonian with a rescaled spectrum, so
-# `beta_alg` below is the algorithm-side inverse temperature. The corresponding
-# physical value for the un-rescaled Hamiltonian is available through
-# `beta_phys(ham, beta_alg)`.
-
+# # Simulating a Gibbs sampler
+# This is full-density-matrix Lindbladian evolution, with continuous generator
+# time. It is not a sampled quantum-jump trajectory or a channel step count.
 using QuantumFurnace
-using LinearAlgebra
 
-# ## Load the system
-#
-# Small reproducible Heisenberg fixtures are shipped with the package. Loading
-# one constructs its eigendecomposition and caches the Gibbs state at the
-# requested algorithm-side inverse temperature.
+H = pauli_hamiltonian(2, [
+    -1.0 => (1 => :Z, 2 => :Z),
+    -0.7 => (1 => :X,),
+    -0.7 => (2 => :X,),
+])
+result = simulate_gibbs(H; beta_phys=0.8,
+    times=range(0, 4; length=21), diagnostics=:standard)
+result.trajectory.distances
+result.diagnostics
+result.spectrum.reliability
+@assert result.trajectory.all_converged
+@assert result.trajectory.trace_norms ≈ 2result.trajectory.distances
 
-n = 3
-beta_alg = 10.0
-ham = load_hamiltonian("heis", n; beta=beta_alg);
+# Input/output states use the computational basis by default. The initial state
+# is |+><+| tensor power. Saved intermediate states are off by default; request
+# save_states=true with a suitable max_saved_bytes cap if needed.
+# A finite-time failure to reach Gibbs does not establish nonergodicity.
+result.convergence
 
-# ## Construct jump operators
-#
-# We use normalised single-site Pauli operators. `JumpOp` stores each operator
-# both in the computational basis and in the Hamiltonian eigenbasis used by the
-# energy-domain construction.
+# The independent spectral policy uses its own operator starts. A small Ritz
+# residual does not rule out missed modes; inspect reliability and coverage.
+result.spectrum.coverage
 
-local_jumps = ([X], [Y], [Z])
-jump_norm = sqrt(length(local_jumps) * n)
-jumps = JumpOp[]
-
-for local_jump in local_jumps, site in 1:n
-    op = Matrix(pad_term(local_jump, n, site)) / jump_norm
-    op_eig = ham.eigvecs' * op * ham.eigvecs
-    push!(jumps, JumpOp(op, op_eig, op == transpose(op), ishermitian(op)))
+# Save the combined result as versioned data, then continue from its final state.
+# A fresh workspace is rebuilt; no mutable backend plans are loaded. The new
+# segment starts at zero additional time, and records the preceding time origin.
+continuation = mktempdir() do directory
+    path = save_result(result, joinpath(directory, "gibbs.bson"))
+    restored = load_result(path)
+    @assert restored.trajectory.rho_final ≈ result.trajectory.rho_final
+    simulate_gibbs(restored; times=[0.0, 0.1], diagnostics=:quick)
 end
-
-# ## Configure the sampler
-#
-# `KMS()` includes the coherent correction required by this construction. The
-# energy domain uses a finite frequency grid for the dissipative integral; the
-# exact coherent term is constructed from the Hamiltonian's Bohr frequencies.
-# A short trajectory keeps this tutorial quick while still showing motion
-# towards the cached Gibbs state.
-
-config = Config(;
-    sim=Thermalize(),
-    domain=EnergyDomain(),
-    construction=KMS(),
-    num_qubits=n,
-    with_linear_combination=true,
-    beta=beta_alg,
-    sigma=1 / beta_alg,
-    a=beta_alg / 30,
-    s=0.4,
-    num_energy_bits_D=7,
-    w0_D=0.05,
-    mixing_time=0.1,
-    delta=0.01,
-    jump_selection=:sweep,
-);
-
-# ## Evolve and inspect the result
-#
-# The default initial state is maximally mixed. The result stores the final
-# density matrix together with the sampled times and trace distances to the
-# Gibbs state.
-
-result = run_thermalize(jumps, config, ham; save_every=5);
-
-result.time_steps
-result.trace_distances
-tr(result.final_dm)
+@assert continuation.provenance.resume_time_origin ≈ last(result.trajectory.t)

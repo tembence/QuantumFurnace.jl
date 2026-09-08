@@ -36,60 +36,59 @@ using QuantumFurnace
 
 ## Quick start
 
-The following example loads a packaged three-qubit Hamiltonian, constructs
-single-site Pauli jump operators, and runs a short KMS thermalisation
-trajectory. The packaged Hamiltonian is rescaled, so `beta_alg` denotes the
-algorithm-side inverse temperature.
+Build a two-qubit Hamiltonian in physical energy units and evolve the default
+DLL sampler, including its coherent correction:
 
 ```julia
 using QuantumFurnace
-using LinearAlgebra
 
-n = 3
-beta_alg = 10.0
-ham = load_hamiltonian("heis", n; beta=beta_alg)
-
-local_jumps = ([X], [Y], [Z])
-jump_norm = sqrt(length(local_jumps) * n)
-jumps = JumpOp[]
-
-for local_jump in local_jumps, site in 1:n
-    op = Matrix(pad_term(local_jump, n, site)) / jump_norm
-    op_eig = ham.eigvecs' * op * ham.eigvecs
-    push!(jumps, JumpOp(op, op_eig, op == transpose(op), ishermitian(op)))
-end
-
-config = Config(;
-    sim=Thermalize(),
-    domain=EnergyDomain(),
-    construction=KMS(),
-    num_qubits=n,
-    with_linear_combination=true,
-    beta=beta_alg,
-    sigma=1 / beta_alg,
-    a=beta_alg / 30,
-    s=0.4,
-    num_energy_bits_D=7,
-    w0_D=0.05,
-    mixing_time=0.1,
-    delta=0.01,
-    jump_selection=:sweep,
-)
-
-result = run_thermalize(jumps, config, ham; save_every=5)
-result.trace_distances
+H = pauli_hamiltonian(2, [
+    -1.0 => (1 => :Z, 2 => :Z),
+    -0.7 => (1 => :X,),
+    -0.7 => (2 => :X,),
+])
+result = simulate_gibbs(H; beta_phys=0.8,
+    times=range(0, 4; length=21), diagnostics=:standard)
+result.trajectory.distances
+result.diagnostics
+result.spectrum.reliability
 ```
 
-`KMS()` includes its coherent correction by construction. Use
-`beta_phys(ham, beta_alg)` to convert the example's inverse temperature back to
-the un-rescaled physical Hamiltonian convention.
+`beta_phys` is inverse temperature in reciprocal energy units (`k_B=1`). The
+default initial state is the computational-basis product state `|+⟩⊗|+⟩`.
+`distances` contains trace distance, half the trace norm. A threshold crossing
+concerns this initial state; independent spectral diagnostics can remain
+inconclusive. The times use the generator clock set by the source amplitudes.
+Hamiltonian rescaling alone does not multiply that clock.
+
+Select `construction=KMS()` for CKG KMS. DLL supports Bohr and Time domains;
+custom Time filters require explicit transform controls. DLL Energy, Trotter
+and GQSP reject. General CKG joint kernels support Bohr, Energy and controlled
+Time conversion; custom Trotter rejects. Legacy CKG/GNS APIs remain available.
+See the [capability contract](docs/src/api_contract.md) for precise limits.
+
+The matrix-free evolution still requires dense Hamiltonian spectral preparation
+and density matrices. It does not make arbitrary many-body Hamiltonians
+scalable. Inspect resource estimates with `dry_run=true` before a larger run.
 
 ## Documentation
 
 Tutorials, background material, and the API reference are available at
 [benzabonanza.github.io/QuantumFurnace.jl](https://benzabonanza.github.io/QuantumFurnace.jl/).
 
+## Local documentation build
+
+```bash
+QF_DOCS_DEPLOY=false JULIA_NUM_THREADS=4 OPENBLAS_NUM_THREADS=1 julia --project=docs --startup-file=no --heap-size-hint=1500M docs/make.jl
+```
+
+This develops the local package in a disposable docs environment, executes the
+tutorials, and writes `docs/build/`. Deployment is off by default.
+
 ## References
+
+- Z. Ding, B. Li, and L. Lin, "Efficient quantum Gibbs samplers with
+  Kubo–Martin–Schwinger detailed balance condition," arXiv:2404.05998 (2024).
 
 - C.-F. Chen, M. J. Kastoryano, F. G. S. L. Brandao, and A. Gilyen,
   "Quantum thermal state preparation," arXiv:2303.18224 (2023).

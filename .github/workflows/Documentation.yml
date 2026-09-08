@@ -26,11 +26,8 @@ jobs:
         with:
           version: '1.12'
       - uses: julia-actions/cache@v2
-      - name: Install documentation dependencies
-        run: >-
-          julia --project=docs --startup-file=no -e
-          'using Pkg; Pkg.develop(PackageSpec(path=pwd())); Pkg.instantiate()'
-      - name: Build and deploy documentation
+      - name: Build documentation (deploy on pushes)
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: julia --project=docs --startup-file=no docs/make.jl
+          QF_DOCS_DEPLOY: ${{ github.event_name == 'push' }}
+        run: julia --project=docs --startup-file=no --heap-size-hint=1500M docs/make.jl

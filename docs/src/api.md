@@ -1,5 +1,18 @@
 # API reference
 
+## Physical-input research interface
+
+```@docs
+QuantumFurnace.simulate_gibbs
+QuantumFurnace.GibbsSimulationResult
+QuantumFurnace.pauli_hamiltonian
+QuantumFurnace.prepare_gibbs_inputs
+QuantumFurnace.prepare_jumps
+```
+
+See the [contract](api_contract.md) for physical units, construction/domain
+limits, diagnostic evidence, and portable reconstruction.
+
 ## Core types
 
 ```@docs
@@ -38,4 +51,25 @@ QuantumFurnace.GaussianFilter
 QuantumFurnace.DLLGaussianFilter
 QuantumFurnace.DLLMetropolisFilter
 QuantumFurnace.validate_config!
+```
+
+## Custom filters and rates
+
+```@docs
+QuantumFurnace.KMSFilter
+QuantumFurnace.FrequencyFilter
+QuantumFurnace.RateFilter
+QuantumFurnace.TimeFilter
+QuantumFurnace.prepare_filter_transform
+QuantumFurnace.GaussianMixtureTransition
+QuantumFurnace.CKGJointKernel
+QuantumFurnace.ckg_to_dll
+```
+
+## Results
+
+```@docs
+QuantumFurnace.save_result
+QuantumFurnace.load_result
+QuantumFurnace.register_filter!
 ```

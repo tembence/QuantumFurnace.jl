@@ -1,65 +1,60 @@
-using Documenter
-using Literate
-using QuantumFurnace
+# Build from the local checkout without changing either tracked environment.
+# Deployment is an explicit opt-in, including in CI.
+import Pkg
+const deploy_setting = get(ENV, "QF_DOCS_DEPLOY", "false")
+deploy_setting in ("false", "true") || error("QF_DOCS_DEPLOY must be true or false.")
+const docs_env = mktempdir()
+cp(joinpath(@__DIR__, "Project.toml"), joinpath(docs_env, "Project.toml"))
+Pkg.activate(docs_env)
+Pkg.develop(Pkg.PackageSpec(path=dirname(@__DIR__)))
+Pkg.instantiate()
 
+using Documenter, Literate, QuantumFurnace
+using LinearAlgebra
+BLAS.set_num_threads(1)
+realpath(dirname(dirname(pathof(QuantumFurnace)))) == realpath(dirname(@__DIR__)) ||
+    error("Documentation must execute against the local QuantumFurnace checkout.")
 
-# --- 1. Generate tutorials and theory pages from Literate.jl scripts ---
-const literate_dir = joinpath(@__DIR__, "src/literate")
-const generated_dir = joinpath(@__DIR__, "src/generated")
-
-# Clean up old generated files
-if isdir(generated_dir)
-    rm(generated_dir, recursive=true)
+# Stage sources so generating executed examples never overwrites tracked files.
+const staged = mktempdir()
+const sources = joinpath(staged, "src")
+cp(joinpath(@__DIR__, "src"), sources)
+const generated = joinpath(sources, "generated")
+rm(generated; recursive=true, force=true)
+mkpath(generated)
+for filename in sort(readdir(joinpath(sources, "literate")))
+    endswith(filename, ".jl") || continue
+    input = joinpath(sources, "literate", filename)
+    Literate.markdown(input, generated; documenter=true)
+    Literate.notebook(input, generated; execute=true)
+    GC.gc(true)
 end
-mkpath(generated_dir)
 
-# Process each .jl file in the literate directory
-for filename in sort(readdir(literate_dir))
-    if endswith(filename, ".jl")
-        input_file = joinpath(literate_dir, filename)
-        output_file_stem = first(splitext(filename))
-        
-        # Generate Markdown file
-        Literate.markdown(input_file, generated_dir, name=output_file_stem, documenter=true)
-        
-        # Generate Jupyter Notebook
-        Literate.notebook(input_file, generated_dir, name=output_file_stem)
-    end
-end
-
-
-# --- 2. Configure Documenter.jl to build the site ---
 makedocs(
-    sitename = "QuantumFurnace.jl",
-    checkdocs = :none,
-    remotes = nothing,
-    format = Documenter.HTML(
-        prettyurls = get(ENV, "CI", "false") == "true",
-        canonical = "https://benzabonanza.github.io/QuantumFurnace.jl/dev/",
-        repolink = "https://github.com/benzabonanza/QuantumFurnace.jl",
-        edit_link = "main",
-        assets=String[],
+    root=@__DIR__, source=sources, build=joinpath(@__DIR__, "build"),
+    sitename="QuantumFurnace.jl", checkdocs=:none, remotes=nothing,
+    format=Documenter.HTML(
+        prettyurls=get(ENV, "CI", "false") == "true",
+        canonical="https://benzabonanza.github.io/QuantumFurnace.jl/dev/",
+        repolink="https://github.com/benzabonanza/QuantumFurnace.jl",
+        edit_link=nothing,
     ),
-    modules = [QuantumFurnace],
-    pages = [
+    modules=[QuantumFurnace],
+    pages=[
         "Home" => "index.md",
         "Tutorials" => [
-            "Finding a Thermal State" => "generated/tutorial_thermalize.md",
-            "Constructing the Detailed Balanced Lindbladian" => "generated/tutorial_lindbladian.md",
-            "Create a Hamiltonian" => "generated/tutorial_hamiltonian.md"
+            "Creating a Hamiltonian" => "generated/tutorial_hamiltonian.md",
+            "Simulating a Gibbs sampler" => "generated/tutorial_thermalize.md",
+            "Constructing the Lindbladian" => "generated/tutorial_lindbladian.md",
+            "Custom filters and rates" => "generated/tutorial_custom_filters.md",
+            "Interpreting diagnostics" => "generated/tutorial_diagnostics.md",
         ],
-        "Theory" => [
-            "Open Quantum System Dynamics" => "generated/theory_oqs_dynamics.md",
-            "Detailed Balanced Lindbladian" => "generated/theory_detailed_balance.md",
-            "Weak-measurement based Lindbladian Evolution" => "generated/theory_weak_measurement.md",
-            "Convex Combination of Lindbladians" => "generated/theory_convex_combination.md"
-        ],
-        "API Reference" => "api.md",
-    ]
+        "Interface and capabilities" => "api_contract.md",
+        "Filter theory" => "theory_filters.md",
+        "API reference" => "api.md",
+    ],
 )
 
-# --- 3. Deploy the documentation to GitHub Pages ---
-deploydocs(
-    repo = "github.com/benzabonanza/QuantumFurnace.jl.git",
-    devbranch = "main",
-)
+if deploy_setting == "true"
+    deploydocs(repo="github.com/benzabonanza/QuantumFurnace.jl.git", devbranch="main")
+end

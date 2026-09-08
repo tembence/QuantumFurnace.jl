@@ -72,9 +72,10 @@ reference.evidence.coefficient_total_error_norm
 ```
 
 Rows follow the supplied frequency order. The result's `filter` is a
-`DLLMultiChannelFilter` containing owned finite-frequency tables. Use it with
-the same Bohr spectrum, inverse temperature, source amplitudes and generator
-clock. A prepared `CKGJointKernel` can be supplied directly after compilation;
+`DLLMultiChannelFilter` containing owned finite-frequency tables. These tables
+currently use the low-level `Config` API in the same frequency/temperature frame;
+the physical-input `Workspace(H; ...)` facade rejects them. Use the same Bohr
+spectrum, inverse temperature, source amplitudes and generator clock. A prepared `CKGJointKernel` can be supplied directly after compilation;
 it must have passing validation evidence. Conversion checks its coefficients
 again with the tighter roundoff tolerance. A passing quadrature check alone
 need not meet this tighter requirement; refine the original quadrature if

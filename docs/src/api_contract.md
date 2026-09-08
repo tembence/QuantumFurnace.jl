@@ -1,16 +1,18 @@
 # DLL research interface contract
 
-This page freezes the interface planned by tasks T00–T21. The DLL facade, custom frequency specifications and prepared numerical Time filters are available through T13. Existing
+This page describes the implemented research interface, numerical controls and
+capability limits. DLL custom filters, CKG joint compilation and finite-spectrum
+CKG-to-DLL conversion are available. Existing
 `Config`, `HamHam`, `JumpOp`, `Workspace` and result APIs keep their meanings.
 `test/test_research_contract.jl` verifies the repaired T00–T02 regressions
 and is registered in the default test runner.
 
 ## Entry points and units
 
-`pauli_hamiltonian` and `HamHam(H; beta_phys)` are available after T03.
+`pauli_hamiltonian` and `HamHam(H; beta_phys)` are available.
 `simulate_gibbs`, `GibbsSimulationResult`, and the physical-input `Workspace`
 constructor are available. `KMSFilter`, `FrequencyFilter`, `RateFilter`, and
-`TimeFilter` are available; `TimeFilter` currently stores a specification only. `Workspace` remains the existing type.
+`TimeFilter` are available; `TimeFilter` must be prepared before numerical simulation. `Workspace` remains the existing type.
 
 Executable built-in DLL example:
 
@@ -77,7 +79,7 @@ generator multiplier, and rates/times transform reciprocally (T05).
 
 `GeneratorClock` and `DLLFilterFrame` already live in the core module's
 `tensor_networks.jl`, loaded without ITensors. **T00 decision: no relocation is
-needed.** T05 should reuse them without editing the unrelated TN work.
+needed.** The physical-input interface reuses these types.
 `GeneratorClock` describes positive derived clocks and intentionally rejects
 `:raw_generator`; store that raw label separately with multiplier one and no
 derived-clock object. A zero generator has no positive derived rate. The
@@ -147,11 +149,11 @@ decay rates scale by `multiplier`; equal evolutions use times divided by it.
 positive relaxation-rate claim for a zero generator. With no clock the raw
 multiplier is one, independently of Hamiltonian rescaling. Prepared provenance
 is returned separately from legacy `Config`; portable combined result storage
-remains T19 work.
+is described in the persistence section below.
 
 ## Filter and rate authoring
 
-These routes are reserved for T11–T17; names do not assert current support.
+These routes are implemented within the domain and evidence limits below.
 
 | Route | Meaning and required evidence | Task |
 |---|---|---|
@@ -181,7 +183,7 @@ unknown; T12–T13 provide direct references and independent refinement controls
 
 ## Construction and domain capabilities
 
-This table describes the available **Lindbladian** paths through T13.
+This table describes the available **Lindbladian** paths.
 The DLL facade supports Bohr and Time execution. Existence of a domain type does not
 establish support. “Available” does not certify a chosen quadrature tolerance.
 
@@ -219,7 +221,7 @@ jumps is a distinct hybrid reference, not proof of the full two-time method.
 `GibbsSimulationResult <: AbstractResults` (T09) owns `trajectory`, `spectrum`,
 `diagnostics` and provenance, retaining existing payloads without unnecessary
 array copies. Missing spectrum after a solver failure does not erase a valid
-trajectory. Portable persistence and callback reconstruction belong to T19.
+trajectory. Portable persistence and callback reconstruction are described below.
 
 Every check has `status` in `:pass`, `:fail`, `:inconclusive`, `:not_run`, plus
 quantity, tolerance, method and evidence scope. A separate evidence field
@@ -232,7 +234,7 @@ schema; T07–T08 implement the spectral reliability policies.
 | Uniqueness | `:established`, `:nonunique`, `:not_established`, with scope; a small-system complete numerical kernel is not a general theorem. |
 | Spectrum | Raw complex eigenvalues, residuals, detected zero-mode count, target operator/clock, starts/subspace agreement and reliability. `:inconclusive` if tiny decay rates cannot be resolved from zero. |
 | Gap | Relaxation rate above the whole detected stationary manifold; no absolute-value repair of unstable eigenvalues, and no global certificate from converged Ritz pairs. |
-| Trajectory | `:reached`, `:not_reached_by_horizon`, `:inconclusive`; crossing is specific to rho0, with horizon, threshold, numerical floor and error evidence. |
+| Trajectory | `:reached_threshold`, `:already_within_threshold`, `:not_reached_by_horizon`, `:inconclusive`; crossing is specific to rho0, with horizon, threshold, numerical floor and error evidence. |
 | Budget | Report partial evidence and `:budget_exhausted`; skipped checks remain `:not_run`. No silent tolerance relaxation or long sweep. |
 | State validity | Raw trace, Hermiticity and positivity defects before any repair; record repair magnitude. |
 
@@ -242,9 +244,9 @@ channel steps, wall time, memory and matvec counts separately. Resource
 estimates include dense H/filtered matrices, Krylov basis and per-thread/channel
 scratch; a dense Liouvillian requires its own explicit small-system cap.
 
-Numerical budgets and default tolerances are measured in T07–T08. T20 gates
-public tutorials and supported capability claims on executable examples and
-tests; this contract page does not advertise the target snippets as runnable.
+Public tutorials execute during the local documentation build and in default
+integration tests. The capability tests also cover rejected combinations.
+Finite reference checks do not certify continuum tails or scalability.
 
 ### Implemented diagnostic checks (T06)
 
@@ -377,7 +379,7 @@ horizon and never changes the sampled convergence status. No biexponential fit i
 used. Raw all-mode low-level predictor payloads without a stationary projection
 reject the mixing-time helper rather than silently dropping their stationary
 contribution. Predictor Time-domain use rejects; direct Krylov Time remains
-available. Portable combined-result serialization remains T19.
+available. Combined-result serialization is described below.
 
 T10 compiles each DLL Bohr channel into an owned complex frequency table before
 source construction or threading. Every sampled value is finite and the full
@@ -405,7 +407,7 @@ Callbacks are concretely typed. Supply a stable nonempty `name`, an optional
 callbacks remain user-owned definitions. Compilation owns the numerical samples,
 so subsequent callback mutation cannot change an existing workspace. A new
 workspace resamples the callback. Names and parameter records do not make a
-closure portable; registry-based reconstruction remains T19.
+closure portable; reconstruction needs registration or explicit resupply, as described below.
 
 `KMSFilter` takes unweighted q on nonnegative physical frequencies. Negative
 frequencies are conjugate-reflected and the thermal factor is added once. For
@@ -682,8 +684,8 @@ also checks its total construction budget. `maxevals` is a **per integral** cap;
 there are `1+m*(m+1)/2` adaptive integrals for `m` frequencies. These are bounded
 research references, with O(m²) kernel storage, not an arbitrary-size production
 algorithm. A changed Hamiltonian, beta or Energy grid requires recompilation.
-Prepared data own samples; portable reconstruction of callback prescriptions
-remains T19.
+Prepared data own samples; callback reconstruction requires the original
+definition and the checks described below.
 
 
 ### General CKG Time conversion (T17)
@@ -735,3 +737,62 @@ states this gate; legacy built-in `Config` plus `make_trotter_for_config`
 continues to support its established Time/Trotter paths. A future custom
 Trotter task must verify basis, local evolution and independent coherent error
 before this gate can be opened.
+
+## Portable results and continuation
+
+`save_result(result, path)` and `load_result(path)` support
+`GibbsSimulationResult` through a versioned tagged-data schema, alongside the
+legacy BSON result formats. Saved trajectories retain the trace-distance
+convention, basis, diagnostic statuses, and partial results. Loading evidence
+does not require a custom callback definition.
+
+```julia
+using QuantumFurnace
+checkpoint = simulate_gibbs(0.3X + 0.7Z; beta_phys=0.8,
+    times=[0.0, 0.1], diagnostics=:quick)
+continued = mktempdir() do directory
+    saved = save_result(checkpoint, joinpath(directory, "checkpoint.bson"))
+    loaded = load_result(saved)
+    simulate_gibbs(loaded; times=[0.0, 0.2], diagnostics=:quick)
+end
+@assert continued.provenance.resume_time_origin ≈ 0.1
+```
+
+For results produced through the physical-input facade, `Workspace(loaded)`
+rebuilds fresh mutable buffers from owned model and source
+matrices, the retained spectral basis, tagged filter/rate parameters and
+transform controls. It preserves already-weighted source amplitudes and the
+original generator clock. A legacy low-level workspace result without a replay
+snapshot retains evidence but requires the original inputs for reconstruction.
+Temperature, domain and transform-control changes
+require preparation from new physical inputs; replay does not reuse an old
+cache for a changed problem.
+
+`simulate_gibbs(loaded; times, ...)` continues the saved final state. Its times
+start at zero **additional** generator time; the returned result contains this
+segment and a cumulative `provenance.resume_time_origin`. It does not restore
+an interrupted internal Arnoldi iteration. Saved solver settings are defaults
+and may be explicitly overridden for the new segment. The original result
+retains its own trajectory and diagnostic evidence.
+
+Built-in filters store tagged parameters. Custom definitions retain their
+name, version, parameters, sampled grids and change-detection digests; a
+closure's printed representation is never treated as executable source. Use
+`register_filter!(name, version, factory)` in each process, where
+`factory(beta, parameters)` returns the matching custom DLL specification, or
+resupply that specification with `filters=Dict((name, version) => filter)`.
+Custom CKG joint callbacks require `filters=Dict(:ckg_joint => kernel)`.
+Missing definitions, changed versions, sample mismatches or modified replay
+data reject reconstruction. Rebuilt compiled generator data are also compared
+with the saved preparation; transform caches are rebuilt from controls. A saved closure remains labelled as requiring its
+definition; a name and version alone provide no standalone reproducibility.
+
+Provenance records the initial density matrix and requested times, physical and
+algorithm beta, energy frame, source basis and normalisation, generator clock,
+solver/transform controls, spectral RNG seed,
+Julia/package revision and working-tree status. The algorithm uses deterministic
+Krylov propagation and seeded spectral starts; no global random state is needed
+to continue the final density matrix. Timestamps and timing/thread metadata
+are runtime evidence, not deterministic physics outputs. Sample digests are
+change checks, not authentication or proof of global function identity. Unknown
+continuum tails and unavailable tests remain explicitly unknown or not run.
