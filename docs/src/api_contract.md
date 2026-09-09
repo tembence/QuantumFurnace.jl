@@ -7,6 +7,11 @@ CKG-to-DLL conversion are available. Existing
 `test/test_research_contract.jl` verifies the repaired T00–T02 regressions
 and is registered in the default test runner.
 
+For a first worked example, see [Simulating a Gibbs sampler](generated/tutorial_thermalize.md)
+or [Custom filters and rates](generated/tutorial_custom_filters.md). Those
+tutorials show computed outputs with explanations. The code blocks on this
+reference page describe usage and do not display executed results.
+
 ## Entry points and units
 
 `pauli_hamiltonian` and `HamHam(H; beta_phys)` are available.

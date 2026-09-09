@@ -13,11 +13,22 @@ H = pauli_hamiltonian(2, [
     -0.7 => (2 => :X,),
 ])
 result = simulate_gibbs(H; beta_phys=0.8,
-    times=range(0, 4; length=21), diagnostics=:standard)
-result.trajectory.distances
-result.diagnostics
-result.spectrum.reliability
+    times=range(0, 20; length=21), epsilon=1e-3, diagnostics=:strict)
+@assert result.trajectory.all_converged # hide
+@assert last(result.trajectory.distances) < result.convergence.epsilon # hide
+println("Numerical evolution completed: ", result.trajectory.all_converged)
+println("Initial distance to Gibbs: ", round(first(result.trajectory.distances); sigdigits=3))
+println("Final distance to Gibbs:   ", round(last(result.trajectory.distances); sigdigits=3))
+println("Reached the requested distance < 0.001: ",
+    last(result.trajectory.distances) < result.convergence.epsilon)
 ```
+
+The output above is calculated when this site is built. **Distance to Gibbs**
+measures how distinguishable the simulated state is from the target thermal
+state: zero means they match, and one is the largest possible distance for
+normalised states. Here the final distance is below the requested `0.001`, so
+this run reached its target accuracy. “Numerical evolution completed” separately
+confirms that the solver finished the requested time interval within its tolerances.
 
 The Hamiltonian entries use physical energy units, `beta_phys` their inverse,
 and times the generator clock set by the jump amplitudes. `distances` stores
