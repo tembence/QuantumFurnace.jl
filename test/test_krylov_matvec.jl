@@ -89,7 +89,7 @@ end
 
 # ============================================================================
 # Round-trip correctness and allocation tests for Krylov matvec
-# Phase 27: Core Matvec Infrastructure
+# Core Matvec Infrastructure
 # ============================================================================
 
 @testset "Krylov Matvec" begin
@@ -233,7 +233,7 @@ end
     # (pick_transition(config, w) / _pick_alpha(config, nu1, nu2)) instead of
     # stored closures, eliminating the Union{Nothing, Function} boxing overhead.
     #
-    # qf-in3.4 update: when `Threads.nthreads() > 1` and `n_labels >=
+    # When `Threads.nthreads() > 1` and `n_labels >=
     # OMEGA_THREAD_THRESHOLD`, the matvec dispatches to the threaded ω-loop
     # which has fixed overhead from `Threads.@spawn` Task allocations
     # (~1 kB / spawn). The work_list and per-thread sandwich scratches are
@@ -258,12 +258,12 @@ end
         @info "apply_adjoint_lindbladian! allocations (EnergyDomain)" allocs_bytes=allocs_adj threshold=MATVEC_ALLOC_BUDGET
     end
 
-    # qf-lkb.11.4: EnergyDomain matvec at the production-sweep config
+    # EnergyDomain matvec at the production-sweep config
     # (smooth Metropolis a=0, s=0.25) must remain on the zero-alloc fast path.
     # Different (a, s) regime than make_config (a=BETA/30, s=0.4) — pick_transition
     # branches into the same smooth-Metropolis arm (s != 0) but with tighter
     # smoothing; defensively retest the allocation budget.
-    @testset "Allocation regression: EnergyDomain CKG @ a=0, s=0.25 (qf-lkb.11.4)" begin
+    @testset "Allocation regression: EnergyDomain CKG @ a=0, s=0.25" begin
         config = Config(;
             sim = Lindbladian(),
             domain = EnergyDomain(),
@@ -282,7 +282,7 @@ end
         ws = Workspace(config, TEST_HAM, TEST_JUMPS)
         rho = Matrix(random_density_matrix(NUM_QUBITS))
         allocs, allocs_adj = _measure_matvec_allocs(ws, rho, config, TEST_HAM)
-        # Budget rationale: serial-path 0 bytes; threaded path (qf-in3.4)
+        # Budget rationale: serial-path 0 bytes; threaded path
         # has @spawn Task overhead (~1 kB × nthreads).
         budget = MATVEC_ALLOC_BUDGET
         @test allocs <= budget
@@ -291,7 +291,7 @@ end
     end
 
     # ========================================================================
-    # Phase 28: TimeDomain round-trip and allocation tests
+    # TimeDomain round-trip and allocation tests
     # ========================================================================
 
     # Testset 8: Round-trip matvec vs dense (TimeDomain KMS, with coherent)
@@ -366,7 +366,7 @@ end
     end
 
     # ========================================================================
-    # Phase 28: TrotterDomain round-trip and allocation tests
+    # TrotterDomain round-trip and allocation tests
     # ========================================================================
 
     # Testset 12: Round-trip matvec vs dense (TrotterDomain KMS, with coherent)
@@ -441,7 +441,7 @@ end
     end
 
     # ========================================================================
-    # Phase 28: BohrDomain round-trip and duality tests
+    # BohrDomain round-trip and duality tests
     # ========================================================================
 
     # Testset 16: Round-trip matvec vs dense (BohrDomain KMS, with coherent)
@@ -588,7 +588,7 @@ end
         complex_jumps = JumpOp[complex_jump]
 
         # Testset 20: Round-trip with complex jump (EnergyDomain forward)
-        # qf-bm1 Q1: unpaired non-Hermitian jump — flagged with the
+        # Unpaired non-Hermitian jump — flagged with the
         # `allow_unpaired_nonhermitian` kwarg because this test compares
         # serial dense vs Krylov matvec on the same physics; KMS-DB is
         # not asserted here.
@@ -612,7 +612,7 @@ end
         end
 
         # Testset 21: Round-trip with complex jump (EnergyDomain adjoint)
-        # qf-bm1 Q1 — see preamble of testset 20.
+        # Allow an unpaired jump for this algebraic matrix-action comparison.
         @testset "Round-trip: complex jump adjoint (EnergyDomain)" begin
             config = make_config(Lindbladian(),EnergyDomain(); construction=KMS())
             L_dense = construct_lindbladian(complex_jumps, config, TEST_HAM;
@@ -653,7 +653,7 @@ end
         end
 
         # Testset 23: Round-trip with complex jump (TimeDomain forward + adjoint)
-        # qf-bm1 Q1 — see preamble of testset 20.
+        # Allow an unpaired jump for this algebraic matrix-action comparison.
         @testset "Round-trip: complex jump (TimeDomain)" begin
             config_td = make_config(Lindbladian(),TimeDomain(); construction=KMS())
             L_dense_td = construct_lindbladian(complex_jumps, config_td, TEST_HAM;

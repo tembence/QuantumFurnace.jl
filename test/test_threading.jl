@@ -84,7 +84,7 @@ function _serial_rho_jump!(scratch, rho, jump, ham,
 end
 
 # ============================================================================
-# DM thermalization BLAS policy tests (THREAD-03, THREAD-05)
+# DM thermalization BLAS policy tests
 # ============================================================================
 
 @testset "DM thermalization preserves caller BLAS policy" begin
@@ -112,7 +112,7 @@ end
 end
 
 # ============================================================================
-# Omega-loop threading tests (THREAD-01, THREAD-02, THREAD-04)
+# Omega-loop threading tests
 # ============================================================================
 
 @testset "Omega-loop threading determinism" begin
@@ -144,9 +144,8 @@ end
 end
 
 # ============================================================================
-# Lindbladian-matvec ω-loop threading tests (qf-in3)
-# These exercise `_apply_lindbladian_threaded_energy!` and
-# `_apply_lindbladian_threaded_timetrot!` directly, comparing their output to
+# Lindbladian-matvec ω-loop threading tests
+# These exercise `_apply_lindbladian_threaded_frequency!`, comparing its output to
 # the serial public path. Threading is correctness-preserving up to floating-
 # point summation order, so the threshold for the bit-match check is set
 # relative to ‖L(rho)‖.
@@ -167,19 +166,11 @@ function _run_threaded_lindbladian!(ws, rho, config, ham; adjoint::Bool=false)
     mul!(sc.rho_out, rho, G_right, 1.0, 1.0)
 
     prefactor = ws.oft_domain_prefactor * ws.gamma_norm_factor
-    if config.domain isa EnergyDomain
-        inv_4sigma2 = 1.0 / (4 * config.sigma^2)
-        QuantumFurnace._apply_lindbladian_threaded_energy!(
-            sc, rho, ws.jump_eigenbases, ws.jump_hermitian,
-            ham.bohr_freqs, ws.energy_labels, config, prefactor, inv_4sigma2;
-            adjoint=adjoint)
-    else
-        nufft = ws.oft_nufft_prefactors
-        QuantumFurnace._apply_lindbladian_threaded_timetrot!(
-            sc, rho, ws.jump_eigenbases, ws.jump_hermitian,
-            nufft.data, nufft.energy_to_index, ws.energy_labels, config, prefactor;
-            adjoint=adjoint)
-    end
+    data = config.domain isa EnergyDomain ?
+        (ham.bohr_freqs, QuantumFurnace._energy_oft_kernel(config)) : ws.oft_nufft_prefactors
+    QuantumFurnace._apply_lindbladian_threaded_frequency!(
+        sc, rho, ws.jump_eigenbases, ws.jump_hermitian, ws.energy_labels,
+        config, prefactor, data, Val(adjoint))
     return copy(sc.rho_out)
 end
 
@@ -277,10 +268,9 @@ end
         # Pre-fill rho_out with a sentinel value
         fill!(sc.rho_out, ComplexF64(7.0))
         # Empty energy labels -> empty work list
-        QuantumFurnace._apply_lindbladian_threaded_energy!(
-            sc, rho, ws.jump_eigenbases, ws.jump_hermitian,
-            TEST_HAM.bohr_freqs, Float64[], config, prefactor, inv_4sigma2;
-            adjoint=false)
+        QuantumFurnace._apply_lindbladian_threaded_frequency!(
+            sc, rho, ws.jump_eigenbases, ws.jump_hermitian, Float64[],
+            config, prefactor, (TEST_HAM.bohr_freqs, inv_4sigma2), Val(false))
         @test all(sc.rho_out .== ComplexF64(7.0))
     else
         @info "Skipping empty work-list test (nthreads=$(Threads.nthreads()))"
@@ -289,17 +279,8 @@ end
 end
 
 # ============================================================================
-# Channel-Krylov ω-loop threading tests (qf-in3 follow-up)
-# Mirrors the Lindbladian threading tests above for `apply_delta_channel!`.
-#
-# qf-po5 Commit 2 deleted the `_run_threaded_channel!` helper and its
-# "Channel threaded matvec: serial ≡ threaded" testset. The new faithful
-# `apply_delta_channel!` consumes `_accumulate_rho_jump_threaded_*!` (whose
-# serial ≡ threaded equivalence is regressioned by the per-step run_thermalize
-# tests in `test_thermalization.jl` and the byte-identity check in
-# `test_predict_channel.jl` (a)/(b1)) — driving the threaded variants directly
-# from a re-implementation of the deleted summed-channel matvec is no longer
-# meaningful. The caller-policy testset below stays.
+# Channel frequency accumulation and caller BLAS policy.
+# Compare threaded accumulation with the serial kernel in the same process.
 # ============================================================================
 
 @testset "Channel frequency accumulation: serial reference ≡ threaded" begin
@@ -372,23 +353,16 @@ end
     end
 end
 
-# Construction-time threaded reduction regressions consolidated from the
-# former milestone-specific test file.
-# Regression tests for construction-time threading added under qf-6af. Each
-# threaded helper is invoked directly and its result compared against a hand-
-# rolled serial reference *within the same Julia process*. The same-process
-# comparison isolates the threading correctness question (chunk-reduction
-# accumulation order) from the orthogonal cross-process eigendecomposition
-# phase ambiguity issue (`eigen()` of a hermitian matrix returns eigvecs with
-# arbitrary sign/phase).
+# Construction-time reductions are compared with serial references in the
+# same process. This isolates reduction-order error from eigenvector phase
+# differences between independently constructed Hamiltonians.
 #
 # Coverage:
 #   • _accumulate_R_total_threaded_energy!   (Workspace EnergyDomain)
 #   • _accumulate_R_total_threaded_timetrot! (Workspace Time + TrotterDomain)
 #   • _accumulate_R_total_threaded_bohr!     (Workspace BohrDomain)
 #   • _accumulate_R_total_dll_chunk!         (Workspace DLL BohrDomain)
-#   • _b_time_inner_threaded / _b_time_outer_threaded   (B_time)
-#   • _b_trotter_inner_threaded / _b_trotter_outer_threaded (B_trotter)
+#   • shared inner/outer coherent quadrature kernels (B_time, B_trotter)
 #   • _B_bohr_threaded                       (BohrDomain coherent precompute)
 #
 # All threaded paths are entered when `Threads.nthreads() > 1` and `n_work >=
@@ -471,7 +445,7 @@ end
     end
 end
 
-@testset "qf-6af construction-time threading" begin
+@testset "construction-time threading" begin
     # ------------------------------------------------------------
     # (a) R_total accumulation — EnergyDomain (Hermitian + non-Hermitian)
     # ------------------------------------------------------------
@@ -534,10 +508,10 @@ end
                 err = norm(R_threaded .- R_serial)
                 rel = err / max(norm(R_serial), 1.0)
                 @test rel < 1e-12
-                @info "qf-6af R_total energy" path=name err=err rel=rel
+                @info "R_total energy" path=name err=err rel=rel
             end
         else
-            @info "Skipping qf-6af R_total energy test (nthreads=$(Threads.nthreads()))"
+            @info "Skipping R_total energy test (nthreads=$(Threads.nthreads()))"
             @test_skip Threads.nthreads() > 1
         end
     end
@@ -592,7 +566,7 @@ end
             err = norm(R_threaded .- R_serial)
             rel = err / max(norm(R_serial), 1.0)
             @test rel < 1e-12
-            @info "qf-6af R_total time" err=err rel=rel
+            @info "R_total time" err=err rel=rel
         else
             @test_skip Threads.nthreads() > 1
         end
@@ -649,7 +623,7 @@ end
             err = norm(R_threaded .- R_serial)
             rel = err / max(norm(R_serial), 1.0)
             @test rel < 1e-12
-            @info "qf-6af R_total trot" err=err rel=rel
+            @info "R_total trot" err=err rel=rel
         else
             @test_skip Threads.nthreads() > 1
         end
@@ -689,7 +663,7 @@ end
             err = norm(R_threaded .- R_serial)
             rel = err / max(norm(R_serial), 1.0)
             @test rel < 1e-12
-            @info "qf-6af R_total bohr" err=err rel=rel
+            @info "R_total bohr" err=err rel=rel
         else
             @test_skip Threads.nthreads() > 1
         end
@@ -750,7 +724,7 @@ end
             err = norm(R_threaded .- R_serial)
             rel = err / max(norm(R_serial), 1.0)
             @test rel < 1e-12
-            @info "qf-6af R_total dll" err=err rel=rel n_ops=length(dll_serial)
+            @info "R_total dll" err=err rel=rel n_ops=length(dll_serial)
         else
             @test_skip Threads.nthreads() > 1
         end
@@ -804,7 +778,7 @@ end
             err = norm(B_threaded .- B_serial)
             rel = err / max(norm(B_serial), 1.0)
             @test rel < 1e-12
-            @info "qf-6af B_time threaded" err=err rel=rel
+            @info "B_time threaded" err=err rel=rel
         else
             @test_skip Threads.nthreads() > 1
         end
@@ -860,7 +834,7 @@ end
             err = norm(B_threaded .- B_serial)
             rel = err / max(norm(B_serial), 1.0)
             @test rel < 1e-12
-            @info "qf-6af B_trotter threaded" err=err rel=rel
+            @info "B_trotter threaded" err=err rel=rel
         else
             @test_skip Threads.nthreads() > 1
         end

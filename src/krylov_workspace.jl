@@ -117,113 +117,18 @@ end
 
 Accumulate the total rate operator during workspace construction.
 
-Math: \$R = sum_(a,omega) rate(omega)^2 L_(a,omega)^dagger L_(a,omega)\$.
+Math: \$R = sum_(a,omega) gamma(omega) A_(a,omega)^dagger A_(a,omega)\$.
 """
-function _accumulate_R_total!(
-    R::Matrix{T},
-    ws_eigenbases::Vector{Matrix{T}},
-    ws_hermitian::Vector{Bool},
-    precomputed_data,
-    config::Config{<:Any, EnergyDomain},
-    hamiltonian::HamHam,
-) where {T<:Complex}
-    (; transition, gamma_norm_factor, energy_labels) = precomputed_data
-    bohr_freqs = hamiltonian.bohr_freqs
-    inv_4sigma2 = _energy_oft_kernel(config)
-    prefactor = precomputed_data.oft_domain_prefactor * gamma_norm_factor
-
-    _is_joint_ckg(config) && (ws_hermitian=fill(false,length(ws_hermitian)))
-    n_labels = length(energy_labels)
-    n_jumps  = length(ws_eigenbases)
-    if Threads.nthreads() > 1 && n_jumps * n_labels >= OMEGA_THREAD_THRESHOLD
-        return _accumulate_R_total_threaded_energy!(
-            R, ws_eigenbases, ws_hermitian, bohr_freqs, energy_labels,
-            transition, prefactor, inv_4sigma2)
-    end
-
-    dim = size(R, 1)
-    jump_oft = zeros(T, dim, dim)
-    LdagL = zeros(T, dim, dim)
-
-    for (k, eigenbasis) in enumerate(ws_eigenbases)
-        is_herm = ws_hermitian[k]
-        if is_herm
-            for w_raw in energy_labels
-                w_raw > 1e-12 && continue
-                w = abs(w_raw)
-                oft!(jump_oft, eigenbasis, bohr_freqs, w, inv_4sigma2)
-                rate2 = prefactor * transition(w)
-                mul!(LdagL, jump_oft', jump_oft)
-                @. R += rate2 * LdagL
-                if w > 1e-12
-                    rate2_neg = prefactor * transition(-w)
-                    mul!(LdagL, jump_oft, jump_oft')
-                    @. R += rate2_neg * LdagL
-                end
-            end
-        else
-            for w in energy_labels
-                oft!(jump_oft, eigenbasis, bohr_freqs, w, inv_4sigma2)
-                rate2 = prefactor * transition(w)
-                mul!(LdagL, jump_oft', jump_oft)
-                @. R += rate2 * LdagL
-            end
-        end
-    end
-    return nothing
-end
-
-function _accumulate_R_total!(
-    R::Matrix{T},
-    ws_eigenbases::Vector{Matrix{T}},
-    ws_hermitian::Vector{Bool},
-    precomputed_data,
-    config::Config{<:Any, D},
-    ham_or_trott::Union{HamHam, AbstractTrotter},
-) where {T<:Complex, D<:Union{TimeDomain, TrotterDomain}}
-    (; transition, gamma_norm_factor, energy_labels, oft_nufft_prefactors) = precomputed_data
-    prefactor = precomputed_data.oft_domain_prefactor * gamma_norm_factor
-
-    n_labels = length(energy_labels)
-    n_jumps  = length(ws_eigenbases)
-    if Threads.nthreads() > 1 && n_jumps * n_labels >= OMEGA_THREAD_THRESHOLD
-        return _accumulate_R_total_threaded_timetrot!(
-            R, ws_eigenbases, ws_hermitian, oft_nufft_prefactors,
-            energy_labels, transition, prefactor)
-    end
-
-    dim = size(R, 1)
-    jump_oft = zeros(T, dim, dim)
-    LdagL = zeros(T, dim, dim)
-
-    for (k, eigenbasis) in enumerate(ws_eigenbases)
-        is_herm = ws_hermitian[k]
-        if is_herm
-            for w_raw in energy_labels
-                w_raw > 1e-12 && continue
-                w = abs(w_raw)
-                nufft_pf = _prefactor_view(oft_nufft_prefactors, w)
-                @. jump_oft = eigenbasis * nufft_pf
-                rate2 = prefactor * transition(w)
-                mul!(LdagL, jump_oft', jump_oft)
-                @. R += rate2 * LdagL
-                if w > 1e-12
-                    rate2_neg = prefactor * transition(-w)
-                    mul!(LdagL, jump_oft, jump_oft')
-                    @. R += rate2_neg * LdagL
-                end
-            end
-        else
-            for w in energy_labels
-                nufft_pf = _prefactor_view(oft_nufft_prefactors, w)
-                @. jump_oft = eigenbasis * nufft_pf
-                rate2 = prefactor * transition(w)
-                mul!(LdagL, jump_oft', jump_oft)
-                @. R += rate2 * LdagL
-            end
-        end
-    end
-    return nothing
+function _accumulate_R_total!(R::Matrix{T}, bases::Vector{Matrix{T}}, hermitian,
+    precomputed, config::Config{<:Any,D}, ham::Union{HamHam,AbstractTrotter},
+) where {T<:Complex,D<:Union{EnergyDomain,TimeDomain,TrotterDomain}}
+    config.domain isa EnergyDomain && _is_joint_ckg(config) && (hermitian=fill(false,length(hermitian)))
+    prefactor = precomputed.oft_domain_prefactor * precomputed.gamma_norm_factor
+    labels = precomputed.energy_labels
+    data = _frequency_oft_data(config, ham, precomputed)
+    threaded = Threads.nthreads() > 1 && length(bases)*length(labels) >= OMEGA_THREAD_THRESHOLD
+    return _accumulate_frequency_loss!(R, bases, hermitian, labels,
+        precomputed.transition, prefactor, data; threaded)
 end
 
 function _accumulate_R_total!(
@@ -244,184 +149,14 @@ function _accumulate_R_total!(
             hamiltonian.bohr_freqs, hamiltonian.bohr_dict, bohr_keys)
     end
 
-    dim = size(R, 1)
-    jump_oft = zeros(T, dim, dim)
-    A_nu2_dag = zeros(T, dim, dim)
-
-    for (k, eigenbasis) in enumerate(ws_eigenbases)
-        for nu_2 in bohr_keys
-            @. jump_oft = alpha(hamiltonian.bohr_freqs, nu_2) * eigenbasis
-
-            fill!(A_nu2_dag, 0)
-            indices = hamiltonian.bohr_dict[nu_2]
-            @inbounds for idx in indices
-                i = idx[1]; j = idx[2]
-                A_nu2_dag[j, i] = conj(eigenbasis[i, j])
-            end
-
-            mul!(R, A_nu2_dag, jump_oft, gamma_norm_factor, 1.0)
-        end
-    end
+    jump_oft = similar(R)
+    A_nu2_dag = similar(R)
+    _accumulate_R_total_chunk_bohr!(R, jump_oft, A_nu2_dag,
+        ws_eigenbases, alpha, gamma_norm_factor, hamiltonian.bohr_freqs,
+        hamiltonian.bohr_dict, bohr_keys, n_keys, 1:(n_jumps*n_keys))
     return nothing
 end
 
-# ---------------------------------------------------------------------------
-# Threaded rate-operator accumulation mirrors the matvec frequency loop.
-# from `src/krylov_matvec.jl`, but for the construction-time additive
-# accumulator. Allocates per-task buffers locally (one-time at Workspace
-# construction; trivial overhead vs. the BLAS work it covers). Each task
-# accumulates a private `R_partial`; final reduction sums into the caller's
-# `R` after `@sync`.
-# ---------------------------------------------------------------------------
-
-function _accumulate_R_total_threaded_energy!(
-    R::Matrix{T},
-    ws_eigenbases::Vector{Matrix{T}},
-    ws_hermitian::Vector{Bool},
-    bohr_freqs::AbstractMatrix{<:Real},
-    energy_labels::AbstractVector{Float64},
-    transition,
-    prefactor::Float64,
-    inv_4sigma2,
-) where {T<:Complex}
-    work = Tuple{Int, Int}[]
-    _populate_jump_frequency_work_list!(work, ws_hermitian, energy_labels)
-    n_work = length(work)
-    n_work == 0 && return nothing
-
-    dim = size(R, 1)
-    nt = min(Threads.nthreads(), n_work)
-    chunks = _partition_range(1:n_work, nt)
-    n_chunks = length(chunks)
-
-    R_partials = [zeros(T, dim, dim) for _ in 1:n_chunks]
-    jump_ofts  = [Matrix{T}(undef, dim, dim) for _ in 1:n_chunks]
-    LdagLs     = [Matrix{T}(undef, dim, dim) for _ in 1:n_chunks]
-
-    @sync for (idx, chunk) in enumerate(chunks)
-        Threads.@spawn _accumulate_R_total_chunk_energy!(
-            R_partials[idx], jump_ofts[idx], LdagLs[idx],
-            ws_eigenbases, ws_hermitian, bohr_freqs, energy_labels,
-            work, chunk, transition, prefactor, inv_4sigma2)
-    end
-
-    @inbounds for idx in 1:n_chunks
-        R .+= R_partials[idx]
-    end
-    return nothing
-end
-
-function _accumulate_R_total_chunk_energy!(
-    R_partial::Matrix{T},
-    jump_oft::Matrix{T},
-    LdagL::Matrix{T},
-    ws_eigenbases::Vector{Matrix{T}},
-    ws_hermitian::Vector{Bool},
-    bohr_freqs::AbstractMatrix{<:Real},
-    energy_labels::AbstractVector{Float64},
-    work::Vector{Tuple{Int, Int}},
-    chunk::UnitRange{Int},
-    transition,
-    prefactor::Float64,
-    inv_4sigma2,
-) where {T<:Complex}
-    @inbounds for w_idx in chunk
-        (k, li) = work[w_idx]
-        eigenbasis = ws_eigenbases[k]
-        is_herm    = ws_hermitian[k]
-
-        w_raw = energy_labels[li]
-        w = is_herm ? abs(w_raw) : w_raw
-
-        oft!(jump_oft, eigenbasis, bohr_freqs, w, inv_4sigma2)
-        rate2 = prefactor * transition(w)
-        mul!(LdagL, jump_oft', jump_oft)
-        @. R_partial += rate2 * LdagL
-
-        if is_herm && w > 1e-12
-            rate2_neg = prefactor * transition(-w)
-            mul!(LdagL, jump_oft, jump_oft')
-            @. R_partial += rate2_neg * LdagL
-        end
-    end
-    return nothing
-end
-
-function _accumulate_R_total_threaded_timetrot!(
-    R::Matrix{T},
-    ws_eigenbases::Vector{Matrix{T}},
-    ws_hermitian::Vector{Bool},
-    oft_nufft_prefactors,
-    energy_labels::AbstractVector{Float64},
-    transition,
-    prefactor::Float64,
-) where {T<:Complex}
-    work = Tuple{Int, Int}[]
-    _populate_jump_frequency_work_list!(work, ws_hermitian, energy_labels)
-    n_work = length(work)
-    n_work == 0 && return nothing
-
-    dim = size(R, 1)
-    nt = min(Threads.nthreads(), n_work)
-    chunks = _partition_range(1:n_work, nt)
-    n_chunks = length(chunks)
-
-    R_partials = [zeros(T, dim, dim) for _ in 1:n_chunks]
-    jump_ofts  = [Matrix{T}(undef, dim, dim) for _ in 1:n_chunks]
-    LdagLs     = [Matrix{T}(undef, dim, dim) for _ in 1:n_chunks]
-
-    @sync for (idx, chunk) in enumerate(chunks)
-        Threads.@spawn _accumulate_R_total_chunk_timetrot!(
-            R_partials[idx], jump_ofts[idx], LdagLs[idx],
-            ws_eigenbases, ws_hermitian, oft_nufft_prefactors,
-            energy_labels, work, chunk, transition, prefactor)
-    end
-
-    @inbounds for idx in 1:n_chunks
-        R .+= R_partials[idx]
-    end
-    return nothing
-end
-
-function _accumulate_R_total_chunk_timetrot!(
-    R_partial::Matrix{T},
-    jump_oft::Matrix{T},
-    LdagL::Matrix{T},
-    ws_eigenbases::Vector{Matrix{T}},
-    ws_hermitian::Vector{Bool},
-    oft_nufft_prefactors,
-    energy_labels::AbstractVector{Float64},
-    work::Vector{Tuple{Int, Int}},
-    chunk::UnitRange{Int},
-    transition,
-    prefactor::Float64,
-) where {T<:Complex}
-    @inbounds for w_idx in chunk
-        (k, li) = work[w_idx]
-        eigenbasis = ws_eigenbases[k]
-        is_herm    = ws_hermitian[k]
-
-        w_raw = energy_labels[li]
-        # Hermitian fold: only `w_raw <= 1e-12` queued; index NUFFT slice via
-        # the |w_raw| key. Non-Hermitian: index by label position `li`.
-        w = is_herm ? abs(w_raw) : w_raw
-        nufft_pf = is_herm ?
-            _prefactor_view(oft_nufft_prefactors, w) :
-            (@view oft_nufft_prefactors.data[:, :, li])
-        @. jump_oft = eigenbasis * nufft_pf
-
-        rate2 = prefactor * transition(w)
-        mul!(LdagL, jump_oft', jump_oft)
-        @. R_partial += rate2 * LdagL
-
-        if is_herm && w > 1e-12
-            rate2_neg = prefactor * transition(-w)
-            mul!(LdagL, jump_oft, jump_oft')
-            @. R_partial += rate2_neg * LdagL
-        end
-    end
-    return nothing
-end
 
 function _accumulate_R_total_threaded_bohr!(
     R::Matrix{T},
@@ -550,12 +285,7 @@ function _accumulate_R_total_dll!(
 
     for (k,jump) in enumerate(jumps)
         L_or_Ls = _dll_workspace_lindblads(jump, hamiltonian, _dll_source_data(precomputed_data,k), config.domain)
-        # Single-channel filters return a Matrix; multi-channel filters
-        # Multi-channel filters return a vector; flatten it in jump-major order.
-        # output `dll_lindblads_out` — the matrix-free hot path
-        # `apply_lindbladian!` iterates `for L_a in dll_lindblads` and the
-        # dissipator `Σ_a L_a ρ L_a†` is a flat sum over all per-channel
-        # operators (no cross terms in the multi-channel α).
+        # Flatten separate channels in source order, without cross terms.
         if L_or_Ls isa AbstractMatrix
             L_a = Matrix{T}(L_or_Ls)
             push!(dll_lindblads_out, L_a)

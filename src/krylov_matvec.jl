@@ -36,152 +36,6 @@ end
 end
 
 """
-    apply_lindbladian!(ws, rho, config, hamiltonian) -> sc.rho_out
-
-Apply the energy-domain Lindbladian and return `ws.scratch.rho_out`.
-
-Set `include_coherent=false` only for an explicitly labelled dissipator-only diagnostic.
-"""
-function apply_lindbladian!(
-    ws::Workspace{KrylovSpectrum},
-    rho::Matrix{T},
-    config::Config{Lindbladian, EnergyDomain},
-    hamiltonian::HamHam;
-    include_coherent::Bool = true,
-) where {T<:Complex}
-    sc = ws.scratch::KrylovScratch{T}
-    G_left = ws.G_left::Matrix{T}
-    G_right = ws.G_right::Matrix{T}
-    jump_eigenbases = ws.jump_eigenbases::Vector{Matrix{T}}
-    jump_hermitian = ws.jump_hermitian::Vector{Bool}
-    prefactor = (ws.oft_domain_prefactor::Float64) * (ws.gamma_norm_factor::Float64)
-    energy_labels = ws.energy_labels::Vector{Float64}
-    bohr_freqs = hamiltonian.bohr_freqs
-    inv_4sigma2 = _energy_oft_kernel(config)
-
-    CT = one(T)
-    ZT = zero(T)
-
-    if include_coherent
-        BLAS.gemm!('N', 'N', CT, G_left, rho, ZT, sc.rho_out)
-        BLAS.gemm!('N', 'N', CT, rho, G_right, CT, sc.rho_out)
-    else
-        neg_R = sc.sandwich_tmp
-        @. neg_R = G_left + G_right
-        half = T(0.5)
-        BLAS.gemm!('N', 'N', half, neg_R, rho, ZT, sc.rho_out)
-        BLAS.gemm!('N', 'N', half, rho, neg_R, CT, sc.rho_out)
-    end
-
-    if Threads.nthreads() > 1 && length(energy_labels) >= OMEGA_THREAD_THRESHOLD
-        return _apply_lindbladian_threaded_energy!(
-            sc, rho, jump_eigenbases, jump_hermitian, bohr_freqs,
-            energy_labels, config, prefactor, inv_4sigma2; adjoint=false)
-    end
-
-    for (k, eigenbasis) in enumerate(jump_eigenbases)
-        is_herm = jump_hermitian[k]
-        if is_herm
-            for w_raw in energy_labels
-                w_raw > 1e-12 && continue
-                w = abs(w_raw)
-
-                oft!(sc.jump_oft, eigenbasis, bohr_freqs, w, inv_4sigma2)
-
-                scalar_w = prefactor * pick_transition(config, w)
-                _accumulate_sandwich_scratch!(sc.rho_out, sc.jump_oft, rho, scalar_w, sc.sandwich_tmp, sc.sandwich_out)
-
-                if w > 1e-12
-                    scalar_neg = prefactor * pick_transition(config, -w)
-                    _accumulate_sandwich_adj_scratch!(sc.rho_out, sc.jump_oft, rho, scalar_neg, sc.sandwich_tmp, sc.sandwich_out)
-                end
-            end
-        else
-            for w in energy_labels
-                oft!(sc.jump_oft, eigenbasis, bohr_freqs, w, inv_4sigma2)
-                scalar_w = prefactor * pick_transition(config, w)
-                _accumulate_sandwich_scratch!(sc.rho_out, sc.jump_oft, rho, scalar_w, sc.sandwich_tmp, sc.sandwich_out)
-            end
-        end
-    end
-
-    return sc.rho_out
-end
-
-"""
-    apply_adjoint_lindbladian!(ws, rho, config, hamiltonian) -> sc.rho_out
-
-Apply the Hilbert--Schmidt adjoint energy-domain Lindbladian.
-
-Set `include_coherent=false` only for an explicitly labelled dissipator-only diagnostic.
-"""
-function apply_adjoint_lindbladian!(
-    ws::Workspace{KrylovSpectrum},
-    rho::Matrix{T},
-    config::Config{Lindbladian, EnergyDomain},
-    hamiltonian::HamHam;
-    include_coherent::Bool = true,
-) where {T<:Complex}
-    sc = ws.scratch::KrylovScratch{T}
-    G_left_adj = ws.G_right::Matrix{T}
-    G_right_adj = ws.G_left::Matrix{T}
-    jump_eigenbases = ws.jump_eigenbases::Vector{Matrix{T}}
-    jump_hermitian = ws.jump_hermitian::Vector{Bool}
-    prefactor = (ws.oft_domain_prefactor::Float64) * (ws.gamma_norm_factor::Float64)
-    energy_labels = ws.energy_labels::Vector{Float64}
-    bohr_freqs = hamiltonian.bohr_freqs
-    inv_4sigma2 = _energy_oft_kernel(config)
-
-    CT = one(T)
-    ZT = zero(T)
-
-    if include_coherent
-        BLAS.gemm!('N', 'N', CT, G_left_adj, rho, ZT, sc.rho_out)
-        BLAS.gemm!('N', 'N', CT, rho, G_right_adj, CT, sc.rho_out)
-    else
-        neg_R = sc.sandwich_tmp
-        @. neg_R = G_left_adj + G_right_adj
-        half = T(0.5)
-        BLAS.gemm!('N', 'N', half, neg_R, rho, ZT, sc.rho_out)
-        BLAS.gemm!('N', 'N', half, rho, neg_R, CT, sc.rho_out)
-    end
-
-    if Threads.nthreads() > 1 && length(energy_labels) >= OMEGA_THREAD_THRESHOLD
-        return _apply_lindbladian_threaded_energy!(
-            sc, rho, jump_eigenbases, jump_hermitian, bohr_freqs,
-            energy_labels, config, prefactor, inv_4sigma2; adjoint=true)
-    end
-
-    for (k, eigenbasis) in enumerate(jump_eigenbases)
-        is_herm = jump_hermitian[k]
-        if is_herm
-            for w_raw in energy_labels
-                w_raw > 1e-12 && continue
-                w = abs(w_raw)
-
-                oft!(sc.jump_oft, eigenbasis, bohr_freqs, w, inv_4sigma2)
-
-                scalar_w = prefactor * pick_transition(config, w)
-                _accumulate_sandwich_adj_scratch!(sc.rho_out, sc.jump_oft, rho, scalar_w, sc.sandwich_tmp, sc.sandwich_out)
-
-                if w > 1e-12
-                    scalar_neg = prefactor * pick_transition(config, -w)
-                    _accumulate_sandwich_scratch!(sc.rho_out, sc.jump_oft, rho, scalar_neg, sc.sandwich_tmp, sc.sandwich_out)
-                end
-            end
-        else
-            for w in energy_labels
-                oft!(sc.jump_oft, eigenbasis, bohr_freqs, w, inv_4sigma2)
-                scalar_w = prefactor * pick_transition(config, w)
-                _accumulate_sandwich_adj_scratch!(sc.rho_out, sc.jump_oft, rho, scalar_w, sc.sandwich_tmp, sc.sandwich_out)
-            end
-        end
-    end
-
-    return sc.rho_out
-end
-
-"""
     _accumulate_sandwich_2op!(out, A, B_dag, rho, scalar, sc) -> nothing
 
 Accumulate `scalar * A * rho * B_dag` into `out`. BohrDomain two-operator sandwich.
@@ -261,600 +115,166 @@ function _apply_bohr_dissipator!(
     return sc.rho_out
 end
 
-"""
-    apply_lindbladian!(ws, rho, config, hamiltonian) -> sc.rho_out
 
-Apply the Bohr-domain Lindbladian and return `ws.scratch.rho_out`.
 """
-function apply_lindbladian!(
-    ws::Workspace{KrylovSpectrum},
-    rho::Matrix{T},
-    config::Config{Lindbladian, BohrDomain},
-    hamiltonian::HamHam;
-    include_coherent::Bool = true,
-) where {T<:Complex}
+    apply_lindbladian!(ws, rho, config, hamiltonian; include_coherent=true)
+
+Apply the compiled Lindbladian into `ws.scratch.rho_out` without changing `rho`.
+Set `include_coherent=false` only for a labelled dissipator-only diagnostic.
+"""
+function apply_lindbladian!(ws::Workspace{KrylovSpectrum}, rho::Matrix{T},
+    config::Config{Lindbladian,D}, ham::HamHam; include_coherent::Bool=true,
+) where {T<:Complex,D<:Union{BohrDomain,EnergyDomain,TimeDomain,TrotterDomain}}
+    return _apply_lindbladian!(ws, rho, config, ham, Val(false), include_coherent)
+end
+
+"""
+    apply_adjoint_lindbladian!(ws, rho, config, hamiltonian; include_coherent=true)
+
+Apply the Hilbert--Schmidt adjoint into `ws.scratch.rho_out`.
+"""
+function apply_adjoint_lindbladian!(ws::Workspace{KrylovSpectrum}, rho::Matrix{T},
+    config::Config{Lindbladian,D}, ham::HamHam; include_coherent::Bool=true,
+) where {T<:Complex,D<:Union{BohrDomain,EnergyDomain,TimeDomain,TrotterDomain}}
+    return _apply_lindbladian!(ws, rho, config, ham, Val(true), include_coherent)
+end
+
+function _apply_lindbladian!(ws, rho, config, ham, direction, include_coherent)
+    _apply_lindbladian_drift!(ws, rho, direction, include_coherent)
+    return _apply_lindbladian_gain!(ws, rho, config, ham, direction)
+end
+
+@inline function _apply_lindbladian_drift!(ws, rho::Matrix{T}, ::Val{ADJOINT}, include_coherent) where {T,ADJOINT}
     sc = ws.scratch::KrylovScratch{T}
-    gamma_norm_factor = ws.gamma_norm_factor::Float64
-    G_left = ws.G_left::Matrix{T}
-    G_right = ws.G_right::Matrix{T}
-    jump_eigenbases = ws.jump_eigenbases::Vector{Matrix{T}}
-    alpha = ws.bohr_alpha::Function
-
-    CT = one(T)
-    ZT = zero(T)
-
+    left = (ADJOINT ? ws.G_right : ws.G_left)::Matrix{T}
+    right = (ADJOINT ? ws.G_left : ws.G_right)::Matrix{T}
     if include_coherent
-        BLAS.gemm!('N', 'N', CT, G_left, rho, ZT, sc.rho_out)
-        BLAS.gemm!('N', 'N', CT, rho, G_right, CT, sc.rho_out)
+        BLAS.gemm!('N', 'N', one(T), left, rho, zero(T), sc.rho_out)
+        BLAS.gemm!('N', 'N', one(T), rho, right, one(T), sc.rho_out)
     else
         neg_R = sc.sandwich_tmp
-        @. neg_R = G_left + G_right
-        half = T(0.5)
-        BLAS.gemm!('N', 'N', half, neg_R, rho, ZT, sc.rho_out)
-        BLAS.gemm!('N', 'N', half, rho, neg_R, CT, sc.rho_out)
+        @. neg_R = left + right
+        BLAS.gemm!('N', 'N', T(0.5), neg_R, rho, zero(T), sc.rho_out)
+        BLAS.gemm!('N', 'N', T(0.5), rho, neg_R, one(T), sc.rho_out)
     end
-
-    # The workspace also stores typed CKG kernels. Keep the legacy call concrete
-    # so the scalar normalisation is not boxed at the function barrier.
-    if config.transition_weight === nothing
-        legacy_alpha = alpha::BohrAlphaKernel{typeof(config.construction),typeof(config.beta),Nothing}
-        return _apply_bohr_dissipator!(
-            sc, rho, jump_eigenbases, hamiltonian.bohr_freqs,
-            hamiltonian.bohr_dict, legacy_alpha, gamma_norm_factor, Val(false))
-    end
-    return _apply_bohr_dissipator!(
-        sc, rho, jump_eigenbases, hamiltonian.bohr_freqs,
-        hamiltonian.bohr_dict, alpha, gamma_norm_factor, Val(false))
-end
-
-"""
-    apply_adjoint_lindbladian!(ws, rho, config, hamiltonian) -> sc.rho_out
-
-Apply the Hilbert--Schmidt adjoint Bohr-domain Lindbladian.
-"""
-function apply_adjoint_lindbladian!(
-    ws::Workspace{KrylovSpectrum},
-    rho::Matrix{T},
-    config::Config{Lindbladian, BohrDomain},
-    hamiltonian::HamHam;
-    include_coherent::Bool = true,
-) where {T<:Complex}
-    sc = ws.scratch::KrylovScratch{T}
-    gamma_norm_factor = ws.gamma_norm_factor::Float64
-    G_left_adj = ws.G_right::Matrix{T}
-    G_right_adj = ws.G_left::Matrix{T}
-    jump_eigenbases = ws.jump_eigenbases::Vector{Matrix{T}}
-    alpha = ws.bohr_alpha::Function
-
-    CT = one(T)
-    ZT = zero(T)
-
-    if include_coherent
-        BLAS.gemm!('N', 'N', CT, G_left_adj, rho, ZT, sc.rho_out)
-        BLAS.gemm!('N', 'N', CT, rho, G_right_adj, CT, sc.rho_out)
-    else
-        neg_R = sc.sandwich_tmp
-        @. neg_R = G_left_adj + G_right_adj
-        half = T(0.5)
-        BLAS.gemm!('N', 'N', half, neg_R, rho, ZT, sc.rho_out)
-        BLAS.gemm!('N', 'N', half, rho, neg_R, CT, sc.rho_out)
-    end
-
-    if config.transition_weight === nothing
-        legacy_alpha = alpha::BohrAlphaKernel{typeof(config.construction),typeof(config.beta),Nothing}
-        return _apply_bohr_dissipator!(
-            sc, rho, jump_eigenbases, hamiltonian.bohr_freqs,
-            hamiltonian.bohr_dict, legacy_alpha, gamma_norm_factor, Val(true))
-    end
-    return _apply_bohr_dissipator!(
-        sc, rho, jump_eigenbases, hamiltonian.bohr_freqs,
-        hamiltonian.bohr_dict, alpha, gamma_norm_factor, Val(true))
-end
-
-# Concrete domain entry points avoid ambiguous intersections with the legacy
-# Bohr methods; both dispatch into the same retained-matrix function barrier.
-for D in (BohrDomain, TimeDomain)
-    @eval begin
-        function apply_lindbladian!(
-            ws::Workspace{KrylovSpectrum}, rho::Matrix{T},
-            config::Config{Lindbladian, $D, DLL}, hamiltonian::HamHam;
-            include_coherent::Bool=true,
-        ) where {T<:Complex}
-            return _apply_lindbladian_dll!(ws, rho; include_coherent)
-        end
-
-        function apply_adjoint_lindbladian!(
-            ws::Workspace{KrylovSpectrum}, rho::Matrix{T},
-            config::Config{Lindbladian, $D, DLL}, hamiltonian::HamHam;
-            include_coherent::Bool=true,
-        ) where {T<:Complex}
-            return _apply_adjoint_lindbladian_dll!(ws, rho; include_coherent)
-        end
-    end
-end
-
-# DLL uses one Lindblad matrix per coupling or channel.
-# Math: $L(rho) = G_L rho + rho G_R + sum_a L_a rho L_a^dagger$.
-
-"""
-    _apply_lindbladian_dll!(ws, rho) -> sc.rho_out
-
-Apply the DLL Bohr- or Time-domain Lindbladian.
-"""
-function _apply_lindbladian_dll!(
-    ws::Workspace{KrylovSpectrum},
-    rho::Matrix{T};
-    include_coherent::Bool = true,
-) where {T<:Complex}
-    sc = ws.scratch::KrylovScratch{T}
-    G_left  = ws.G_left::Matrix{T}
-    G_right = ws.G_right::Matrix{T}
-    dll_lindblads = ws.dll_lindblads::Vector{Matrix{T}}
-
-    CT = one(T)
-    ZT = zero(T)
-
-    if include_coherent
-        BLAS.gemm!('N', 'N', CT, G_left, rho, ZT, sc.rho_out)
-        BLAS.gemm!('N', 'N', CT, rho, G_right, CT, sc.rho_out)
-    else
-        neg_R = sc.sandwich_tmp
-        @. neg_R = G_left + G_right
-        half = T(0.5)
-        BLAS.gemm!('N', 'N', half, neg_R, rho, ZT, sc.rho_out)
-        BLAS.gemm!('N', 'N', half, rho, neg_R, CT, sc.rho_out)
-    end
-
-    if Threads.nthreads() > 1 && length(dll_lindblads) >= OMEGA_THREAD_THRESHOLD
-        return _apply_lindbladian_threaded_bohr_dll!(sc, rho, dll_lindblads; adjoint=false)
-    end
-
-    for L_a in dll_lindblads
-        _accumulate_sandwich_scratch!(sc.rho_out, L_a, rho, 1.0,
-                                      sc.sandwich_tmp, sc.sandwich_out)
-    end
-
-    return sc.rho_out
-end
-
-"""
-    _apply_adjoint_lindbladian_dll!(ws, rho) -> sc.rho_out
-
-Apply the Hilbert--Schmidt adjoint DLL Bohr- or Time-domain Lindbladian.
-"""
-function _apply_adjoint_lindbladian_dll!(
-    ws::Workspace{KrylovSpectrum},
-    rho::Matrix{T};
-    include_coherent::Bool = true,
-) where {T<:Complex}
-    sc = ws.scratch::KrylovScratch{T}
-    G_left_adj  = ws.G_right::Matrix{T}
-    G_right_adj = ws.G_left::Matrix{T}
-    dll_lindblads = ws.dll_lindblads::Vector{Matrix{T}}
-
-    CT = one(T)
-    ZT = zero(T)
-
-    if include_coherent
-        BLAS.gemm!('N', 'N', CT, G_left_adj, rho, ZT, sc.rho_out)
-        BLAS.gemm!('N', 'N', CT, rho, G_right_adj, CT, sc.rho_out)
-    else
-        neg_R = sc.sandwich_tmp
-        @. neg_R = G_left_adj + G_right_adj
-        half = T(0.5)
-        BLAS.gemm!('N', 'N', half, neg_R, rho, ZT, sc.rho_out)
-        BLAS.gemm!('N', 'N', half, rho, neg_R, CT, sc.rho_out)
-    end
-
-    if Threads.nthreads() > 1 && length(dll_lindblads) >= OMEGA_THREAD_THRESHOLD
-        return _apply_lindbladian_threaded_bohr_dll!(sc, rho, dll_lindblads; adjoint=true)
-    end
-
-    for L_a in dll_lindblads
-        _accumulate_sandwich_adj_scratch!(sc.rho_out, L_a, rho, 1.0,
-                                          sc.sandwich_tmp, sc.sandwich_out)
-    end
-
-    return sc.rho_out
-end
-
-"""
-    apply_lindbladian!(ws, rho, config, hamiltonian) -> sc.rho_out
-
-Apply a time- or Trotter-domain Lindbladian.
-"""
-function apply_lindbladian!(
-    ws::Workspace{KrylovSpectrum},
-    rho::Matrix{T},
-    config::Config{Lindbladian, D},
-    hamiltonian::HamHam;
-    include_coherent::Bool = true,
-) where {T<:Complex, D<:Union{TimeDomain, TrotterDomain}}
-    sc = ws.scratch::KrylovScratch{T}
-    _nufft = ws.oft_nufft_prefactors::NUFFTPrefactors{real(T), Array{T, 3}}
-    nufft_data = _nufft.data
-    nufft_idx = _nufft.energy_to_index
-    G_left = ws.G_left::Matrix{T}
-    G_right = ws.G_right::Matrix{T}
-    jump_eigenbases = ws.jump_eigenbases::Vector{Matrix{T}}
-    jump_hermitian = ws.jump_hermitian::Vector{Bool}
-    prefactor = (ws.oft_domain_prefactor::Float64) * (ws.gamma_norm_factor::Float64)
-    energy_labels = ws.energy_labels::Vector{Float64}
-
-    CT = one(T)
-    ZT = zero(T)
-
-    if include_coherent
-        BLAS.gemm!('N', 'N', CT, G_left, rho, ZT, sc.rho_out)
-        BLAS.gemm!('N', 'N', CT, rho, G_right, CT, sc.rho_out)
-    else
-        neg_R = sc.sandwich_tmp
-        @. neg_R = G_left + G_right
-        half = T(0.5)
-        BLAS.gemm!('N', 'N', half, neg_R, rho, ZT, sc.rho_out)
-        BLAS.gemm!('N', 'N', half, rho, neg_R, CT, sc.rho_out)
-    end
-
-    if Threads.nthreads() > 1 && length(energy_labels) >= OMEGA_THREAD_THRESHOLD
-        return _apply_lindbladian_threaded_timetrot!(
-            sc, rho, jump_eigenbases, jump_hermitian,
-            nufft_data, nufft_idx, energy_labels, config, prefactor; adjoint=false)
-    end
-
-    for (k, eigenbasis) in enumerate(jump_eigenbases)
-        is_herm = jump_hermitian[k]
-        if is_herm
-            for w_raw in energy_labels
-                w_raw > 1e-12 && continue
-                w = abs(w_raw)
-
-                nufft_prefactor_matrix = @view nufft_data[:, :, nufft_idx[w]]
-                @. sc.jump_oft = eigenbasis * nufft_prefactor_matrix
-
-                scalar_w = prefactor * pick_transition(config, w)
-                _accumulate_sandwich_scratch!(sc.rho_out, sc.jump_oft, rho, scalar_w, sc.sandwich_tmp, sc.sandwich_out)
-
-                if w > 1e-12
-                    scalar_neg = prefactor * pick_transition(config, -w)
-                    _accumulate_sandwich_adj_scratch!(sc.rho_out, sc.jump_oft, rho, scalar_neg, sc.sandwich_tmp, sc.sandwich_out)
-                end
-            end
-        else
-            for (i, w) in enumerate(energy_labels)
-                nufft_prefactor_matrix = @view nufft_data[:, :, i]
-                @. sc.jump_oft = eigenbasis * nufft_prefactor_matrix
-                scalar_w = prefactor * pick_transition(config, w)
-                _accumulate_sandwich_scratch!(sc.rho_out, sc.jump_oft, rho, scalar_w, sc.sandwich_tmp, sc.sandwich_out)
-            end
-        end
-    end
-
-    return sc.rho_out
-end
-
-"""
-    apply_adjoint_lindbladian!(ws, rho, config, hamiltonian) -> sc.rho_out
-
-Apply the Hilbert--Schmidt adjoint time- or Trotter-domain Lindbladian.
-"""
-function apply_adjoint_lindbladian!(
-    ws::Workspace{KrylovSpectrum},
-    rho::Matrix{T},
-    config::Config{Lindbladian, D},
-    hamiltonian::HamHam;
-    include_coherent::Bool = true,
-) where {T<:Complex, D<:Union{TimeDomain, TrotterDomain}}
-    sc = ws.scratch::KrylovScratch{T}
-    _nufft = ws.oft_nufft_prefactors::NUFFTPrefactors{real(T), Array{T, 3}}
-    nufft_data = _nufft.data
-    nufft_idx = _nufft.energy_to_index
-    G_left_adj = ws.G_right::Matrix{T}
-    G_right_adj = ws.G_left::Matrix{T}
-    jump_eigenbases = ws.jump_eigenbases::Vector{Matrix{T}}
-    jump_hermitian = ws.jump_hermitian::Vector{Bool}
-    prefactor = (ws.oft_domain_prefactor::Float64) * (ws.gamma_norm_factor::Float64)
-    energy_labels = ws.energy_labels::Vector{Float64}
-
-    CT = one(T)
-    ZT = zero(T)
-
-    if include_coherent
-        BLAS.gemm!('N', 'N', CT, G_left_adj, rho, ZT, sc.rho_out)
-        BLAS.gemm!('N', 'N', CT, rho, G_right_adj, CT, sc.rho_out)
-    else
-        neg_R = sc.sandwich_tmp
-        @. neg_R = G_left_adj + G_right_adj
-        half = T(0.5)
-        BLAS.gemm!('N', 'N', half, neg_R, rho, ZT, sc.rho_out)
-        BLAS.gemm!('N', 'N', half, rho, neg_R, CT, sc.rho_out)
-    end
-
-    if Threads.nthreads() > 1 && length(energy_labels) >= OMEGA_THREAD_THRESHOLD
-        return _apply_lindbladian_threaded_timetrot!(
-            sc, rho, jump_eigenbases, jump_hermitian,
-            nufft_data, nufft_idx, energy_labels, config, prefactor; adjoint=true)
-    end
-
-    for (k, eigenbasis) in enumerate(jump_eigenbases)
-        is_herm = jump_hermitian[k]
-        if is_herm
-            for w_raw in energy_labels
-                w_raw > 1e-12 && continue
-                w = abs(w_raw)
-
-                nufft_prefactor_matrix = @view nufft_data[:, :, nufft_idx[w]]
-                @. sc.jump_oft = eigenbasis * nufft_prefactor_matrix
-
-                scalar_w = prefactor * pick_transition(config, w)
-                _accumulate_sandwich_adj_scratch!(sc.rho_out, sc.jump_oft, rho, scalar_w, sc.sandwich_tmp, sc.sandwich_out)
-
-                if w > 1e-12
-                    scalar_neg = prefactor * pick_transition(config, -w)
-                    _accumulate_sandwich_scratch!(sc.rho_out, sc.jump_oft, rho, scalar_neg, sc.sandwich_tmp, sc.sandwich_out)
-                end
-            end
-        else
-            for (i, w) in enumerate(energy_labels)
-                nufft_prefactor_matrix = @view nufft_data[:, :, i]
-                @. sc.jump_oft = eigenbasis * nufft_prefactor_matrix
-                scalar_w = prefactor * pick_transition(config, w)
-                _accumulate_sandwich_adj_scratch!(sc.rho_out, sc.jump_oft, rho, scalar_w, sc.sandwich_tmp, sc.sandwich_out)
-            end
-        end
-    end
-
-    return sc.rho_out
-end
-
-# Threaded frequency loops use a flat `(jump_idx, label_idx)` work list and
-# private output matrices before the final deterministic reduction.
-
-function _apply_lindbladian_threaded_energy!(
-    sc::KrylovScratch{T},
-    rho::Matrix{T},
-    jump_eigenbases::Vector{Matrix{T}},
-    jump_hermitian::Vector{Bool},
-    bohr_freqs::AbstractMatrix{<:Real},
-    energy_labels::Vector{Float64},
-    config::Config{Lindbladian, EnergyDomain},
-    prefactor::Float64,
-    inv_4sigma2;
-    adjoint::Bool,
-) where {T<:Complex}
-    # `work` is the scratch's pre-allocated buffer; the population helper does
-    # `empty!` + `push!` which is zero-alloc when the buffer is large enough
-    # (the Workspace constructor sized it for the production label set).
-    work = sc.work_list
-    _populate_jump_frequency_work_list!(work, jump_hermitian, energy_labels)
-    n_work = length(work)
-    n_work == 0 && return sc.rho_out
-
-    pool = sc.task_scratches
-    nt = min(Threads.nthreads(), n_work, length(pool))
-    chunks = _partition_range(1:n_work, nt)
-
-    @sync for (idx, chunk) in enumerate(chunks)
-        Threads.@spawn _apply_lindbladian_chunk_energy!(
-            pool[idx], rho, jump_eigenbases, jump_hermitian,
-            bohr_freqs, energy_labels, work, chunk, config,
-            prefactor, inv_4sigma2; adjoint=adjoint)
-    end
-
-    @inbounds for idx in 1:length(chunks)
-        sc.rho_out .+= pool[idx].rho_out
-    end
-
-    return sc.rho_out
-end
-
-function _apply_lindbladian_chunk_energy!(
-    task_sc::KrylovScratch{T},
-    rho::Matrix{T},
-    jump_eigenbases::Vector{Matrix{T}},
-    jump_hermitian::Vector{Bool},
-    bohr_freqs::AbstractMatrix{<:Real},
-    energy_labels::Vector{Float64},
-    work::Vector{Tuple{Int, Int}},
-    chunk::UnitRange{Int},
-    config::Config{Lindbladian, EnergyDomain},
-    prefactor::Float64,
-    inv_4sigma2;
-    adjoint::Bool,
-) where {T<:Complex}
-    fill!(task_sc.rho_out, 0)
-
-    @inbounds for w_idx in chunk
-        (k, li) = work[w_idx]
-        eigenbasis = jump_eigenbases[k]
-        is_herm = jump_hermitian[k]
-
-        w_raw = energy_labels[li]
-        # Hermitian fold: only `w_raw <= 1e-12` is queued, OFT and rate use
-        # `w = |w_raw|` (matches serial). Non-Hermitian: `w = w_raw` directly,
-        # OFT and rate take the signed value.
-        w = is_herm ? abs(w_raw) : w_raw
-
-        oft!(task_sc.jump_oft, eigenbasis, bohr_freqs, w, inv_4sigma2)
-
-        scalar_w = prefactor * pick_transition(config, w)
-        if adjoint
-            _accumulate_sandwich_adj_scratch!(task_sc.rho_out, task_sc.jump_oft, rho, scalar_w,
-                                              task_sc.sandwich_tmp, task_sc.sandwich_out)
-        else
-            _accumulate_sandwich_scratch!(task_sc.rho_out, task_sc.jump_oft, rho, scalar_w,
-                                          task_sc.sandwich_tmp, task_sc.sandwich_out)
-        end
-
-        if is_herm && w > 1e-12
-            scalar_neg = prefactor * pick_transition(config, -w)
-            if adjoint
-                _accumulate_sandwich_scratch!(task_sc.rho_out, task_sc.jump_oft, rho, scalar_neg,
-                                              task_sc.sandwich_tmp, task_sc.sandwich_out)
-            else
-                _accumulate_sandwich_adj_scratch!(task_sc.rho_out, task_sc.jump_oft, rho, scalar_neg,
-                                                  task_sc.sandwich_tmp, task_sc.sandwich_out)
-            end
-        end
-    end
-
     return nothing
 end
 
-# The DLL Bohr dissipator Σ_a L_a ρ L_a† is a flat sum over the per-jump
-# operators in `ws.dll_lindblads` (one dense L_a per coupling — or per channel
-# for multi-channel filters). Parallelise over the jump index `a`: the direct
-# analogue of the EnergyDomain ω-loop, where each (jump, ω) term is itself one
-# Lindblad operator. Each task accumulates a private `rho_out`; the coherent
-# term (already in `sc.rho_out` when this is called) is preserved by the `.+=`
-# reduction.
+@inline _sandwich_action(::Val{false}) = _accumulate_sandwich_scratch!
+@inline _sandwich_action(::Val{true}) = _accumulate_sandwich_adj_scratch!
 
-function _apply_lindbladian_threaded_bohr_dll!(
-    sc::KrylovScratch{T},
-    rho::Matrix{T},
-    dll_lindblads::Vector{Matrix{T}};
-    adjoint::Bool,
-) where {T<:Complex}
-    n_jumps = length(dll_lindblads)
-    n_jumps == 0 && return sc.rho_out
+function _apply_lindbladian_gain!(ws, rho::Matrix{T}, config::Config{Lindbladian,BohrDomain}, ham, direction) where {T}
+    sc = ws.scratch::KrylovScratch{T}
+    bases = ws.jump_eigenbases::Vector{Matrix{T}}
+    alpha = ws.bohr_alpha::Function
+    scale = ws.gamma_norm_factor::Float64
+    if config.transition_weight === nothing
+        kernel = alpha::BohrAlphaKernel{typeof(config.construction),typeof(config.beta),Nothing}
+        return _apply_bohr_dissipator!(sc, rho, bases, ham.bohr_freqs, ham.bohr_dict, kernel, scale, direction)
+    end
+    return _apply_bohr_dissipator!(sc, rho, bases, ham.bohr_freqs, ham.bohr_dict, alpha, scale, direction)
+end
 
+function _apply_lindbladian_gain!(ws, rho::Matrix{T}, config::Config{Lindbladian,D}, ham, direction) where {T,D<:Union{EnergyDomain,TimeDomain,TrotterDomain}}
+    sc = ws.scratch::KrylovScratch{T}
+    bases = ws.jump_eigenbases::Vector{Matrix{T}}
+    hermitian = ws.jump_hermitian::Vector{Bool}
+    labels = ws.energy_labels::Vector{Float64}
+    prefactor = (ws.oft_domain_prefactor::Float64) * (ws.gamma_norm_factor::Float64)
+    data = D <: EnergyDomain ? (ham.bohr_freqs, _energy_oft_kernel(config)) :
+        ws.oft_nufft_prefactors::NUFFTPrefactors{real(T),Array{T,3}}
+    if Threads.nthreads() > 1 && length(labels) >= OMEGA_THREAD_THRESHOLD && !isempty(sc.task_scratches)
+        return _apply_lindbladian_threaded_frequency!(sc, rho, bases, hermitian, labels,
+            config, prefactor, data, direction)
+    end
+    _populate_jump_frequency_work_list!(sc.work_list, hermitian, labels)
+    _apply_lindbladian_chunk_frequency!(sc, rho, bases, hermitian, labels, sc.work_list,
+        eachindex(sc.work_list), config, prefactor, data, direction)
+    return sc.rho_out
+end
+
+# Concrete domain intersections keep DLL dispatch unambiguous.
+_apply_lindbladian_gain!(ws, rho::Matrix{T}, config::Config{Lindbladian,BohrDomain,DLL}, ham, direction) where {T} =
+    _apply_dll_gain!(ws, rho, direction)
+_apply_lindbladian_gain!(ws, rho::Matrix{T}, config::Config{Lindbladian,TimeDomain,DLL}, ham, direction) where {T} =
+    _apply_dll_gain!(ws, rho, direction)
+
+function _apply_dll_gain!(ws, rho::Matrix{T}, direction) where {T}
+    sc = ws.scratch::KrylovScratch{T}
+    operators = ws.dll_lindblads::Vector{Matrix{T}}
+    if Threads.nthreads() > 1 && length(operators) >= OMEGA_THREAD_THRESHOLD
+        return _apply_lindbladian_threaded_bohr_dll!(sc, rho, operators; adjoint=direction isa Val{true})
+    end
+    _apply_lindbladian_chunk_bohr_dll!(sc, rho, operators, eachindex(operators); adjoint=direction isa Val{true})
+    return sc.rho_out
+end
+
+# Work and task buffers belong to the workspace. Reduction order is deterministic.
+function _apply_lindbladian_threaded_frequency!(sc::KrylovScratch{T}, rho, bases, hermitian,
+    labels, config, prefactor, data::F, direction::V) where {T,F,V}
+    work = sc.work_list
+    _populate_jump_frequency_work_list!(work, hermitian, labels)
+    isempty(work) && return sc.rho_out
     pool = sc.task_scratches
-    nt = min(Threads.nthreads(), n_jumps, length(pool))
-    if nt < 2
-        # Pool unavailable (e.g. nthreads changed since workspace construction)
-        # — fall back to the serial sum into sc.rho_out (coherent already there).
-        @inbounds for L_a in dll_lindblads
-            if adjoint
-                _accumulate_sandwich_adj_scratch!(sc.rho_out, L_a, rho, 1.0,
-                                                  sc.sandwich_tmp, sc.sandwich_out)
-            else
-                _accumulate_sandwich_scratch!(sc.rho_out, L_a, rho, 1.0,
-                                              sc.sandwich_tmp, sc.sandwich_out)
-            end
+    chunks = _partition_range(1:length(work), min(Threads.nthreads(), length(work), length(pool)))
+    @sync for (idx, chunk) in enumerate(chunks)
+        Threads.@spawn begin
+            fill!(pool[idx].rho_out, 0)
+            _apply_lindbladian_chunk_frequency!(pool[idx], rho, bases, hermitian, labels,
+                work, chunk, config, prefactor, data, direction)
         end
+    end
+    for idx in eachindex(chunks)
+        sc.rho_out .+= pool[idx].rho_out
+    end
+    return sc.rho_out
+end
+
+function _apply_lindbladian_chunk_frequency!(sc::KrylovScratch{T}, rho::Matrix{T},
+    bases::Vector{Matrix{T}}, hermitian, labels, work, chunk, config, prefactor,
+    data::F, ::Val{ADJOINT}) where {T,F,ADJOINT}
+    positive = _sandwich_action(Val(ADJOINT))
+    negative = _sandwich_action(Val(!ADJOINT))
+    @inbounds for wi in chunk
+        k, li = work[wi]
+        folded = hermitian[k]
+        w = folded ? abs(labels[li]) : labels[li]
+        _frequency_oft!(sc.jump_oft, bases[k], data, w, li, folded)
+        positive(sc.rho_out, sc.jump_oft, rho, prefactor*pick_transition(config,w), sc.sandwich_tmp, sc.sandwich_out)
+        if folded && w > 1e-12
+            negative(sc.rho_out, sc.jump_oft, rho, prefactor*pick_transition(config,-w), sc.sandwich_tmp, sc.sandwich_out)
+        end
+    end
+    return nothing
+end
+
+function _apply_lindbladian_threaded_bohr_dll!(sc::KrylovScratch{T}, rho::Matrix{T},
+    operators::Vector{Matrix{T}}; adjoint::Bool) where {T<:Complex}
+    isempty(operators) && return sc.rho_out
+    pool = sc.task_scratches
+    nt = min(Threads.nthreads(), length(operators), length(pool))
+    if nt < 2
+        _apply_lindbladian_chunk_bohr_dll!(sc, rho, operators, eachindex(operators); adjoint)
         return sc.rho_out
     end
-    chunks = _partition_range(1:n_jumps, nt)
-
+    chunks = _partition_range(1:length(operators), nt)
     @sync for (idx, chunk) in enumerate(chunks)
-        Threads.@spawn _apply_lindbladian_chunk_bohr_dll!(
-            pool[idx], rho, dll_lindblads, chunk; adjoint=adjoint)
+        Threads.@spawn begin
+            fill!(pool[idx].rho_out, 0)
+            _apply_lindbladian_chunk_bohr_dll!(pool[idx], rho, operators, chunk; adjoint)
+        end
     end
-
-    @inbounds for idx in 1:length(chunks)
+    for idx in eachindex(chunks)
         sc.rho_out .+= pool[idx].rho_out
     end
-
     return sc.rho_out
 end
 
-function _apply_lindbladian_chunk_bohr_dll!(
-    task_sc::KrylovScratch{T},
-    rho::Matrix{T},
-    dll_lindblads::Vector{Matrix{T}},
-    chunk::UnitRange{Int};
-    adjoint::Bool,
-) where {T<:Complex}
-    fill!(task_sc.rho_out, 0)
+function _apply_lindbladian_chunk_bohr_dll!(sc::KrylovScratch{T}, rho::Matrix{T},
+    operators::Vector{Matrix{T}}, chunk; adjoint::Bool) where {T<:Complex}
+    sandwich! = adjoint ? _accumulate_sandwich_adj_scratch! : _accumulate_sandwich_scratch!
     @inbounds for k in chunk
-        L_a = dll_lindblads[k]
-        if adjoint
-            _accumulate_sandwich_adj_scratch!(task_sc.rho_out, L_a, rho, 1.0,
-                                              task_sc.sandwich_tmp, task_sc.sandwich_out)
-        else
-            _accumulate_sandwich_scratch!(task_sc.rho_out, L_a, rho, 1.0,
-                                          task_sc.sandwich_tmp, task_sc.sandwich_out)
-        end
+        sandwich!(sc.rho_out, operators[k], rho, 1.0, sc.sandwich_tmp, sc.sandwich_out)
     end
-    return nothing
-end
-
-# --- TimeDomain / TrotterDomain threaded variant ---
-
-function _apply_lindbladian_threaded_timetrot!(
-    sc::KrylovScratch{T},
-    rho::Matrix{T},
-    jump_eigenbases::Vector{Matrix{T}},
-    jump_hermitian::Vector{Bool},
-    nufft_data::AbstractArray{T, 3},
-    nufft_idx::AbstractDict,
-    energy_labels::Vector{Float64},
-    config::Config{Lindbladian, D},
-    prefactor::Float64;
-    adjoint::Bool,
-) where {T<:Complex, D<:Union{TimeDomain, TrotterDomain}}
-    work = sc.work_list
-    _populate_jump_frequency_work_list!(work, jump_hermitian, energy_labels)
-    n_work = length(work)
-    n_work == 0 && return sc.rho_out
-
-    pool = sc.task_scratches
-    nt = min(Threads.nthreads(), n_work, length(pool))
-    chunks = _partition_range(1:n_work, nt)
-
-    @sync for (idx, chunk) in enumerate(chunks)
-        Threads.@spawn _apply_lindbladian_chunk_timetrot!(
-            pool[idx], rho, jump_eigenbases, jump_hermitian,
-            nufft_data, nufft_idx, energy_labels, work, chunk, config,
-            prefactor; adjoint=adjoint)
-    end
-
-    @inbounds for idx in 1:length(chunks)
-        sc.rho_out .+= pool[idx].rho_out
-    end
-
-    return sc.rho_out
-end
-
-function _apply_lindbladian_chunk_timetrot!(
-    task_sc::KrylovScratch{T},
-    rho::Matrix{T},
-    jump_eigenbases::Vector{Matrix{T}},
-    jump_hermitian::Vector{Bool},
-    nufft_data::AbstractArray{T, 3},
-    nufft_idx::AbstractDict,
-    energy_labels::Vector{Float64},
-    work::Vector{Tuple{Int, Int}},
-    chunk::UnitRange{Int},
-    config::Config{Lindbladian, D},
-    prefactor::Float64;
-    adjoint::Bool,
-) where {T<:Complex, D<:Union{TimeDomain, TrotterDomain}}
-    fill!(task_sc.rho_out, 0)
-
-    @inbounds for w_idx in chunk
-        (k, li) = work[w_idx]
-        eigenbasis = jump_eigenbases[k]
-        is_herm = jump_hermitian[k]
-
-        w_raw = energy_labels[li]
-        # Hermitian fold: only `w_raw <= 1e-12` queued; rate uses `|w_raw|`,
-        # NUFFT prefactor index found via `nufft_idx[|w_raw|]`. Non-Hermitian:
-        # rate uses signed `w_raw`; prefactor index is the label index `li`.
-        w = is_herm ? abs(w_raw) : w_raw
-        prefactor_idx = is_herm ? nufft_idx[w] : li
-        nufft_prefactor_matrix = @view nufft_data[:, :, prefactor_idx]
-        @. task_sc.jump_oft = eigenbasis * nufft_prefactor_matrix
-
-        scalar_w = prefactor * pick_transition(config, w)
-        if adjoint
-            _accumulate_sandwich_adj_scratch!(task_sc.rho_out, task_sc.jump_oft, rho, scalar_w,
-                                              task_sc.sandwich_tmp, task_sc.sandwich_out)
-        else
-            _accumulate_sandwich_scratch!(task_sc.rho_out, task_sc.jump_oft, rho, scalar_w,
-                                          task_sc.sandwich_tmp, task_sc.sandwich_out)
-        end
-
-        if is_herm && w > 1e-12
-            scalar_neg = prefactor * pick_transition(config, -w)
-            if adjoint
-                _accumulate_sandwich_scratch!(task_sc.rho_out, task_sc.jump_oft, rho, scalar_neg,
-                                              task_sc.sandwich_tmp, task_sc.sandwich_out)
-            else
-                _accumulate_sandwich_adj_scratch!(task_sc.rho_out, task_sc.jump_oft, rho, scalar_neg,
-                                                  task_sc.sandwich_tmp, task_sc.sandwich_out)
-            end
-        end
-    end
-
     return nothing
 end

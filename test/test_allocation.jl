@@ -1,16 +1,9 @@
 """
 Allocation regression tests for optimized hot paths.
 
-Verifies that allocation-reducing optimizations from Phase 11 (Plans 01 and 02)
-remain effective. Each test calls the target function once for JIT warmup, then
-measures allocations with @allocated. Thresholds are set to catch the eliminated
-allocation patterns while allowing expected allocations (return values, scratch
-buffers, and broadcasting overhead from closure-based element-wise operations).
-
-Eliminated patterns that these tests guard against:
-- B_bohr: per-frequency spzeros + sparse-dense multiply (O(num_freqs * dim^2))
-- B_time/B_trotter: per-iteration Diagonal wrapper construction
-- retained channel step: per-step R construction and eigendecomposition
+Warm each target before measuring with `@allocated`. Budgets allow return
+values, scratch buffers and task overhead, while rejecting allocations
+inside frequency loops and per-step matrix factorizations.
 """
 
 using QuantumFurnace: B_bohr, B_time, B_trotter,
@@ -46,14 +39,8 @@ using QuantumFurnace: B_bohr, B_time, B_trotter,
         # Single-jump (wrapped as vector) warmup + measure
         B_ref = B_time(JumpOp[jump], TEST_HAM, b_minus, b_plus, T0, BETA, SIGMA)
         allocs = @allocated B_time(JumpOp[jump], TEST_HAM, b_minus, b_plus, T0, BETA, SIGMA)
-        # Budget: pre-allocated buffers (diag_u, diag_u2 vectors; b_plus_summand, tmp, M, B matrices)
-        # and lazy adjoint views from mul! calls. Must NOT include per-iteration Diagonal wrapper allocations.
-        # qf-6af.5: when threading the inner τ × jumps loop and outer t-loop,
-        # B_time additionally allocates per-task buffers (one set per chunk
-        # plus a partial accumulator) and Task objects. Multiplied by
-        # nthreads, the budget grows linearly. Even with the wider budget
-        # the test still rejects the per-iteration Diagonal regression
-        # (~num_b_plus × d² ≈ 183 × 256 × 16 ≈ 750 KB at NUM_QUBITS=4).
+        # Allow scratch matrices and per-thread tasks and buffers.
+        # The budget remains below a d² allocation for every b_plus sample.
         d = DIM
         nt = max(Threads.nthreads(), 1)
         max_expected = (25 + 8 * (nt - 1)) * d^2 * sizeof(ComplexF64) + 4096 * nt
@@ -84,8 +71,7 @@ using QuantumFurnace: B_bohr, B_time, B_trotter,
         B_ref = B_trotter(JumpOp[jump], TEST_TROTTER, b_minus, b_plus, BETA, SIGMA)
         allocs = @allocated B_trotter(JumpOp[jump], TEST_TROTTER, b_minus, b_plus, BETA, SIGMA)
         d = DIM
-        # qf-6af.5: same widening rationale as `B_time allocations` above —
-        # threading adds per-task buffers + Task overhead at construction.
+        # Threading adds per-task buffers and task overhead at construction.
         nt = max(Threads.nthreads(), 1)
         max_expected = (25 + 8 * (nt - 1)) * d^2 * sizeof(ComplexF64) + 4096 * nt
         @test allocs <= max_expected  # B_trotter single-jump: same budget rationale as B_time

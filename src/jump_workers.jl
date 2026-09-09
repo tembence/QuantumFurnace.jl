@@ -1,3 +1,50 @@
+# Shared frequency-domain rate operator: sum_w rate(w) * A(w)'A(w).
+# Callers supply source matrices in their working spectral basis.
+function _accumulate_frequency_loss!(R::Matrix{T}, bases::Vector{Matrix{T}}, hermitian,
+    labels, transition::F, prefactor, data::D; threaded::Bool, buffers=nothing,
+) where {T,F,D}
+    work = Tuple{Int,Int}[]
+    _populate_jump_frequency_work_list!(work, hermitian, labels)
+    isempty(work) && return nothing
+    if !threaded
+        operator, product = buffers === nothing ? (similar(R), similar(R)) : buffers
+        _accumulate_frequency_loss_chunk!(R, operator, product, bases,
+            hermitian, labels, work, eachindex(work), transition, prefactor, data)
+        return nothing
+    end
+    chunks = _partition_range(1:length(work), min(Threads.nthreads(),length(work)))
+    partials = [zero(R) for _ in chunks]
+    operators = [similar(R) for _ in chunks]
+    products = [similar(R) for _ in chunks]
+    @sync for (idx, chunk) in enumerate(chunks)
+        Threads.@spawn _accumulate_frequency_loss_chunk!(partials[idx], operators[idx], products[idx],
+            bases, hermitian, labels, work, chunk, transition, prefactor, data)
+    end
+    for partial in partials
+        R .+= partial
+    end
+    return nothing
+end
+
+function _accumulate_frequency_loss_chunk!(R, operator, product, bases, hermitian,
+    labels, work, chunk, transition::F, prefactor, data::D) where {F,D}
+    @inbounds for wi in chunk
+        k, li = work[wi]
+        folded = hermitian[k]
+        w = folded ? abs(labels[li]) : labels[li]
+        _frequency_oft!(operator, bases[k], data, w, li, folded)
+        rate = prefactor * transition(w)
+        mul!(product, operator', operator)
+        @. R += rate * product
+        if folded && w > 1e-12
+            rate_negative = prefactor * transition(-w)
+            mul!(product, operator, operator')
+            @. R += rate_negative * product
+        end
+    end
+    return nothing
+end
+
 """
     _jump_contribution!(L_target, jump, hamiltonian, config, precomputed_data, ws;
                         coherent_term=nothing)
@@ -249,132 +296,59 @@ end
 
 
 """
-    _accumulate_rho_jump!(scratch, evolving_dm, jump, hamiltonian, config::Config{Thermalize, EnergyDomain},
-                          precomputed_data; jump_weight_scaling)
+    _accumulate_rho_jump!(scratch, rho, jump, ham, config, precomputed; jump_weight_scaling)
 
-Accumulate the energy-domain jump sandwich for a precomputed channel.
-
-Math: \$rho_jump = delta sum_omega rate(omega)^2 L_(a,omega) rho L_(a,omega)^dagger\$.
+Accumulate the frequency-domain channel gain into `scratch.rho_jump`.
+The weight includes the channel step size and the source selection multiplier.
 """
-function _accumulate_rho_jump!(
-    scratch::ThermalizeScratch{<:Complex},
-    evolving_dm::Matrix{<:Complex},
-    jump::JumpOp,
-    hamiltonian::HamHam,
-    config::Config{Thermalize, EnergyDomain},
-    precomputed_data;
+function _accumulate_rho_jump!(scratch::ThermalizeScratch{T}, rho::Matrix{T},
+    jump::JumpOp, ham, config::Config{Thermalize,D}, precomputed;
     jump_weight_scaling::Real,
-)
-    (; transition, energy_labels) = precomputed_data
-
-    n_labels = length(energy_labels)
-    if Threads.nthreads() > 1 && n_labels >= OMEGA_THREAD_THRESHOLD
-        return _accumulate_rho_jump_threaded_energy!(scratch, evolving_dm, jump, hamiltonian, config, precomputed_data;
-            jump_weight_scaling=jump_weight_scaling,
-            task_scratches=isempty(scratch.task_scratches) ? nothing : scratch.task_scratches)
-    end
-
-    base_prefactor = precomputed_data.oft_domain_prefactor * jump_weight_scaling
-    inv_4sigma2 = 1.0 / (4 * config.sigma^2)
-
-    fill!(scratch.rho_jump, 0)
-
-    if jump.hermitian
-        @inbounds for w_raw in energy_labels
-            w_raw > 1e-12 && continue
-            w = abs(w_raw)
-
-            oft!(scratch.jump_oft, jump.in_eigenbasis, hamiltonian.bohr_freqs, w, inv_4sigma2)
-
-            rate2_pos = base_prefactor * transition(w)
-
-            # rho_jump += delta * rate^2 * (Aw rho Aw_dag)
-            mul!(scratch.sandwich_tmp, evolving_dm, scratch.jump_oft')
-            mul!(scratch.rho_jump, scratch.jump_oft, scratch.sandwich_tmp, config.delta * rate2_pos, 1.0)
-
-            if w > 1e-12
-                rate2_neg = base_prefactor * transition(-w)
-
-                # Negative-frequency partner uses (Aw)_dag as Lindblad operator.
-                mul!(scratch.sandwich_tmp, evolving_dm, scratch.jump_oft)
-                mul!(scratch.rho_jump, scratch.jump_oft', scratch.sandwich_tmp, config.delta * rate2_neg, 1.0)
-            end
+) where {T<:Complex,D<:Union{EnergyDomain,TimeDomain,TrotterDomain}}
+    labels = precomputed.energy_labels
+    data = _frequency_oft_data(config, ham, precomputed)
+    prefactor = precomputed.oft_domain_prefactor * jump_weight_scaling
+    if Threads.nthreads() > 1 && length(labels) >= OMEGA_THREAD_THRESHOLD
+        indices = jump.hermitian ? findall(w -> w <= 1e-12, labels) : collect(eachindex(labels))
+        isempty(indices) && (fill!(scratch.rho_jump, 0); return nothing)
+        chunks = _partition_range(1:length(indices), min(Threads.nthreads(),length(indices)))
+        pool = isempty(scratch.task_scratches) ?
+            [ThermalizeScratch(T,size(rho,1)) for _ in chunks] : scratch.task_scratches
+        @assert length(pool) >= length(chunks)
+        @sync for (idx, chunk) in enumerate(chunks)
+            Threads.@spawn _accumulate_rho_jump_chunk_frequency!(pool[idx], rho, jump,
+                config.delta, precomputed.transition, labels, data, view(indices,chunk), prefactor)
+        end
+        fill!(scratch.rho_jump, 0)
+        for idx in eachindex(chunks)
+            scratch.rho_jump .+= pool[idx].rho_jump
         end
     else
-        @inbounds for w in energy_labels
-            oft!(scratch.jump_oft, jump.in_eigenbasis, hamiltonian.bohr_freqs, w, inv_4sigma2)
-
-            rate2 = base_prefactor * transition(w)
-
-            mul!(scratch.sandwich_tmp, evolving_dm, scratch.jump_oft')
-            mul!(scratch.rho_jump, scratch.jump_oft, scratch.sandwich_tmp, config.delta * rate2, 1.0)
-        end
+        _accumulate_rho_jump_chunk_frequency!(scratch, rho, jump,
+            config.delta, precomputed.transition, labels, data, eachindex(labels), prefactor)
     end
-
     return nothing
 end
 
-"""
-    _accumulate_rho_jump!(scratch, evolving_dm, jump, ham_or_trott, config::Config{Thermalize, D},
-                          precomputed_data; jump_weight_scaling) where D<:Union{TimeDomain, TrotterDomain}
-
-Accumulate rho_jump for TimeDomain/TrotterDomain. Uses NUFFT prefactors for jump_oft
-computation. No R or LdagL accumulation.
-"""
-function _accumulate_rho_jump!(
-    scratch::ThermalizeScratch{<:Complex},
-    evolving_dm::Matrix{<:Complex},
-    jump::JumpOp,
-    ham_or_trott,
-    config::Config{Thermalize, D},
-    precomputed_data;
-    jump_weight_scaling::Real,
-) where {D<:Union{TimeDomain, TrotterDomain}}
-    (; transition, energy_labels, oft_nufft_prefactors) = precomputed_data
-
-    n_labels = length(energy_labels)
-    if Threads.nthreads() > 1 && n_labels >= OMEGA_THREAD_THRESHOLD
-        return _accumulate_rho_jump_threaded_timetrot!(scratch, evolving_dm, jump, ham_or_trott, config, precomputed_data;
-            jump_weight_scaling=jump_weight_scaling,
-            task_scratches=isempty(scratch.task_scratches) ? nothing : scratch.task_scratches)
-    end
-
-    base_prefactor = precomputed_data.oft_domain_prefactor * jump_weight_scaling
-
+function _accumulate_rho_jump_chunk_frequency!(scratch::ThermalizeScratch{T}, rho::Matrix{T},
+    jump, delta, transition::F, labels, data::D, indices, prefactor) where {T,F,D}
     fill!(scratch.rho_jump, 0)
-
-    if jump.hermitian
-        @inbounds for w_raw in energy_labels
-            w_raw > 1e-12 && continue
-            w = abs(w_raw)
-
-            nufft_prefactor_matrix = _prefactor_view(oft_nufft_prefactors, w)
-            @. scratch.jump_oft = jump.in_eigenbasis * nufft_prefactor_matrix
-
-            rate2_pos = base_prefactor * transition(w)
-
-            mul!(scratch.sandwich_tmp, evolving_dm, scratch.jump_oft')
-            mul!(scratch.rho_jump, scratch.jump_oft, scratch.sandwich_tmp, config.delta * rate2_pos, 1.0)
-
-            if w > 1e-12
-                rate2_neg = base_prefactor * transition(-w)
-
-                mul!(scratch.sandwich_tmp, evolving_dm, scratch.jump_oft)
-                mul!(scratch.rho_jump, scratch.jump_oft', scratch.sandwich_tmp, config.delta * rate2_neg, 1.0)
-            end
-        end
-    else
-        for w in energy_labels
-            nufft_prefactor_matrix = _prefactor_view(oft_nufft_prefactors, w)
-            @. scratch.jump_oft = jump.in_eigenbasis * nufft_prefactor_matrix
-
-            rate2_pos = base_prefactor * transition(w)
-
-            mul!(scratch.sandwich_tmp, evolving_dm, scratch.jump_oft')
-            mul!(scratch.rho_jump, scratch.jump_oft, scratch.sandwich_tmp, config.delta * rate2_pos, 1.0)
+    basis = jump.in_eigenbasis::Matrix{T}
+    folded = jump.hermitian
+    @inbounds for li in indices
+        raw = labels[li]
+        folded && raw > 1e-12 && continue
+        w = folded ? abs(raw) : raw
+        _frequency_oft!(scratch.jump_oft, basis, data, w, li, folded)
+        rate = prefactor * transition(w)
+        mul!(scratch.sandwich_tmp, rho, scratch.jump_oft')
+        mul!(scratch.rho_jump, scratch.jump_oft, scratch.sandwich_tmp, delta*rate, 1.0)
+        if folded && w > 1e-12
+            rate_negative = prefactor * transition(-w)
+            mul!(scratch.sandwich_tmp, rho, scratch.jump_oft)
+            mul!(scratch.rho_jump, scratch.jump_oft', scratch.sandwich_tmp, delta*rate_negative, 1.0)
         end
     end
-
     return nothing
 end
 
@@ -407,213 +381,9 @@ function _accumulate_rho_jump!(
             task_scratches=isempty(scratch.task_scratches) ? nothing : scratch.task_scratches)
     end
 
-    scaled_delta = config.delta * jump_weight_scaling
-
-    fill!(scratch.rho_jump, 0)
-
-    # Keep the hot-loop matrix view concretely typed.
-    CT = eltype(scratch.jump_oft)
-    in_eb = jump.in_eigenbasis::Matrix{CT}
-
-    @inbounds for (k, nu_2) in pairs(bohr_keys)
-        # B_{v2} = sum_{v1} alpha(v1, v2) * A
-        @. scratch.jump_oft = alpha(hamiltonian.bohr_freqs, nu_2) * in_eb
-
-        # sandwich_tmp := rho A_{v2}dag
-        fill!(scratch.sandwich_tmp, 0)
-        if bohr_is !== nothing
-            is = bohr_is[k]
-            js = bohr_js[k]
-            @inbounds for t in eachindex(is)
-                i = is[t]
-                j = js[t]
-                v = conj(in_eb[i, j])
-                @inbounds for p in 1:dim
-                    scratch.sandwich_tmp[p, i] += evolving_dm[p, j] * v
-                end
-            end
-        else
-            indices = hamiltonian.bohr_dict[nu_2]
-            @inbounds for idx in indices
-                i = idx[1]
-                j = idx[2]
-                v = conj(in_eb[i, j])
-                @inbounds for p in 1:dim
-                    scratch.sandwich_tmp[p, i] += evolving_dm[p, j] * v
-                end
-            end
-        end
-
-        # rho_jump += scaled_delta * B_{v2} * (rho A_{v2}dag)
-        mul!(scratch.rho_jump, scratch.jump_oft, scratch.sandwich_tmp, scaled_delta, 1.0)
-    end
-
-    return nothing
-end
-
-function _accumulate_rho_jump_threaded_energy!(
-    scratch::ThermalizeScratch{CT},
-    evolving_dm::Matrix{CT},
-    jump::JumpOp,
-    hamiltonian::HamHam,
-    config::Config{Thermalize, EnergyDomain},
-    precomputed_data;
-    jump_weight_scaling::Real,
-    task_scratches::Union{Nothing, Vector{ThermalizeScratch{CT}}}=nothing,
-) where {CT<:Complex}
-    (; transition, energy_labels) = precomputed_data
-    base_prefactor = precomputed_data.oft_domain_prefactor * jump_weight_scaling
-    inv_4sigma2 = 1.0 / (4 * config.sigma^2)
-
-    # For Hermitian jumps, pre-filter to half-grid indices for balanced partitioning
-    if jump.hermitian
-        half_indices = [i for i in eachindex(energy_labels) if energy_labels[i] <= 1e-12]
-    else
-        half_indices = collect(eachindex(energy_labels))
-    end
-
-    n_work = length(half_indices)
-    nt = min(Threads.nthreads(), n_work)
-    chunks = _partition_range(1:n_work, nt)
-    dim = size(evolving_dm, 1)
-
-    # Per-task scratch: each needs rho_jump, jump_oft, sandwich_tmp.
-    # Reuse a supplied thread-local pool; otherwise allocate one for this call.
-    local_pool = if task_scratches === nothing
-        [ThermalizeScratch(CT, dim) for _ in 1:length(chunks)]
-    else
-        @assert length(task_scratches) >= length(chunks)
-        task_scratches
-    end
-
-    @sync for (idx, chunk) in enumerate(chunks)
-        Threads.@spawn _accumulate_rho_jump_chunk_energy!(
-            local_pool[idx], evolving_dm, jump, hamiltonian,
-            config, precomputed_data, half_indices[chunk];
-            base_prefactor=base_prefactor, inv_4sigma2=inv_4sigma2)
-    end
-
-    # Reduce: sum per-task rho_jump into scratch.rho_jump
-    fill!(scratch.rho_jump, 0)
-    for idx in 1:length(chunks)
-        scratch.rho_jump .+= local_pool[idx].rho_jump
-    end
-
-    return nothing
-end
-
-function _accumulate_rho_jump_chunk_energy!(
-    scratch::ThermalizeScratch{CT},
-    evolving_dm::Matrix{CT},
-    jump::JumpOp,
-    hamiltonian::HamHam,
-    config::Config{Thermalize, EnergyDomain},
-    precomputed_data,
-    label_indices::AbstractVector{Int};
-    base_prefactor::Real,
-    inv_4sigma2::Real,
-) where {CT<:Complex}
-    (; transition, energy_labels) = precomputed_data
-    fill!(scratch.rho_jump, 0)
-
-    @inbounds for li in label_indices
-        w_raw = energy_labels[li]
-        w = jump.hermitian ? abs(w_raw) : w_raw
-
-        oft!(scratch.jump_oft, jump.in_eigenbasis, hamiltonian.bohr_freqs, w, inv_4sigma2)
-
-        rate2_pos = base_prefactor * transition(w)
-        mul!(scratch.sandwich_tmp, evolving_dm, scratch.jump_oft')
-        mul!(scratch.rho_jump, scratch.jump_oft, scratch.sandwich_tmp, config.delta * rate2_pos, 1.0)
-
-        if jump.hermitian && w > 1e-12
-            rate2_neg = base_prefactor * transition(-w)
-            mul!(scratch.sandwich_tmp, evolving_dm, scratch.jump_oft)
-            mul!(scratch.rho_jump, scratch.jump_oft', scratch.sandwich_tmp, config.delta * rate2_neg, 1.0)
-        end
-    end
-
-    return nothing
-end
-
-function _accumulate_rho_jump_threaded_timetrot!(
-    scratch::ThermalizeScratch{CT},
-    evolving_dm::Matrix{CT},
-    jump::JumpOp,
-    ham_or_trott,
-    config::Config{Thermalize, D},
-    precomputed_data;
-    jump_weight_scaling::Real,
-    task_scratches::Union{Nothing, Vector{ThermalizeScratch{CT}}}=nothing,
-) where {CT<:Complex, D<:Union{TimeDomain, TrotterDomain}}
-    (; transition, energy_labels, oft_nufft_prefactors) = precomputed_data
-    base_prefactor = precomputed_data.oft_domain_prefactor * jump_weight_scaling
-
-    # For Hermitian jumps, pre-filter to half-grid indices for balanced partitioning
-    if jump.hermitian
-        half_indices = [i for i in eachindex(energy_labels) if energy_labels[i] <= 1e-12]
-    else
-        half_indices = collect(eachindex(energy_labels))
-    end
-
-    n_work = length(half_indices)
-    nt = min(Threads.nthreads(), n_work)
-    chunks = _partition_range(1:n_work, nt)
-    dim = size(evolving_dm, 1)
-
-    local_pool = if task_scratches === nothing
-        [ThermalizeScratch(CT, dim) for _ in 1:length(chunks)]
-    else
-        @assert length(task_scratches) >= length(chunks)
-        task_scratches
-    end
-
-    @sync for (idx, chunk) in enumerate(chunks)
-        Threads.@spawn _accumulate_rho_jump_chunk_timetrot!(
-            local_pool[idx], evolving_dm, jump,
-            config, precomputed_data, half_indices[chunk];
-            base_prefactor=base_prefactor)
-    end
-
-    # Reduce: sum per-task rho_jump into scratch.rho_jump
-    fill!(scratch.rho_jump, 0)
-    for idx in 1:length(chunks)
-        scratch.rho_jump .+= local_pool[idx].rho_jump
-    end
-
-    return nothing
-end
-
-function _accumulate_rho_jump_chunk_timetrot!(
-    scratch::ThermalizeScratch{CT},
-    evolving_dm::Matrix{CT},
-    jump::JumpOp,
-    config::Config{Thermalize, D},
-    precomputed_data,
-    label_indices::AbstractVector{Int};
-    base_prefactor::Real,
-) where {CT<:Complex, D<:Union{TimeDomain, TrotterDomain}}
-    (; transition, energy_labels, oft_nufft_prefactors) = precomputed_data
-    fill!(scratch.rho_jump, 0)
-
-    @inbounds for li in label_indices
-        w_raw = energy_labels[li]
-        w = jump.hermitian ? abs(w_raw) : w_raw
-
-        nufft_prefactor_matrix = _prefactor_view(oft_nufft_prefactors, w)
-        @. scratch.jump_oft = jump.in_eigenbasis * nufft_prefactor_matrix
-
-        rate2_pos = base_prefactor * transition(w)
-        mul!(scratch.sandwich_tmp, evolving_dm, scratch.jump_oft')
-        mul!(scratch.rho_jump, scratch.jump_oft, scratch.sandwich_tmp, config.delta * rate2_pos, 1.0)
-
-        if jump.hermitian && w > 1e-12
-            rate2_neg = base_prefactor * transition(-w)
-            mul!(scratch.sandwich_tmp, evolving_dm, scratch.jump_oft)
-            mul!(scratch.rho_jump, scratch.jump_oft', scratch.sandwich_tmp, config.delta * rate2_neg, 1.0)
-        end
-    end
-
+    _accumulate_rho_jump_chunk_bohr!(scratch, evolving_dm, jump, hamiltonian,
+        precomputed_data, bohr_keys, bohr_is, bohr_js, eachindex(bohr_keys);
+        scaled_delta=config.delta*jump_weight_scaling)
     return nothing
 end
 
@@ -670,7 +440,7 @@ function _accumulate_rho_jump_chunk_bohr!(
     bohr_keys::AbstractVector,
     bohr_is::Union{Nothing, Vector{Vector{Int}}},
     bohr_js::Union{Nothing, Vector{Vector{Int}}},
-    key_indices::UnitRange{Int};
+    key_indices::AbstractUnitRange{Int};
     scaled_delta::Real,
 ) where {CT<:Complex}
     dim = size(evolving_dm, 1)

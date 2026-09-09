@@ -1,9 +1,59 @@
 using Test
 using LinearAlgebra
 
+@testset "Serial Bohr gain and loss agree with spectral projectors" begin
+    for T in (Float32, Float64)
+        CT = Complex{T}
+        ham = HamHam(CT.(0.25X + 0.35Z); beta_phys=T(0.8))
+        source = CT[0.2+0.1im 0.8-0.3im; -0.2+0.7im 0.4-0.1im]
+        operators = [CT.(X), source, Matrix(source')]
+        jumps = [JumpOp(A, Matrix(ham.eigvecs' * A * ham.eigvecs),
+            issymmetric(A), ishermitian(A)) for A in operators]
+        cfg = Config(; sim=Thermalize(), domain=BohrDomain(), construction=KMS(),
+            num_qubits=1, beta=beta_alg(ham, T(0.8)), sigma=inv(beta_alg(ham, T(0.8))),
+            with_linear_combination=true, a=zero(T), s=T(0.25), delta=T(0.01))
+        data = QuantumFurnace._precompute_data(cfg, ham)
+        @test length(data.bohr_keys) < QuantumFurnace.OMEGA_THREAD_THRESHOLD
+        reference = zeros(CT, 2, 2)
+        state = CT[0.7 0.12+0.08im; 0.12-0.08im 0.3]
+        weight = T(1.7) * data.gamma_norm_factor
+        gain_references = Matrix{CT}[]
+        for jump in jumps
+            components = map(data.bohr_keys) do frequency
+                component = zeros(CT, 2, 2)
+                for index in ham.bohr_dict[frequency]
+                    component[index] = jump.in_eigenbasis[index]
+                end
+                component
+            end
+            gain = zeros(CT, 2, 2)
+            for i in eachindex(components), j in eachindex(components)
+                reference .+= data.gamma_norm_factor * data.alpha(data.bohr_keys[i], data.bohr_keys[j]) *
+                    (components[j]' * components[i])
+                gain .+= cfg.delta * weight * data.alpha(data.bohr_keys[i], data.bohr_keys[j]) *
+                    (components[i] * state * components[j]')
+            end
+            push!(gain_references, gain)
+        end
+        # Exercise cached index lists and the dictionary fallback independently.
+        for precomputed in (data, (; alpha=data.alpha, gamma_norm_factor=data.gamma_norm_factor))
+            scratch = QuantumFurnace.ThermalizeScratch(CT, 2)
+            actual = QuantumFurnace._precompute_R(jumps, ham, cfg, precomputed, scratch)
+            @test actual isa Matrix{CT}
+            @test actual ≈ reference rtol=20eps(T) atol=20eps(T)
+            @test actual ≈ actual' atol=20eps(T)
+            for (jump, gain) in zip(jumps, gain_references)
+                fill!(scratch.rho_jump, 2)
+                QuantumFurnace._accumulate_rho_jump!(scratch, state, jump, ham, cfg, precomputed;
+                    jump_weight_scaling=weight)
+                @test scratch.rho_jump ≈ gain rtol=20eps(T) atol=20eps(T)*cfg.delta*weight
+            end
+        end
+    end
+end
+
 # The retained density-matrix and Krylov channel paths share these construction
-# helpers. Check every supported domain and both rate-scaling conventions
-# directly, without depending on the archived stochastic workspace.
+# helpers. Check every supported domain and both source-selection rate scalings.
 @testset "Retained per-jump CPTP construction" begin
     for (domain, label, trotter) in [
         (BohrDomain(), "Bohr", nothing),

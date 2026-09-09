@@ -162,147 +162,93 @@ Construct the KMS coherent correction by nested time quadrature.
 - `beta`, `sigma`: Algorithm-side temperature and Gaussian width.
 
 # Returns
-The coherent matrix in the Hamiltonian eigenbasis. Both time grids must be
-symmetric for Hermiticity.
+The coherent matrix in the Hamiltonian eigenbasis. Conjugate-paired inner
+samples and real outer weights preserve Hermiticity.
 """
 function B_time(jumps::AbstractVector{<:JumpOp}, hamiltonian::HamHam,
         b_minus, b_plus, t0_outer::Real, t0_inner::Real, beta, sigma)
 
-    d = size(hamiltonian.data, 1)
-    CT = Complex{eltype(hamiltonian.eigvals)}
-    eigvals = hamiltonian.eigvals
-
-    # Thread tasks own their partial matrices; the caller owns BLAS policy.
-    tau_keys = collect(keys(b_plus))
-    n_jumps  = length(jumps)
-    n_inner_work = length(tau_keys) * n_jumps
-
-    if Threads.nthreads() > 1 && n_inner_work >= OMEGA_THREAD_THRESHOLD
-        b_plus_summand = _b_time_inner_threaded(jumps, eigvals, b_plus, tau_keys, beta, d, CT)
-    else
-        b_plus_summand = zeros(CT, d, d)
-        diag_u  = Vector{CT}(undef, d)
-        diag_u2 = Vector{CT}(undef, d)
-        tmp     = Matrix{CT}(undef, d, d)
-        M       = Matrix{CT}(undef, d, d)
-        for tau in tau_keys
-            t_tau = tau * beta
-            @. diag_u = exp(1im * eigvals * t_tau)
-            @. diag_u2 = exp(-2im * eigvals * t_tau)
-            diag_u_row = transpose(diag_u)
-            for jump_a in jumps
-                jump_eig = jump_a.in_eigenbasis
-                @. tmp = diag_u2 * jump_eig
-                mul!(M, jump_eig', tmp)
-                b_plus_summand .+= b_plus[tau] .* diag_u .* M .* diag_u_row
-            end
-        end
-    end
-
-    # The outer kernel uses its own register grid.
-    t_keys = collect(keys(b_minus))
-    if Threads.nthreads() > 1 && length(t_keys) >= OMEGA_THREAD_THRESHOLD
-        B = _b_time_outer_threaded(eigvals, b_plus_summand, b_minus, t_keys, sigma, d, CT)
-    else
-        B = zeros(CT, d, d)
-        diag_u = Vector{CT}(undef, d)
-        for t in t_keys
-            @. diag_u = exp(1im * eigvals * (t / sigma))
-            diag_u_row = transpose(diag_u)
-            B .+= b_minus[t] .* conj.(diag_u) .* b_plus_summand .* diag_u_row
-        end
-    end
-
+    inner = _coherent_inner_sum(jumps, hamiltonian.eigvals, b_plus, beta, nothing)
+    B = _coherent_outer_sum(hamiltonian.eigvals, inner, b_minus, sigma, nothing)
     return B .* (t0_outer * t0_inner)
 end
 
-# Thread-local inner-kernel accumulation.
-function _b_time_inner_threaded(jumps, eigvals, b_plus, tau_keys, beta, d, ::Type{CT}) where {CT}
-    n_inner = length(tau_keys) * length(jumps)
-    nt = min(Threads.nthreads(), n_inner)
-    chunks = _partition_range(1:n_inner, nt)
-    n_chunks = length(chunks)
-    n_jumps = length(jumps)
-
-    partials = [zeros(CT, d, d) for _ in 1:n_chunks]
-
-    @sync for (idx, chunk) in enumerate(chunks)
-        Threads.@spawn _b_time_inner_chunk!(
-            partials[idx], jumps, eigvals, b_plus, tau_keys,
-            beta, d, n_jumps, chunk, CT)
+# Each task owns its matrices; serial execution uses the same quadrature kernel.
+function _coherent_sum(kernel!::F, n, d, ::Type{CT}, args...) where {F,CT}
+    result = zeros(CT, d, d)
+    n == 0 && return result
+    if Threads.nthreads() == 1 || n < OMEGA_THREAD_THRESHOLD
+        kernel!(result, 1:n, args...)
+        return result
     end
-
-    summand = zeros(CT, d, d)
-    @inbounds for idx in 1:n_chunks
-        summand .+= partials[idx]
+    chunks = _partition_range(1:n, Threads.nthreads())
+    partials = [zeros(CT, d, d) for _ in chunks]
+    @sync for (i, chunk) in enumerate(chunks)
+        Threads.@spawn kernel!(partials[i], chunk, args...)
     end
-    return summand
+    for partial in partials
+        result .+= partial
+    end
+    return result
 end
 
-function _b_time_inner_chunk!(partial::Matrix{CT}, jumps, eigvals, b_plus,
-    tau_keys, beta, d, n_jumps, chunk, ::Type{CT}) where {CT}
+function _coherent_inner_sum(jumps, eigvals, b_plus, beta, step)
+    labels = collect(keys(b_plus))
+    CT = Complex{real(eltype(eigvals))}
+    return _coherent_sum(_coherent_inner_chunk!, length(labels)*length(jumps),
+        length(eigvals), CT, jumps, eigvals, b_plus, labels, beta, step)
+end
 
-    diag_u  = Vector{CT}(undef, d)
-    diag_u2 = Vector{CT}(undef, d)
-    tmp     = Matrix{CT}(undef, d, d)
-    M       = Matrix{CT}(undef, d, d)
-
-    last_tau_idx = 0
-    @inbounds for w_idx in chunk
-        # Linear (tau_idx, jump_idx) decoding: outer tau, inner jump.
-        tau_idx  = ((w_idx - 1) ÷ n_jumps) + 1
-        jump_idx = ((w_idx - 1) % n_jumps) + 1
-        if tau_idx != last_tau_idx
-            tau   = tau_keys[tau_idx]
-            t_tau = tau * beta
-            @. diag_u  = exp(1im * eigvals * t_tau)
-            @. diag_u2 = exp(-2im * eigvals * t_tau)
-            last_tau_idx = tau_idx
+function _coherent_inner_chunk!(partial::Matrix{CT}, chunk, jumps, eigvals,
+    b_plus, labels, beta, step) where {CT}
+    d = size(partial, 1)
+    u, u2 = Vector{CT}(undef, d), Vector{CT}(undef, d)
+    tmp, product = similar(partial), similar(partial)
+    last_label = 0
+    n_jumps = length(jumps)
+    @inbounds for index in chunk
+        label = (index - 1) ÷ n_jumps + 1
+        jump = jumps[(index - 1) % n_jumps + 1].in_eigenbasis
+        tau = labels[label]
+        if label != last_label
+            if step === nothing
+                time = tau * beta
+                @. u = exp(1im * eigvals * time)
+                @. u2 = exp(-2im * eigvals * time)
+            else
+                steps = Int(round(tau * beta / step))
+                @. u = eigvals ^ steps
+                @. u2 = eigvals ^ (-2 * steps)
+            end
+            last_label = label
         end
-        tau    = tau_keys[tau_idx]
-        b_tau  = b_plus[tau]
-        jump_a = jumps[jump_idx]
-        jump_eig = jump_a.in_eigenbasis
-        diag_u_row = transpose(diag_u)
-        @. tmp = diag_u2 * jump_eig
-        mul!(M, jump_eig', tmp)
-        partial .+= b_tau .* diag_u .* M .* diag_u_row
+        # U(t) A† U(-2t) A U(t); the right phase is not conjugated.
+        @. tmp = u2 * jump
+        mul!(product, jump', tmp)
+        partial .+= b_plus[tau] .* u .* product .* transpose(u)
     end
     return nothing
 end
 
-# Thread-local outer-kernel accumulation.
-function _b_time_outer_threaded(eigvals, b_plus_summand, b_minus, t_keys,
-    sigma, d, ::Type{CT}) where {CT}
-    n_t = length(t_keys)
-    nt  = min(Threads.nthreads(), n_t)
-    chunks = _partition_range(1:n_t, nt)
-    n_chunks = length(chunks)
-
-    partials = [zeros(CT, d, d) for _ in 1:n_chunks]
-
-    @sync for (idx, chunk) in enumerate(chunks)
-        Threads.@spawn _b_time_outer_chunk!(
-            partials[idx], eigvals, b_plus_summand, b_minus,
-            t_keys, sigma, d, chunk, CT)
-    end
-
-    B = zeros(CT, d, d)
-    @inbounds for idx in 1:n_chunks
-        B .+= partials[idx]
-    end
-    return B
+function _coherent_outer_sum(eigvals, inner, b_minus, sigma, step)
+    labels = collect(keys(b_minus))
+    return _coherent_sum(_coherent_outer_chunk!, length(labels), length(eigvals),
+        eltype(inner), eigvals, inner, b_minus, labels, sigma, step)
 end
 
-function _b_time_outer_chunk!(partial::Matrix{CT}, eigvals, b_plus_summand,
-    b_minus, t_keys, sigma, d, chunk, ::Type{CT}) where {CT}
-
-    diag_u = Vector{CT}(undef, d)
-    @inbounds for w_idx in chunk
-        t = t_keys[w_idx]
-        @. diag_u = exp(1im * eigvals * (t / sigma))
-        diag_u_row = transpose(diag_u)
-        partial .+= b_minus[t] .* conj.(diag_u) .* b_plus_summand .* diag_u_row
+function _coherent_outer_chunk!(partial::Matrix{CT}, chunk, eigvals, inner,
+    b_minus, labels, sigma, step) where {CT}
+    u = Vector{CT}(undef, length(eigvals))
+    @inbounds for index in chunk
+        t = labels[index]
+        if step === nothing
+            @. u = exp(1im * eigvals * (t / sigma))
+        else
+            steps = Int(round(t / (sigma * step)))
+            @. u = eigvals ^ steps
+        end
+        # U(-t) inner U(t).
+        partial .+= b_minus[t] .* conj.(u) .* inner .* transpose(u)
     end
     return nothing
 end
@@ -324,150 +270,9 @@ dissipative construction basis.
 function B_trotter(jumps::AbstractVector{<:JumpOp}, trotter::TrottTrott,
         b_minus, b_plus, t0_outer::Real, t0_inner::Real, beta, sigma)
 
-    d = size(trotter.eigvecs, 1)
-    CT = Complex{eltype(trotter.bohr_freqs)}
-
-    # Both quadrature legs share the same diagonal Trotter cache.
-    eigvals_outer = trotter.eigvals_t0
-    eigvals_inner = trotter.eigvals_t0
-    t0_step_outer = trotter.t0
-    t0_step_inner = trotter.t0
-
-    tau_keys = collect(keys(b_plus))
-    n_jumps  = length(jumps)
-    n_inner_work = length(tau_keys) * n_jumps
-
-    if Threads.nthreads() > 1 && n_inner_work >= OMEGA_THREAD_THRESHOLD
-        b_plus_summand = _b_trotter_inner_threaded(
-            jumps, eigvals_inner, b_plus, tau_keys, beta, t0_step_inner, d, CT)
-    else
-        b_plus_summand = zeros(CT, d, d)
-        diag_u  = Vector{CT}(undef, d)
-        diag_u2 = Vector{CT}(undef, d)
-        tmp     = Matrix{CT}(undef, d, d)
-        M       = Matrix{CT}(undef, d, d)
-        for (tau, b_tau) in b_plus
-            num_t0_steps = Int(round(tau * beta / t0_step_inner))
-            @. diag_u  = eigvals_inner ^ num_t0_steps
-            @. diag_u2 = eigvals_inner ^ (-2 * num_t0_steps)
-            diag_u_row = transpose(diag_u)
-            for jump_a in jumps
-                jump_a_eig = jump_a.in_eigenbasis
-                @. tmp = diag_u2 * jump_a_eig
-                mul!(M, jump_a_eig', tmp)
-                b_plus_summand .+= b_tau .* diag_u .* M .* diag_u_row
-            end
-        end
-    end
-
-    t_keys = collect(keys(b_minus))
-    if Threads.nthreads() > 1 && length(t_keys) >= OMEGA_THREAD_THRESHOLD
-        B = _b_trotter_outer_threaded(
-            eigvals_outer, b_plus_summand, b_minus, t_keys, sigma, t0_step_outer, d, CT)
-    else
-        B = zeros(CT, d, d)
-        diag_u = Vector{CT}(undef, d)
-        for (t, b_t) in b_minus
-            num_t0_steps = Int(round(t / (sigma * t0_step_outer)))
-            @. diag_u = eigvals_outer ^ num_t0_steps
-            diag_u_row = transpose(diag_u)
-            B .+= b_t .* conj.(diag_u) .* b_plus_summand .* diag_u_row
-        end
-    end
-
-    return B .* (t0_outer * t0_inner)  # B in Trotter basis
-end
-
-function _b_trotter_inner_threaded(jumps, eigvals_inner, b_plus, tau_keys,
-    beta, t0_step_inner, d, ::Type{CT}) where {CT}
-    n_inner = length(tau_keys) * length(jumps)
-    nt = min(Threads.nthreads(), n_inner)
-    chunks = _partition_range(1:n_inner, nt)
-    n_chunks = length(chunks)
-    n_jumps  = length(jumps)
-
-    partials = [zeros(CT, d, d) for _ in 1:n_chunks]
-
-    @sync for (idx, chunk) in enumerate(chunks)
-        Threads.@spawn _b_trotter_inner_chunk!(
-            partials[idx], jumps, eigvals_inner, b_plus, tau_keys,
-            beta, t0_step_inner, d, n_jumps, chunk, CT)
-    end
-
-    summand = zeros(CT, d, d)
-    @inbounds for idx in 1:n_chunks
-        summand .+= partials[idx]
-    end
-    return summand
-end
-
-function _b_trotter_inner_chunk!(partial::Matrix{CT}, jumps, eigvals_inner,
-    b_plus, tau_keys, beta, t0_step_inner, d, n_jumps, chunk, ::Type{CT}) where {CT}
-
-    diag_u  = Vector{CT}(undef, d)
-    diag_u2 = Vector{CT}(undef, d)
-    tmp     = Matrix{CT}(undef, d, d)
-    M       = Matrix{CT}(undef, d, d)
-
-    last_tau_idx = 0
-    @inbounds for w_idx in chunk
-        tau_idx  = ((w_idx - 1) ÷ n_jumps) + 1
-        jump_idx = ((w_idx - 1) % n_jumps) + 1
-        if tau_idx != last_tau_idx
-            tau   = tau_keys[tau_idx]
-            num_t0_steps = Int(round(tau * beta / t0_step_inner))
-            @. diag_u  = eigvals_inner ^ num_t0_steps
-            @. diag_u2 = eigvals_inner ^ (-2 * num_t0_steps)
-            last_tau_idx = tau_idx
-        end
-        tau   = tau_keys[tau_idx]
-        b_tau = b_plus[tau]
-        jump_a = jumps[jump_idx]
-        jump_a_eig = jump_a.in_eigenbasis
-        diag_u_row = transpose(diag_u)
-        @. tmp = diag_u2 * jump_a_eig
-        mul!(M, jump_a_eig', tmp)
-        partial .+= b_tau .* diag_u .* M .* diag_u_row
-    end
-    return nothing
-end
-
-function _b_trotter_outer_threaded(eigvals_outer, b_plus_summand, b_minus, t_keys,
-    sigma, t0_step_outer, d, ::Type{CT}) where {CT}
-    n_t = length(t_keys)
-    nt  = min(Threads.nthreads(), n_t)
-    chunks = _partition_range(1:n_t, nt)
-    n_chunks = length(chunks)
-
-    partials = [zeros(CT, d, d) for _ in 1:n_chunks]
-
-    @sync for (idx, chunk) in enumerate(chunks)
-        Threads.@spawn _b_trotter_outer_chunk!(
-            partials[idx], eigvals_outer, b_plus_summand, b_minus,
-            t_keys, sigma, t0_step_outer, d, chunk, CT)
-    end
-
-    B = zeros(CT, d, d)
-    @inbounds for idx in 1:n_chunks
-        B .+= partials[idx]
-    end
-    return B
-end
-
-function _b_trotter_outer_chunk!(partial::Matrix{CT}, eigvals_outer,
-    b_plus_summand, b_minus, t_keys, sigma, t0_step_outer, d, chunk,
-    ::Type{CT}) where {CT}
-
-    diag_u = Vector{CT}(undef, d)
-    @inbounds for w_idx in chunk
-        t = t_keys[w_idx]
-        b_t = b_minus[t]
-        num_t0_steps = Int(round(t / (sigma * t0_step_outer)))
-        @. diag_u = eigvals_outer ^ num_t0_steps
-        diag_u_row = transpose(diag_u)
-        partial .+= b_t .* conj.(diag_u) .* b_plus_summand .* diag_u_row
-    end
-    return nothing
+    inner = _coherent_inner_sum(jumps, trotter.eigvals_t0, b_plus, beta, trotter.t0)
+    B = _coherent_outer_sum(trotter.eigvals_t0, inner, b_minus, sigma, trotter.t0)
+    return B .* (t0_outer * t0_inner)
 end
 
 # Compatibility overload using the Trotter step for both quadratures.
@@ -495,57 +300,15 @@ function B_trotter(
         jumps_bp[k] = JumpOp(j.data, j_bp, j.orthogonal, j.hermitian)
     end
 
-    # Accumulate the inner kernel where its Trotter step is diagonal.
-    eigvals_inner = triple.b_plus.eigvals_t0
-    t0_step_inner = triple.b_plus.t0
-    tau_keys = collect(keys(b_plus))
-    n_jumps  = length(jumps_bp)
-    n_inner_work = length(tau_keys) * n_jumps
-
-    if Threads.nthreads() > 1 && n_inner_work >= OMEGA_THREAD_THRESHOLD
-        b_plus_summand_bp = _b_trotter_inner_threaded(
-            jumps_bp, eigvals_inner, b_plus, tau_keys, beta, t0_step_inner, d, CT)
-    else
-        b_plus_summand_bp = zeros(CT, d, d)
-        diag_u  = Vector{CT}(undef, d)
-        diag_u2 = Vector{CT}(undef, d)
-        tmp     = Matrix{CT}(undef, d, d)
-        M       = Matrix{CT}(undef, d, d)
-        for (tau, b_tau) in b_plus
-            num_t0_steps = Int(round(tau * beta / t0_step_inner))
-            @. diag_u  = eigvals_inner ^ num_t0_steps
-            @. diag_u2 = eigvals_inner ^ (-2 * num_t0_steps)
-            diag_u_row = transpose(diag_u)
-            for jump_a in jumps_bp
-                jump_a_eig = jump_a.in_eigenbasis
-                @. tmp = diag_u2 * jump_a_eig
-                mul!(M, jump_a_eig', tmp)
-                b_plus_summand_bp .+= b_tau .* diag_u .* M .* diag_u_row
-            end
-        end
-    end
+    b_plus_summand_bp = _coherent_inner_sum(jumps_bp, triple.b_plus.eigvals_t0,
+        b_plus, beta, triple.b_plus.t0)
 
     # Rotate the inner sum to the outer-kernel basis.
     R_bm_in_bp        = triple.R_bm_in_bp
     b_plus_summand_bm = Matrix{CT}(R_bm_in_bp * b_plus_summand_bp * R_bm_in_bp')
 
-    # Accumulate the outer kernel where its Trotter step is diagonal.
-    eigvals_outer = triple.b_minus.eigvals_t0
-    t0_step_outer = triple.b_minus.t0
-    t_keys = collect(keys(b_minus))
-    if Threads.nthreads() > 1 && length(t_keys) >= OMEGA_THREAD_THRESHOLD
-        B_bm = _b_trotter_outer_threaded(
-            eigvals_outer, b_plus_summand_bm, b_minus, t_keys, sigma, t0_step_outer, d, CT)
-    else
-        B_bm = zeros(CT, d, d)
-        diag_u = Vector{CT}(undef, d)
-        for (t, b_t) in b_minus
-            num_t0_steps = Int(round(t / (sigma * t0_step_outer)))
-            @. diag_u = eigvals_outer ^ num_t0_steps
-            diag_u_row = transpose(diag_u)
-            B_bm .+= b_t .* conj.(diag_u) .* b_plus_summand_bm .* diag_u_row
-        end
-    end
+    B_bm = _coherent_outer_sum(triple.b_minus.eigvals_t0, b_plus_summand_bm,
+        b_minus, sigma, triple.b_minus.t0)
 
     # Return to the dissipative basis.
     R_bm_in_D = triple.R_bm_in_D

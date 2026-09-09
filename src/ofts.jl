@@ -38,3 +38,20 @@ _energy_oft_kernel(config) = _is_joint_ckg(config) ? config.transition_weight.of
     end
     nothing
 end
+
+# A frequency loop loads either an analytic energy component or a retained
+# time-transform sample. Non-Hermitian sources retain signed label indices.
+@inline _frequency_oft!(out, A, data::Tuple, w, label_index, folded) =
+    oft!(out, A, data[1], w, data[2])
+
+@inline function _frequency_oft!(out, A, data::NUFFTPrefactors, w, label_index, folded)
+    index = folded ? data.energy_to_index[w] : label_index
+    sample = @view data.data[:, :, index]
+    @. out = A * sample
+    return nothing
+end
+
+_frequency_oft_data(config::Config{<:Any,EnergyDomain}, ham, precomputed) =
+    (ham.bohr_freqs, _energy_oft_kernel(config))
+_frequency_oft_data(config::Config{<:Any,D}, ham, precomputed) where {D<:Union{TimeDomain,TrotterDomain}} =
+    precomputed.oft_nufft_prefactors

@@ -1,5 +1,5 @@
 # ============================================================================
-# DLL BohrDomain threaded matvec verification (qf-edk.5)
+# DLL BohrDomain threaded matvec verification
 #
 # Independent verification of `_apply_lindbladian_threaded_bohr_dll!` and its
 # wiring into `apply_lindbladian!` / `apply_adjoint_lindbladian!` for
@@ -40,9 +40,8 @@ using QuantumFurnace: _parse_hamiltonian_bson, _jumps_in_basis,
 
 # test_helpers.jl is already included by runtests.jl
 
-# Build the production-mirroring DLL Bohr config (matches build_dll_cfg in the
-# qf-edk driver: Metropolis filter, fixed s=0.25, a=0, σ=1/β_alg, the BohrDomain
-# register fields are inert).
+# DLL Metropolis configuration with s=0.25, a=0 and σ=1/β_alg. BohrDomain
+# register fields are inert.
 function _dll_bohr_cfg(n, ham, beta_phys; filter=nothing)
     β_alg = beta_alg(ham, beta_phys)
     f = filter === nothing ? DLLMetropolisFilter(β_alg) : filter
@@ -67,7 +66,7 @@ end
 # code is C-linear; we also test a generic complex input below).
 _rand_herm(rng, d) = (G = randn(rng, ComplexF64, d, d); (G + G') / 2)
 
-@testset "DLL BohrDomain threaded matvec (qf-edk.5)" begin
+@testset "DLL BohrDomain threaded matvec" begin
 
     _threaded = Threads.nthreads() > 1
     @info "DLL Bohr threaded-matvec test" nthreads=Threads.nthreads() OMEGA_THREAD_THRESHOLD=OMEGA_THREAD_THRESHOLD threaded_runtime=_threaded
@@ -393,4 +392,4 @@ _rand_herm(rng, d) = (G = randn(rng, ComplexF64, d, d); (G + G') / 2)
         @info "(j) gap" gap_dense=gap_dense gap_krylov=res.spectral_gap
     end
 
-end  # @testset "DLL BohrDomain threaded matvec (qf-edk.5)"
+end  # @testset "DLL BohrDomain threaded matvec"
