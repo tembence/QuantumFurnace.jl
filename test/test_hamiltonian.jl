@@ -1,12 +1,8 @@
 """
 Tests for Heisenberg Hamiltonian builders in `src/hamiltonian.jl`.
 
-Covers the underlying primitives (`_pad_two_site_op`,
-`_construct_2d_heisenberg_base`, `_construct_disordering_terms*`) plus
-the public seed-driven builders [`build_heis_1d`] and [`build_tfim_2d`]
-that replaced the find_typical_* / find_ideal_* spectral-selector path
-(qf-yi4, 2026-05-15). HamHam constructor coverage (direct, single-term,
-multi-term with periodic) closes out the file.
+Covers local-term construction, disorder, the seed-driven `build_heis_1d`
+and `build_tfim_2d` builders, and direct and term-based HamHam constructors.
 """
 
 using LinearAlgebra

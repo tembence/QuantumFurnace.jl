@@ -275,105 +275,53 @@ function _validate_raw_hamiltonian(
     return nothing
 end
 
+# Spectral preparation shared by term constructors and model builders.
+function _scaled_hamiltonian_spectrum(matrix)
+    scaled, rescaling_factor, shift = _rescale_hamiltonian(matrix)
+    eigvals, eigvecs = eigen(scaled)
+    return Matrix(scaled), eigvals, eigvecs, rescaling_factor, shift, minimum(diff(eigvals))
+end
+
 function HamHam(terms::Vector{Vector{Matrix{ComplexF64}}}, coeffs::Vector{Float64},
-    num_qubits::Int64, beta::Float64;
-    periodic::Bool = true, hermitian_check = false,
-    precision::Type{T} = Float64) where {T<:AbstractFloat}
-    # Downward precision conversion is rejected; upward promotion is allowed.
-    if T !== Float64 && T <: Union{Float16, Float32}
-        throw(ArgumentError(
-            "Expected $(Complex{T}) term data, got ComplexF64. " *
-            "Reconstruct with $(Complex{T}) inputs or use default Float64 precision."))
-    end
-    isfinite(beta) && beta > 0 || throw(ArgumentError("beta must be finite and > 0."))
-
-    hamiltonian_matrix = _construct_base_ham(terms, coeffs, num_qubits; periodic=periodic)
-
-    rescaled_hamiltonian, rescaling_factor, shift = _rescale_hamiltonian(hamiltonian_matrix)
-
-    rescaled_eigvals, rescaled_eigvecs = eigen(rescaled_hamiltonian)
-    rescaled_base_coeffs = coeffs / rescaling_factor
-    smallest_bohr_freq = minimum(diff(rescaled_eigvals))
-
-    if hermitian_check
-        @assert ishermitian(rescaled_hamiltonian) "The resulting matrix is not Hermitian!"
-    end
-
-    bohr_freqs = rescaled_eigvals .- transpose(rescaled_eigvals)
-    bohr_dict = create_bohr_dict(bohr_freqs)
-    gibbs = Hermitian(_gibbs_in_eigen(rescaled_eigvals, beta))
-
-    return HamHam{T}(
-        Matrix(rescaled_hamiltonian),
-        bohr_freqs,
-        bohr_dict,
-        terms,
-        rescaled_base_coeffs,
-        nothing,  # disordering_terms absent
-        nothing,  # disordering_coeffs absent
-        rescaled_eigvals,
-        rescaled_eigvecs,
-        smallest_bohr_freq,
-        shift,
-        rescaling_factor,
-        periodic,
-        gibbs,
-    )
+    num_qubits::Int64, beta::Float64; kwargs...)
+    return _hamiltonian_from_terms(terms, coeffs, nothing, nothing, num_qubits, beta; kwargs...)
 end
 
 function HamHam(terms::Vector{Vector{Matrix{ComplexF64}}}, coeffs::Vector{Float64},
     disordering_terms::Vector{Vector{Matrix{ComplexF64}}}, disordering_coeffs::Vector{Vector{Float64}},
-    num_qubits::Int64, beta::Float64;
-    periodic::Bool = true, hermitian_check = false,
-    precision::Type{T} = Float64) where {T<:AbstractFloat}
+    num_qubits::Int64, beta::Float64; kwargs...)
+    return _hamiltonian_from_terms(terms, coeffs, disordering_terms, disordering_coeffs,
+        num_qubits, beta; kwargs...)
+end
+
+function _hamiltonian_from_terms(terms, coeffs, disordering_terms, disordering_coeffs,
+    num_qubits, beta; periodic::Bool=true, hermitian_check=false,
+    precision::Type{T}=Float64) where {T<:AbstractFloat}
     # Downward precision conversion is rejected; upward promotion is allowed.
-    if T !== Float64 && T <: Union{Float16, Float32}
+    if T <: Union{Float16, Float32}
         throw(ArgumentError(
             "Expected $(Complex{T}) term data, got ComplexF64. " *
             "Reconstruct with $(Complex{T}) inputs or use default Float64 precision."))
     end
     isfinite(beta) && beta > 0 || throw(ArgumentError("beta must be finite and > 0."))
-
-    if length(disordering_terms) != length(disordering_coeffs)
+    if disordering_terms !== nothing && length(disordering_terms) != length(disordering_coeffs)
         throw(ArgumentError("Number of disordering terms must match number of coefficient vectors"))
     end
-
-    base_hamiltonian = _construct_base_ham(terms, coeffs, num_qubits; periodic=periodic)
-    disordering_hamiltonian = _construct_disordering_terms(disordering_terms, disordering_coeffs, num_qubits;
-        periodic=periodic)
-    disordered_ham = base_hamiltonian + disordering_hamiltonian
-
-    rescaled_hamiltonian, rescaling_factor, shift = _rescale_hamiltonian(disordered_ham)
-
-    rescaled_eigvals, rescaled_eigvecs = eigen(rescaled_hamiltonian)
-    rescaled_base_coeffs = coeffs / rescaling_factor
-    rescaled_disordering_coeffs = [dc / rescaling_factor for dc in disordering_coeffs]
-    smallest_bohr_freq = minimum(diff(rescaled_eigvals))
-
-    if hermitian_check
-        @assert ishermitian(rescaled_hamiltonian) "The resulting matrix is not Hermitian!"
+    matrix = _construct_base_ham(terms, coeffs, num_qubits; periodic)
+    if disordering_terms !== nothing
+        matrix += _construct_disordering_terms(disordering_terms, disordering_coeffs,
+            num_qubits; periodic)
     end
-
-    bohr_freqs = rescaled_eigvals .- transpose(rescaled_eigvals)
-    bohr_dict = create_bohr_dict(bohr_freqs)
-    gibbs = Hermitian(_gibbs_in_eigen(rescaled_eigvals, beta))
-
-    return HamHam{T}(
-        Matrix(rescaled_hamiltonian),
-        bohr_freqs,
-        bohr_dict,
-        terms,
-        rescaled_base_coeffs,
-        disordering_terms,
-        rescaled_disordering_coeffs,
-        rescaled_eigvals,
-        rescaled_eigvecs,
-        smallest_bohr_freq,
-        shift,
-        rescaling_factor,
-        periodic,
-        gibbs,
-    )
+    scaled, eigvals, eigvecs, rescale, shift, nu_min = _scaled_hamiltonian_spectrum(matrix)
+    if hermitian_check
+        @assert ishermitian(scaled) "The resulting matrix is not Hermitian!"
+    end
+    bohr_freqs = eigvals .- transpose(eigvals)
+    scaled_disorder = disordering_coeffs === nothing ? nothing :
+        [dc / rescale for dc in disordering_coeffs]
+    return HamHam{T}(scaled, bohr_freqs, create_bohr_dict(bohr_freqs), terms,
+        coeffs / rescale, disordering_terms, scaled_disorder, eigvals, eigvecs,
+        nu_min, shift, rescale, periodic, Hermitian(_gibbs_in_eigen(eigvals, beta)))
 end
 
 # Wrap a single disorder term in the multi-term representation.
@@ -579,10 +527,8 @@ function build_heis_1d(num_qubits::Int, coeffs::Vector{Float64};
         local_terms[(base_term_count + 1):end], num_qubits, 2)
 
     total_ham = Hermitian(Matrix(base_hamiltonian) + Matrix(disordering_ham))
-    rescaled_hamiltonian, rescaling_factor, shift = _rescale_hamiltonian(total_ham)
-    rescaled_ham = Matrix(rescaled_hamiltonian)
-    rescaled_eigvals, rescaled_eigvecs = eigen(Hermitian(rescaled_ham))
-    nu_min = minimum(diff(rescaled_eigvals))
+    rescaled_ham, rescaled_eigvals, rescaled_eigvecs, rescaling_factor, shift, nu_min =
+        _scaled_hamiltonian_spectrum(total_ham)
 
     return (
         matrix = rescaled_ham,
@@ -665,10 +611,8 @@ function build_tfim_2d(Lx::Int, Ly::Int;
         periodic_x=periodic_x, periodic_y=periodic_y)
 
     total_ham = Hermitian(Matrix(base_clean) + Matrix(disordering_ham))
-    rescaled_hamiltonian, rescaling_factor, shift = _rescale_hamiltonian(total_ham)
-    rescaled_ham = Matrix(rescaled_hamiltonian)
-    rescaled_eigvals, rescaled_eigvecs = eigen(Hermitian(rescaled_ham))
-    nu_min = minimum(diff(rescaled_eigvals))
+    rescaled_ham, rescaled_eigvals, rescaled_eigvecs, rescaling_factor, shift, nu_min =
+        _scaled_hamiltonian_spectrum(total_ham)
 
     return (
         matrix = rescaled_ham,

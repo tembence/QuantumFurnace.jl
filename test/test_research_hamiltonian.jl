@@ -1,6 +1,6 @@
 using Test, QuantumFurnace, LinearAlgebra, SparseArrays, Random
 
-@testset "Explicit-site and matrix Hamiltonians (T03)" begin
+@testset "Explicit-site and matrix Hamiltonians" begin
     X, Y, Z = pauli_string_to_matrix(["X", "Y", "Z"])
     id = Matrix{ComplexF64}(I, 2, 2)
 

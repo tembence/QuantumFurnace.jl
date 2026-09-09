@@ -24,7 +24,7 @@ function _pauli_bond_msq(H::AbstractMatrix, num_qubits::Int)
     real(tr(H * H)) / 2^num_qubits
 end
 
-@testset "qf-91g — boundary-condition audit (1D + 2D × disorder × Trotter)" begin
+@testset "boundary-condition audit (1D + 2D × disorder × Trotter)" begin
 
     # ------------------------------------------------------------------
     # (a) `pad_term` BC behaviour — the single source of truth for wrap.
@@ -380,7 +380,7 @@ end
     # ------------------------------------------------------------------
     # (o) 2D HamHam fed to TrottTrott raises an explicit error.
     # ------------------------------------------------------------------
-    @testset "(o) TrottTrott rejects 2D HamHam (qf-91g.3 guard)" begin
+    @testset "(o) TrottTrott rejects 2D HamHam" begin
         raw2d = build_tfim_2d(2, 3; J=1.0, h=1.0, seed=91,
             disordering_terms=Vector{Matrix{ComplexF64}}[[Z]],
             disorder_strength=1e-2, periodic_x=true, periodic_y=true)
@@ -401,7 +401,7 @@ end
     # ------------------------------------------------------------------
     # (n) Cross-domain Krylov spectral gap on OBC fixture.
     # ------------------------------------------------------------------
-    # qf-91g: an OBC fixture must produce a well-defined Lindbladian with a
+    # An OBC fixture must produce a well-defined Lindbladian with a
     # finite spectral gap, distinct from the PBC version. Keeps n small so the
     # test stays SANDBOX-tier.
     @testset "(n) OBC Lindbladian via Krylov has a finite gap and differs from PBC" begin
