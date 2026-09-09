@@ -1,7 +1,7 @@
 using Random: MersenneTwister
 using LinearAlgebra: mul!
 
-@testset "Discriminant (Phase 1: primitives)" begin
+@testset "Discriminant (primitives)" begin
 
     # -----------------------------------------------------------------------
     # DiscriminantBuffers
@@ -23,7 +23,7 @@ using LinearAlgebra: mul!
     # -----------------------------------------------------------------------
     # gibbs_fractional_powers: identities
     # -----------------------------------------------------------------------
-    @testset "gibbs_fractional_powers identities (N3 fixture)" begin
+    @testset "gibbs_fractional_powers identities (3-qubit fixture)" begin
         powers = gibbs_fractional_powers(N3_GIBBS)
 
         @test powers isa NamedTuple
@@ -56,7 +56,7 @@ using LinearAlgebra: mul!
     # -----------------------------------------------------------------------
     # apply_discriminant!: closure-style action against vec-form reference
     # -----------------------------------------------------------------------
-    @testset "apply_discriminant! matches vec form (N3 KMS Bohr)" begin
+    @testset "apply_discriminant! matches vec form (3-qubit KMS Bohr)" begin
         # Dense 3-qubit KMS-DB Lindbladian.
         config = make_config(Lindbladian(), BohrDomain(); num_qubits=3, construction=KMS())
         L_sparse = construct_lindbladian(N3_JUMPS, config, N3_HAM)
@@ -163,8 +163,7 @@ using LinearAlgebra: mul!
         powers = gibbs_fractional_powers(N3_GIBBS)
         sq, sq_inv = powers.sigma_quarter, powers.sigma_inv_quarter
 
-        # Reference via the explicit broadcast / kron form (the same
-        # formula compute_anti_hermitian_defect used pre-refactor).
+        # Independent reference from the explicit broadcast / Kronecker form.
         d_left  = kron(sq_inv, sq_inv)
         d_right = kron(sq, sq)
         D_ref   = d_left .* L_dense .* d_right'
@@ -211,7 +210,7 @@ using LinearAlgebra: mul!
     # -----------------------------------------------------------------------
     # Spectrum invariance: D and L are similarity-equivalent (same spectrum)
     # -----------------------------------------------------------------------
-    @testset "materialize_discriminant preserves spectrum (N3 KMS Bohr)" begin
+    @testset "materialize_discriminant preserves spectrum (3-qubit KMS Bohr)" begin
         config = make_config(Lindbladian(), BohrDomain(); num_qubits=3, construction=KMS())
         L_dense = Matrix{ComplexF64}(construct_lindbladian(N3_JUMPS, config, N3_HAM))
 
@@ -250,16 +249,13 @@ using LinearAlgebra: mul!
     end
 
     # -----------------------------------------------------------------------
-    # Refactor regression: compute_anti_hermitian_defect still produces a
-    # consistent DefectResult on the N3 KMS Bohr fixture.
+    # Compare the anti-Hermitian defect with its explicit matrix formula.
     # -----------------------------------------------------------------------
-    @testset "compute_anti_hermitian_defect regression after refactor" begin
+    @testset "compute_anti_hermitian_defect explicit reference" begin
         config = make_config(Lindbladian(), BohrDomain(); num_qubits=3, construction=KMS())
         L_dense = Matrix{ComplexF64}(construct_lindbladian(N3_JUMPS, config, N3_HAM))
 
-        # Compute it the OLD way inline (pre-refactor algorithm) and compare
-        # to the new delegated implementation.  Any change in numerical
-        # values would indicate the refactor altered behaviour.
+        # Build the Gibbs-weighted discriminant directly.
         gibbs_diag      = real.(diag(Matrix(N3_GIBBS)))
         gibbs_diag_safe = max.(gibbs_diag, 1e-12)
         rq      = gibbs_diag_safe .^ 0.25
@@ -283,7 +279,7 @@ using LinearAlgebra: mul!
     # -----------------------------------------------------------------------
     # discriminant_spectrum: H-part eigenvalues match L spectrum for KMS-DB
     # -----------------------------------------------------------------------
-    @testset "discriminant_spectrum on KMS-DB Lindbladian (N3 Bohr)" begin
+    @testset "discriminant_spectrum on KMS-DB Lindbladian (3-qubit Bohr)" begin
         config = make_config(Lindbladian(), BohrDomain(); num_qubits=3, construction=KMS())
         L_dense = Matrix{ComplexF64}(construct_lindbladian(N3_JUMPS, config, N3_HAM))
 
@@ -314,7 +310,7 @@ using LinearAlgebra: mul!
     end
 
     # -----------------------------------------------------------------------
-    # Phase 4 DBV physics diagnostics: with vs without coherent term
+    # DBV physics diagnostics: with vs without coherent term
     # -----------------------------------------------------------------------
     @testset "verify_detailed_balance physics diagnostics (n=3,4,5 KMS Bohr)" begin
         for n in (3, 4, 5)

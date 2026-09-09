@@ -5,7 +5,7 @@ using QuantumFurnace: register_t0_D, register_w0_D, register_r_D,
     register_t0_b_plus, register_w0_b_plus, register_r_b_plus,
     validate_config!
 
-# Per-register design (qf-9z0): Config now carries three independent register
+# Per-register design: Config carries three independent register
 # triples `(t0_X, w0_X, r_X)` for X ∈ {D, b_minus, b_plus}, each obeying its
 # own Fourier relation `t0_X · w0_X ≈ 2π / 2^{r_X}`. The legacy single-register
 # kwargs `(t0, w0, num_energy_bits)` still work — the helper accessors fall
@@ -27,7 +27,7 @@ const _LEGACY_KMS_KW = (
     num_trotter_steps_per_t0 = 10,
 )
 
-@testset "Per-register validation (qf-9z0)" begin
+@testset "Per-register validation" begin
     @testset "Helper accessors fall back to legacy fields" begin
         cfg = Config(; _LEGACY_KMS_KW...)
         @test register_t0_D(cfg) == cfg.t0

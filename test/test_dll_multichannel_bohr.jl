@@ -1,4 +1,4 @@
-@testset "DLL multi-channel BohrDomain operators (qf-7go.2)" begin
+@testset "DLL multi-channel BohrDomain operators" begin
     # =====================================================================
     # n=3 disordered Heisenberg fixture (matches existing DLL test files).
     # β-sweep ∈ {1, 5, 10}: same regime as the single-channel DLL tests.

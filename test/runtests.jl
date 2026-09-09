@@ -6,11 +6,10 @@ using LinearAlgebra
 include("test_helpers.jl")
 
 # ----------------------------------------------------------------------------
-# SANDBOX vs NO_SANDBOX split (qf-5nz).
+# SANDBOX vs NO_SANDBOX split.
 #
-# Test files in `SANDBOX_FILES` must run within the 3.5 GB / few-minute
-# sandbox container (per the project's sandbox profile, see
-# `.claude/rules/julia-code.md`). They form the default `Pkg.test()` suite.
+# Test files in `SANDBOX_FILES` run within a few minutes and limited memory.
+# They form the default `Pkg.test()` suite.
 #
 # `NO_SANDBOX_FILES` are heavier tests intentionally kept out of the default
 # run because their physics-meaningful assertions cannot be tightened
@@ -96,7 +95,7 @@ const SANDBOX_FILES = String[
     "test_beta_phys_conversion.jl",
     "test_beta_phys_sweep.jl",
     "test_classical_qmc.jl",
-    # qf-x56: sandbox shadows of the NO_SANDBOX files.
+    # sandbox shadows of the NO_SANDBOX files.
     "test_kms_geometry_sandbox.jl",
     "test_lindblad_action_sandbox.jl",
     "test_predict_sandbox.jl",
@@ -131,7 +130,7 @@ const RUN_FULL = get(ENV, "QUANTUMFURNACE_FULL_TESTS", "false") == "true"
         # NUFFT working buffers (FINUFFT plans, Lindbladian dense matrices)
         # that Julia's pool would keep around indefinitely. Without this
         # cumulative pressure pushes the suite over the sandbox cap, even
-        # though every individual file fits comfortably (qf-5nz).
+        # though every individual file fits comfortably.
         GC.gc(true)
         rss_after = round(Int, Sys.maxrss()/1024^2)
         println(stderr, "[", lpad(i, 2), "/", length(SANDBOX_FILES), "] ",

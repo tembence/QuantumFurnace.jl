@@ -5,7 +5,7 @@ using Random
 using Printf
 
 # ===========================================================================
-# KMS-geometry test suite (qf-mto.{1,2,3})
+# KMS-geometry test suite
 # ===========================================================================
 #
 # Ported from scripts/scratch_kms_geometry.jl. The scratch passes 60/60 at
@@ -30,7 +30,7 @@ basis-projected jumps are construction-agnostic.
 """
 make_ckg_n3_system(beta::Real) = make_dll_n3_system(beta)
 
-# PHYSICS CHECK: a=0, s=0.25 matches the CKG smooth-Metropolis defaults in
+# a=0, s=0.25 matches the CKG smooth-Metropolis defaults in
 # `sweep_mixing_times`.
 """
     ckg_smooth_metro_config(beta) -> Config
@@ -159,11 +159,11 @@ end
 # Validation suite — 7 testsets, ported verbatim from scratch
 # ===========================================================================
 
-@testset "KMS geometry (qf-mto)" begin
+@testset "KMS geometry" begin
     Random.seed!(20260502)
 
     # -----------------------------------------------------------------------
-    # @testset (1) — KMS inner-product algebra (Task 1)
+    # @testset (1) — KMS inner-product algebra
     # -----------------------------------------------------------------------
     @testset "(1) KMS inner-product algebra" begin
         # Use a non-uniform 2-level Gibbs state.
@@ -201,7 +201,7 @@ end
     end
 
     # -----------------------------------------------------------------------
-    # @testset (2) — Discriminant + KMS-DB witness (Task 2)
+    # @testset (2) — Discriminant + KMS-DB witness
     # -----------------------------------------------------------------------
     @testset "(2) Quantum discriminant + KMS-DB diagnostics" begin
         β = 5.0
@@ -271,7 +271,7 @@ end
     end
 
     # -----------------------------------------------------------------------
-    # @testset (3) — Dirichlet form properties (Task 3)
+    # @testset (3) — Dirichlet form properties
     # -----------------------------------------------------------------------
     @testset "(3) KMS Dirichlet form" begin
         β = 5.0
@@ -314,7 +314,7 @@ end
     end
 
     # -----------------------------------------------------------------------
-    # @testset (4) — Spectral gap (Task 4)
+    # @testset (4) — Spectral gap
     # -----------------------------------------------------------------------
     @testset "(4) Spectral gap λ(L)" begin
         # 4a — qubit Davies closed-form.
@@ -361,7 +361,7 @@ end
     end
 
     # -----------------------------------------------------------------------
-    # @testset (5) — Λ_max + intrinsic ratio + scale invariance (Task 5)
+    # @testset (5) — Λ_max + intrinsic ratio + scale invariance
     # -----------------------------------------------------------------------
     @testset "(5) Λ_max + intrinsic ratio + scale invariance" begin
         β = 5.0
@@ -391,7 +391,7 @@ end
     end
 
     # -----------------------------------------------------------------------
-    # @testset (6) — 1→1 norm bound + HS-induced norm (Task 6)
+    # @testset (6) — 1→1 norm bound + HS-induced norm
     # -----------------------------------------------------------------------
     @testset "(6) 1→1 norm bound + HS-induced norm" begin
         for β in (5.0, 10.0)
@@ -474,7 +474,7 @@ end
     end
 
     # -----------------------------------------------------------------------
-    # @testset (8) — hs_operator_norm_krylov parity (qf-7xt)
+    # @testset (8) — hs_operator_norm_krylov parity
     # -----------------------------------------------------------------------
     # Matrix-free opnorm via Golub–Kahan–Lanczos (KrylovKit.svdsolve) must
     # agree with dense `opnorm` on:
@@ -485,7 +485,7 @@ end
     # Operators near the matvec noise floor are excluded here: if numerical
     # cancellation makes the supplied actions fail GKL's adjoint-compatibility
     # check, the wrapper throws rather than returning an uncertified estimate.
-    @testset "(8) hs_operator_norm_krylov parity (qf-7xt)" begin
+    @testset "(8) hs_operator_norm_krylov parity" begin
         Random.seed!(20260506)
 
         # (a) Synthetic random ComplexF64 superop at d=8 — noise-free path.

@@ -1,11 +1,11 @@
 using Test
 using LinearAlgebra
 
-# DMTST-05: Coherent term B consistency across domains
+# Coherent term B consistency across domains
 # B_bohr (exact, Bohr/Energy domain) vs B_time (time quadrature) vs B_trotter (Trotter + time quadrature)
 # Expected: B_bohr ~ B_time within TOL_QUADRATURE; B_trotter has additional Trotter error.
 
-@testset "DMTST-05: Coherent term B consistency" begin
+@testset "Coherent term B consistency" begin
     jump = TEST_JUMPS[1]  # X on site 1
 
     # B_bohr (exact, in Hamiltonian eigenbasis)
@@ -41,22 +41,22 @@ using LinearAlgebra
     # B_bohr and B_time agree up to time quadrature tolerance
     # Time quadrature error: O(1/N_time_points) with N=4096, well below 1e-6
     @test dist_bohr_time < TOL_QUADRATURE
-    @info "DMTST-05: B_bohr vs B_time" distance=dist_bohr_time threshold=TOL_QUADRATURE
+    @info "B_bohr vs B_time" distance=dist_bohr_time threshold=TOL_QUADRATURE
 
     # Trotter error on B term (tightened after basis fix in B_trotter)
     # Measured ~1e-8; threshold 1e-5 gives 1000x margin for system-size variation
     @test dist_bohr_trott < 1e-5
-    @info "DMTST-05: B Trotter total error" distance=dist_bohr_trott threshold=1e-5
+    @info "B Trotter total error" distance=dist_bohr_trott threshold=1e-5
 
-    @info "DMTST-05: Cross-domain distances" dist_bohr_time dist_bohr_trott dist_time_trott
+    @info "Cross-domain distances" dist_bohr_time dist_bohr_trott dist_time_trott
 end
 
-# DMTST-06: NUFFT OFT consistency vs analytical Energy-domain reference.
+# NUFFT OFT consistency vs analytical Energy-domain reference.
 # Verifies the NUFFT-accelerated OFT matches the analytical `oft!` to within
 # time-quadrature tolerance (Time domain) and Trotter-error tolerance
 # (Trotter domain).
 
-@testset "DMTST-06: NUFFT OFT consistency" begin
+@testset "NUFFT OFT consistency" begin
     jump = TEST_JUMPS[1]  # X on site 1
     w = -3 * W0           # Test energy value (must be on energy grid)
 
@@ -101,10 +101,10 @@ end
     # NUFFT time OFT matches analytical within time-quadrature error
     # (O(1/N_time_points) with N=4096, well below TOL_QUADRATURE).
     @test dist_nufft_time_vs_energy < TOL_QUADRATURE
-    @info "DMTST-06: NUFFT time vs analytical" distance=dist_nufft_time_vs_energy threshold=TOL_QUADRATURE
+    @info "NUFFT time vs analytical" distance=dist_nufft_time_vs_energy threshold=TOL_QUADRATURE
 
     # NUFFT Trotter OFT error (measured ~1.5e-8; threshold 1e-5 gives ~1000x
     # margin for system-size variation; Trotter error sits on top of quadrature error).
     @test dist_nufft_trott_vs_energy < 1e-5
-    @info "DMTST-06: NUFFT trotter vs analytical" distance=dist_nufft_trott_vs_energy threshold=1e-5
+    @info "NUFFT trotter vs analytical" distance=dist_nufft_trott_vs_energy threshold=1e-5
 end

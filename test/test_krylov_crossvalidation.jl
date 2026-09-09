@@ -6,15 +6,8 @@ using QuantumFurnace
 # test_helpers.jl is already included by runtests.jl
 
 # ============================================================================
-# Cross-validation: Krylov spectral gap vs dense eigen() reference
-# Phase 30: Establishes quantitative trust for n>6 production use
-#
-# XVAL-01: n=4 KMS cross-validation across all 4 domains (atol=1e-8)
-# XVAL-03: L-vs-E convergence testing (O(delta^2) order >= 1.5)
-# XVAL-04: n=4 GNS cross-validation across all 4 domains (atol=1e-8)
-#
-# Note: XVAL-02 (n=6 KMS) removed — n=6 dense eigen is too slow for CI;
-# XVAL-01 provides sufficient KMS coverage at n=4.
+# Compare Krylov and dense spectra for four-qubit KMS and GNS fixtures
+# across all four domains, then test channel-to-Lindbladian convergence.
 # ============================================================================
 
 # ---------------------------------------------------------------------------
@@ -110,18 +103,9 @@ Lindbladian-unit gap `-log|μ₂|/δ` (the exact log-rate of |μ| under iteratio
 d²×d² eigendecomposition is trivial and is the SAME ground-truth tier already used
 for the dense 𝓛 reference (`extract_leading_eigendata`).
 
-This replaces the matrix-free `krylov_spectral_gap(::Config{Thermalize})` Arnoldi
-in the L-vs-E convergence helper (qf-4fb). Per qf-9lp / qf-e4z.37, Arnoldi on the
-NON-NORMAL Φ_δ is a fragile fallback: as δ→0 the μ-spectrum clusters tightly near 1
-and the Arnoldi locks onto the WRONG (faster) eigenmode, independent of krylovdim —
-on the build_heis_1d n=4 draw the channel-Arnoldi gap DIVERGES from the true gap as
-δ shrinks (rel err 6.8%→57% over δ∈[0.1,0.005]), giving spurious NEGATIVE convergence
-orders. The matrix-free trajectory Pass-1 `-log|μ₂|/δ` from ρ₀=|+⟩ is also unreliable
-here (ρ₀ becomes near-orthogonal to the slow Φ_δ mode at small δ, cf. qf-e4z.40).
-Only the DENSE Φ_δ reliably tracks the slowest mode at every δ — and it shows the
-clean O(δ) convergence the theory predicts (orders ≈ [1.02, 1.0] for ALL four
-domains, error decreasing exactly 10× per 10× δ). So the convergence INVARIANT is
-real and robust; only the fragile matrix-free extraction obscured it.
+The dense channel spectrum supplies an independent reference at this small
+dimension. As δ decreases, channel eigenvalues cluster near one; a partial
+Krylov spectrum can miss the slowest mode and distort convergence orders.
 
     run_le_convergence(domain, hamiltonian, jumps; kwargs...) -> NamedTuple
 
@@ -162,9 +146,7 @@ function run_le_convergence(domain, hamiltonian, jumps;
     krylovdim=30,
     tol=1e-10,
 )
-    # Lindbladian reference gap (delta-independent). The Lindbladian krylov_spectral_gap
-    # Arnoldi (Pipeline B) is robust — it matches dense 𝓛 to ~1e-15 on this fixture
-    # (verified qf-4fb), unlike Arnoldi on the non-normal Φ_δ.
+    # Delta-independent Lindbladian reference gap from the matrix-free solver.
     config_liouv = make_config(Lindbladian(),domain; construction=KMS())
     gap_L = krylov_spectral_gap(config_liouv, hamiltonian, jumps;
         trotter=trotter, krylovdim=krylovdim, howmany=4, tol=tol).spectral_gap
@@ -172,7 +154,7 @@ function run_le_convergence(domain, hamiltonian, jumps;
     rows = NamedTuple{(:delta, :gap_from_E, :error), Tuple{Float64, Float64, Float64}}[]
     for delta in deltas
         config_therm = make_config(Thermalize(),domain; construction=KMS(), delta=delta)
-        # qf-4fb: dense Φ_δ gap (NOT the fragile channel-Arnoldi) — see the helper
+        # dense Φ_δ gap (NOT the fragile channel-Arnoldi) — see the helper
         # docstring above. This is what reliably exhibits the O(δ) channel→𝓛
         # convergence on the build_heis_1d stiff fixture.
         gap_from_E = _dense_phi_delta_gap(config_therm, hamiltonian, jumps; trotter=trotter)
@@ -211,7 +193,7 @@ end
 @testset "Krylov Cross-Validation" begin
 
     # ========================================================================
-    # XVAL-01: n=4 KMS cross-validation across all 4 domains
+    # n=4 KMS cross-validation across all 4 domains
     # Tolerance: atol=1e-8 (KrylovKit tol=1e-10 provides margin)
     # ========================================================================
     @testset "n=4 KMS (all domains)" begin
@@ -230,7 +212,7 @@ end
                 on_failure_diagnostics(comp.krylov_result, comp.dense_result)
             end
             @test gap_match
-            @info "XVAL-01 gap (EnergyDomain KMS)" error=abs(comp.krylov_result.spectral_gap - comp.dense_result.spectral_gap) atol=1e-8
+            @info "gap (EnergyDomain KMS)" error=abs(comp.krylov_result.spectral_gap - comp.dense_result.spectral_gap) atol=1e-8
         end
 
         @testset "TimeDomain" begin
@@ -245,7 +227,7 @@ end
                 on_failure_diagnostics(comp.krylov_result, comp.dense_result)
             end
             @test gap_match
-            @info "XVAL-01 gap (TimeDomain KMS)" error=abs(comp.krylov_result.spectral_gap - comp.dense_result.spectral_gap) atol=1e-8
+            @info "gap (TimeDomain KMS)" error=abs(comp.krylov_result.spectral_gap - comp.dense_result.spectral_gap) atol=1e-8
         end
 
         @testset "TrotterDomain" begin
@@ -261,7 +243,7 @@ end
                 on_failure_diagnostics(comp.krylov_result, comp.dense_result)
             end
             @test gap_match
-            @info "XVAL-01 gap (TrotterDomain KMS)" error=abs(comp.krylov_result.spectral_gap - comp.dense_result.spectral_gap) atol=1e-8
+            @info "gap (TrotterDomain KMS)" error=abs(comp.krylov_result.spectral_gap - comp.dense_result.spectral_gap) atol=1e-8
         end
 
         @testset "BohrDomain" begin
@@ -276,19 +258,19 @@ end
                 on_failure_diagnostics(comp.krylov_result, comp.dense_result)
             end
             @test gap_match
-            @info "XVAL-01 gap (BohrDomain KMS)" error=abs(comp.krylov_result.spectral_gap - comp.dense_result.spectral_gap) atol=1e-8
+            @info "gap (BohrDomain KMS)" error=abs(comp.krylov_result.spectral_gap - comp.dense_result.spectral_gap) atol=1e-8
         end
 
     end  # n=4 KMS
 
     # ========================================================================
-    # XVAL-04: n=4 GNS cross-validation across all 4 domains
+    # n=4 GNS cross-validation across all 4 domains
     # GNS uses make_config(Lindbladian(), ...; construction=GNS()) (with_coherent=false)
     # Tolerance: atol=1e-8
     # ========================================================================
     @testset "n=4 GNS (all domains)" begin
 
-        # Threshold rationale (atol=1e-8): same as XVAL-01 KMS -- KrylovKit tol=1e-10, 100x margin.
+        # Threshold rationale (atol=1e-8): same as KMS -- KrylovKit tol=1e-10, 100x margin.
         @testset "EnergyDomain" begin
             comp = compare_krylov_dense(
                 make_config(Lindbladian(), EnergyDomain(); construction=GNS()),
@@ -301,7 +283,7 @@ end
                 on_failure_diagnostics(comp.krylov_result, comp.dense_result)
             end
             @test gap_match
-            @info "XVAL-04 gap (EnergyDomain GNS)" error=abs(comp.krylov_result.spectral_gap - comp.dense_result.spectral_gap) atol=1e-8
+            @info "gap (EnergyDomain GNS)" error=abs(comp.krylov_result.spectral_gap - comp.dense_result.spectral_gap) atol=1e-8
         end
 
         @testset "TimeDomain" begin
@@ -316,7 +298,7 @@ end
                 on_failure_diagnostics(comp.krylov_result, comp.dense_result)
             end
             @test gap_match
-            @info "XVAL-04 gap (TimeDomain GNS)" error=abs(comp.krylov_result.spectral_gap - comp.dense_result.spectral_gap) atol=1e-8
+            @info "gap (TimeDomain GNS)" error=abs(comp.krylov_result.spectral_gap - comp.dense_result.spectral_gap) atol=1e-8
         end
 
         @testset "TrotterDomain" begin
@@ -332,7 +314,7 @@ end
                 on_failure_diagnostics(comp.krylov_result, comp.dense_result)
             end
             @test gap_match
-            @info "XVAL-04 gap (TrotterDomain GNS)" error=abs(comp.krylov_result.spectral_gap - comp.dense_result.spectral_gap) atol=1e-8
+            @info "gap (TrotterDomain GNS)" error=abs(comp.krylov_result.spectral_gap - comp.dense_result.spectral_gap) atol=1e-8
         end
 
         @testset "BohrDomain" begin
@@ -347,13 +329,13 @@ end
                 on_failure_diagnostics(comp.krylov_result, comp.dense_result)
             end
             @test gap_match
-            @info "XVAL-04 gap (BohrDomain GNS)" error=abs(comp.krylov_result.spectral_gap - comp.dense_result.spectral_gap) atol=1e-8
+            @info "gap (BohrDomain GNS)" error=abs(comp.krylov_result.spectral_gap - comp.dense_result.spectral_gap) atol=1e-8
         end
 
     end  # n=4 GNS
 
     # ========================================================================
-    # XVAL-03: L-vs-E convergence (KMS only, per locked decision)
+    # L-vs-E convergence (KMS)
     # Tests that channel-to-Lindbladian gap mapping converges with O(delta).
     # The faithful jumpwise Φ_δ gives mu = exp(delta*lambda_L) + O(delta^2),
     # so (mu-1)/delta has first-order error. Deltas: [0.1, 0.01, 0.001].

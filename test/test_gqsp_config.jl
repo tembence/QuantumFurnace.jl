@@ -1,7 +1,7 @@
 """
 Tests for the GQSP coherent-step configuration fields and validation.
 
-Covers Step qf-63j.1:
+Covers:
 - Default `with_gqsp=false` and `gqsp_degree=1` on a fresh `Config`.
 - `validate_config!` accepts `with_gqsp=true` for the supported regime
   (`with_coherent(construction)`, Time/TrotterDomain, `1 ≤ gqsp_degree ≤ 100`).
@@ -12,7 +12,7 @@ Covers Step qf-63j.1:
     * `gqsp_degree > 100`.
 """
 
-@testset "GQSP config fields and validation (qf-63j.1)" begin
+@testset "GQSP config fields and validation" begin
 
     @testset "coherent construction trait" begin
         @test with_coherent(KMS())

@@ -1,5 +1,5 @@
 """
-Targeted tests for `validate_jump_pairing` (qf-bm1 Q1).
+Targeted tests for `validate_jump_pairing`.
 
 Exercises edge cases beyond what `test_non_hermitian_jumps.jl` covers:
 empty input, atol behaviour, multi-pair sets, mixed Hermitian flags,
@@ -9,7 +9,7 @@ These run on synthetic 2x2 / 4x4 matrices — no Hamiltonian / OFT machinery
 required, so this file is fast.
 """
 
-@testset "validate_jump_pairing edge cases (qf-bm1)" begin
+@testset "validate_jump_pairing edge cases" begin
     # 2x2 fixtures
     sigma_plus  = ComplexF64[0 1; 0 0]
     sigma_minus = ComplexF64[0 0; 1 0]

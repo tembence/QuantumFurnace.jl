@@ -1,4 +1,4 @@
-@testset "DLL Kossakowski (Phase 51 / qf-3i8.4)" begin
+@testset "DLL Kossakowski" begin
 
     # =====================================================================
     # Direct unit tests for `dll_kossakowski_bohr`. The DLL Kossakowski
@@ -139,7 +139,7 @@
     end
 
     # =====================================================================
-    # DLL Metropolis-type Kossakowski (qf-wmg.5) — α is again rank-1, but
+    # DLL Metropolis-type Kossakowski — α is again rank-1, but
     # |α| stays O(1) at low T because f̂ has compact O(1) support and the
     # Metropolis weight saturates at 1 for ν < 0 (vs Gaussian's β-shrinking
     # weight). Structural shape/PSD/rank-1/outer-product/KMS-skew tests for

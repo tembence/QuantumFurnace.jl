@@ -1,17 +1,9 @@
-@testset "DLL dissipator (Phase 51 / qf-3i8.2)" begin
+@testset "DLL dissipator" begin
 
     # =====================================================================
-    # n=3 disordered Heisenberg fixture (matches test_dll_coherent.jl,
-    # test_dll_kms_db.jl). The full DLL Lindbladian L = D + i[G, ·]
-    # (with the Lamb-shift G now wired through _precompute_coherent_B)
-    # preserves σ_β at machine precision in the Bohr domain — the toy
-    # 2-qubit fixture used pre-DLL-3 is no longer needed (the dissipator
-    # alone preserved σ_β only on that toy; with G included, the full L
-    # works on any Hamiltonian).
-    #
-    # β-sweep ∈ {1, 5, 10}: β = 10 is the user-specified stress level for
-    # surface DLL quadrature errors at high inverse temperature (DLL-time
-    # kernel width grows ∝ β/2, so the trapezoidal grid must be wide enough).
+    # The full DLL Lindbladian L = D + i[G, ·] preserves σ_β in BohrDomain.
+    # Test a three-qubit disordered Heisenberg fixture at β ∈ {1, 5, 10}.
+    # The DLL time kernel broadens with β, requiring a wider quadrature grid.
     # =====================================================================
     # Shared n=3 disordered Heisenberg fixture; see test_helpers.jl::make_dll_n3_system.
     _build_dll_n3_system = make_dll_n3_system
@@ -20,7 +12,7 @@
     # which exceeds the DLL filter cutoff at β=10 (~35.5) by ~2x — sufficient
     # margin for trapezoidal quadrature to converge to ≤1e-4 against the
     # exact Bohr decomposition. N=10 (Nt=1024) reaches the FINUFFT precision
-    # floor for Bohr↔Time at this fixture (~3e-9, qf-5nz) — bumping to N=12
+    # floor for Bohr↔Time at this fixture (~3e-9) — bumping to N=12
     # gains nothing, but uses 16× more NUFFT memory.
     _DLL_NUM_ENERGY_BITS = 10
     _DLL_W0 = 0.05
@@ -102,7 +94,7 @@
     end
 
     # ---------------------------------------------------------------------
-    # (f) validate_config!: TrotterDomain DLL is deferred (DLL-2 scope).
+    # (f) validate_config!: TrotterDomain DLL is unsupported.
     # ---------------------------------------------------------------------
     @testset "(f) validate_config! rejects TrotterDomain DLL" begin
         bad = Config(;
@@ -132,7 +124,7 @@
     end
 
     # ---------------------------------------------------------------------
-    # (g) validate_config!: EnergyDomain DLL is out of scope for DLL-2.
+    # (g) validate_config!: EnergyDomain DLL is unsupported.
     # ---------------------------------------------------------------------
     @testset "(g) validate_config! rejects EnergyDomain DLL" begin
         bad = Config(;
@@ -160,10 +152,10 @@
 
     # ---------------------------------------------------------------------
     # (h) NUFFT path agrees with explicit `dll_lindblad_op_time` Riemann sum
-    # to the FINUFFT precision floor (Phase B / qf-hur.2). Uses the n=3
+    # to the FINUFFT precision floor. Uses the n=3
     # disordered Heisenberg fixture (|B_H| ≫ n; non-trivial Bohr structure).
     #
-    # Tolerance 1e-11 (qf-4fb): both paths evaluate the SAME ω=0 OFT integral
+    # Tolerance 1e-11: both paths evaluate the SAME ω=0 OFT integral
     # — `L_explicit` by a direct O(N·d²) Riemann sum over `time_labels`,
     # `L_nufft` via the FINUFFT slice in `_precompute_data`. The residual is the
     # FINUFFT-vs-direct-sum round-trip floor, NOT a quadrature error: it is
@@ -171,12 +163,12 @@
     # β=1 op-norm difference stays 2.06e-12 regardless of grid size), so it
     # cannot be tightened by enlarging the time grid. On the prior find_typical
     # n=3 draw the worst case happened to sit just under 1e-12; the build_heis_1d
-    # draw (qf-4fb) places the β=1 cell at 2.06e-12 op-norm (5.7e-12 relative to
+    # draw places the β=1 cell at 2.06e-12 op-norm (5.7e-12 relative to
     # ‖L‖≈0.36) while β∈{5,10} stay at ~2e-13. 1e-12 was therefore over-tight
     # for this internal-consistency check. 1e-11 matches the codebase's standard
     # FINUFFT-floor tolerance (cf. the adjoint-duality tests in
     # test_krylov_matvec.jl) and stays 100× tighter than the documented Bohr↔Time
-    # FINUFFT floor (~1e-9, qf-5nz / test_dll_kms_db.jl:300), so it retains full
+    # FINUFFT floor (~1e-9), so it retains full
     # power to catch any real prefactor / index-map bug. Margin over the observed
     # 2.06e-12 worst cell is ~5×.
     # ---------------------------------------------------------------------
@@ -219,7 +211,7 @@
                     jump, ham, pre.time_labels, pre.filter, pre.t0,
                 )
                 # NUFFT path: elementwise multiply against the prefactor at ω=0.
-                # Single-channel filter ⇒ length-1 list (qf-7go.4 refactor).
+                # Single-channel filter ⇒ length-1 list.
                 L_nufft = jump.in_eigenbasis .* pre.oft_nufft_at_zero_list[1] .* pre.t0
                 @test opnorm(L_explicit - L_nufft) <= 1e-11
             end

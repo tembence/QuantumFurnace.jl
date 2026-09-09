@@ -1,4 +1,4 @@
-@testset "DLL coherent term G (Phase 51 / qf-3i8.3)" begin
+@testset "DLL coherent term G" begin
 
     # =====================================================================
     # Direct unit tests for `dll_coherent_op_bohr` and `dll_coherent_op_time`.
@@ -22,7 +22,7 @@
     # t_max ≈ 63 (= Nt·t0/2) — same as the legacy N=12 — but cuts NUFFT
     # source-points 16× (4096² → 1024²). Empirically the Bohr↔Time error
     # is already at the FINUFFT precision floor (~3e-9) at Nt ≥ 256, so
-    # the existing 1e-3 / 1e-5 tolerances stay well-clear (qf-5nz).
+    # the existing 1e-3 / 1e-5 tolerances stay well-clear.
     _NUM_ENERGY_BITS = 10
     _T0 = 2pi / (2^_NUM_ENERGY_BITS * 0.05)
     _BETAS = (1.0, 5.0, 10.0)
@@ -190,7 +190,7 @@
     end
 
     # ---------------------------------------------------------------------
-    # (h) Phase C / qf-hur.3: closed-form + NUFFT path agrees with the
+    # (h) closed-form + NUFFT path agrees with the
     # internal-(ν,ν')-grid `dll_coherent_op_time_legacy` reference. The
     # legacy path has its own ~1e-9 quadrature error at the default Nν=64,
     # so we tolerate ~1e-8 op-norm.
@@ -211,7 +211,7 @@
     end
 
     # =====================================================================
-    # DLL Metropolis-type filter (qf-wmg.8) — same n=3 fixture; coherent G
+    # DLL Metropolis-type filter — same n=3 fixture; coherent G
     # is computed numerically (no closed form for g(t,t')) via 2D NUFFT
     # over [-S, S]² + the shared `_dll_coherent_from_g_tt` helper.
     # Hermiticity / Bohr↔Time tests for Metropolis are merged with the
@@ -233,7 +233,7 @@
             @test opnorm(G) <= 10.0
             # Non-trivial — Metropolis does not vanish either. The 1e-5 floor
             # accommodates fixture-dependent variation in ‖G‖_op across the
-            # find_typical-selected n=3 fixture (qf-2kd: observed minimum
+            # find_typical-selected n=3 fixture (observed minimum
             # ~6.7e-5 at one β value), well above the ~1/β decay rate that
             # would mark the Gaussian-style β-collapse this test guards against.
             @test opnorm(G) >= 1e-5

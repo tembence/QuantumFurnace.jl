@@ -1,7 +1,7 @@
 using Test, QuantumFurnace, LinearAlgebra
 using QuadGK
 
-@testset "T12 prepared Fourier transforms" begin
+@testset "prepared Fourier transforms" begin
     beta=1.3
     gaussian=DLLGaussianFilter(beta)
     targets=[-3.,-0.4,0.,0.7,4.]
@@ -88,7 +88,7 @@ using QuadGK
     @test_throws ArgumentError fourier_sum(nodes,weights,targets;backend=:unknown)
 end
 
-@testset "T13 independent DLL Time controls" begin
+@testset "independent DLL Time controls" begin
     QF=QuantumFurnace
     H=ComplexF64[.2 .3im;-.3im -.2]; beta=.8
     A=ComplexF64[.2+.1im .8-.3im;-.2+.7im .4-.1im]
@@ -172,7 +172,7 @@ end
     @test all(isfinite,result.trajectory.distances)
 end
 
-@testset "T13 compact Metropolis convergence and budget gates" begin
+@testset "compact Metropolis convergence and budget gates" begin
     H=ComplexF64[.2 .3im;-.3im -.2]; beta=.8
     A=ComplexF64[.2+.1im .8-.3im;-.2+.7im .4-.1im]; sources=[A,A']
     f=DLLMetropolisFilter(beta;S=8.)

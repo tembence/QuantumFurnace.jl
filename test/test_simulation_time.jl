@@ -1,6 +1,6 @@
-@testset "Simulation Time (Phases 44-47)" begin
+@testset "Simulation time and resource estimates" begin
 
-    # ---- Phase 44: QPE grid info ----
+    # ---- QPE grid info ----
     @testset "QPE grid info" begin
         for r in [4, 8, 12, 16]
             grid = QuantumFurnace._qpe_grid_info(r, W0)
@@ -13,7 +13,7 @@
         end
     end
 
-    # ---- Phase 44 (qf-e4z.18): SimulationTimeBudget struct ----
+    # ---- SimulationTimeBudget struct ----
     @testset "SimulationTimeBudget struct" begin
         # New shape: per-term register triples + (with_gqsp, gqsp_degree).
         # Field order matches the struct definition in src/simulation_time.jl.
@@ -73,7 +73,7 @@
         @test occursin("Total", verbose)
     end
 
-    # ---- Phase 45: OFT time — closed-form validation ----
+    # ---- OFT time — closed-form validation ----
     @testset "OFT time — closed-form" begin
         for r in [4, 8, 10, 12]
             N = 2^r
@@ -104,7 +104,7 @@
         @test 0.0 < weighted < unweighted
     end
 
-    # ---- Phase 46: B time ----
+    # ---- B time ----
     @testset "B time — GNS returns 0" begin
         @test QuantumFurnace._b_hamiltonian_time(nothing, nothing, 10.0, 0.1, 0.01) == 0.0
         @test QuantumFurnace._b_hamiltonian_time(Dict(), Dict(), 10.0, 0.1, 0.01) == 0.0
@@ -124,7 +124,7 @@
         @test isfinite(bt)
     end
 
-    # ---- Phase 47: compute_simulation_time ----
+    # ---- compute_simulation_time ----
     @testset "compute_simulation_time — KMS" begin
         config = make_config(Thermalize(), TimeDomain())
         budget = compute_simulation_time(config, TEST_HAM, 10.0)
@@ -182,11 +182,11 @@
         @test budget.construction == :GNS
     end
 
-    # ---- qf-nq5: filter_type tag honours the (a, s) taxonomy ----
+    # ---- filter_type tag honours the (a, s) taxonomy ----
     # Smooth Metropolis is exactly `s > 0` (any a ≥ 0); kinky Metropolis is
     # `s = a = 0`. The thesis-default `a = 0, s = 0.25` must tag as smooth, not
     # kinky. (s = 0, a > 0) is rejected upstream by validate_config!.
-    @testset "compute_simulation_time — filter_type taxonomy (qf-nq5)" begin
+    @testset "compute_simulation_time — filter_type taxonomy" begin
         function _filter_cfg(; a, s, construction=KMS(), eta=0.05)
             Config(;
                 sim = Thermalize(), domain = TimeDomain(), construction = construction,
@@ -225,9 +225,8 @@
         @test isfinite(budget.total_time)
     end
 
-    # ---- qf-e4z.18: GQSP cost-model multiplier (Form B = MW Eq. 46) ----
+    # ---- GQSP cost-model multiplier (Form B = MW Eq. 46) ----
     # With Form B: 2d block-encoding queries per CoherentStep ⇒ b_time = 2·d·b_per_be.
-    # Anticipates the Form-B circuit refactor tracked in qf-e4z.19.
     @testset "compute_simulation_time — GQSP multiplier (Form B)" begin
         # Build matched configs at d ∈ {1, 2, 3} with all other params identical.
         # `make_config` doesn't expose with_gqsp/gqsp_degree, so use Config(...) directly.
@@ -285,11 +284,11 @@
         @test bg.b_time == 0.0
     end
 
-    # ---- qf-9z0 + qf-e4z.18: per-term registers honoured end-to-end ----
+    # ---- Per-term registers honoured end-to-end ----
     # Vary the b_+ register independently and confirm (i) the budget records the
     # per-term values, (ii) the OFT (D-register) cost is unchanged, (iii) the
     # B-cost responds to the b_+ spacing change (factored-double-sum scaling).
-    @testset "compute_simulation_time — per-term registers (qf-9z0)" begin
+    @testset "compute_simulation_time — per-term registers" begin
         function _per_term_cfg(; rbp::Int)
             # Use legacy single-register defaults for D and b_- (auto-promoted via
             # register_*_X fallback), and override only the b_+ triple.
@@ -331,7 +330,7 @@
         @test ba.b_per_be != bb.b_per_be
     end
 
-    # ---- qf-5hg.2: Trotter-step (gate-level) accounting ----
+    # ---- Trotter-step (gate-level) accounting ----
     @testset "count_trotter_steps — KMS component formulas" begin
         config = make_config(Thermalize(), TrotterDomain())
         cnt = count_trotter_steps(config, TEST_HAM, 10.0)
@@ -407,7 +406,7 @@
         end
     end
 
-    # Cross-check contract (qf-5hg.5 sanity gate): substep counts × per-leg
+    # Cross-check: substep counts × per-leg
     # substep duration t0_X/M_X reproduce the unweighted ladder durations, and
     # the counter agrees with an independently-built SimulationTimeBudget on
     # every shared register/step quantity.
@@ -439,7 +438,7 @@
         @test (cnt.N_D - 1) * cnt.t0_D < unweighted_oft
     end
 
-    @testset "count_trotter_steps — per-leg registers and M (qf-9z0 / TrotterTriple)" begin
+    @testset "count_trotter_steps — per-leg registers and M (TrotterTriple)" begin
         rbp, Mbp = 8, 3
         w0_bp = W0
         t0_bp = 2π / (2^rbp * w0_bp)
@@ -462,7 +461,7 @@
         @test cnt.b_outer_substeps_per_be == 2 * (2^NUM_ENERGY_BITS - 1) * NUM_TROTTER_STEPS_PER_T0
     end
 
-    # ---- qf-5hg.4: RXX estimator ----
+    # ---- RXX estimator ----
     @testset "estimate_rxx_count — hand-computed n=3 cell" begin
         # r = 3 (N = 8), M = 2 on all legs, GQSP d = 1 (2 Form-B BE queries):
         #   OFT/pass = 7·2 = 14, ×2 = 28/step
@@ -549,10 +548,10 @@
         @test_throws ArgumentError load_rxx_table("/nonexistent/rxx.tsv")
     end
 
-    @testset "load_rxx_table — committed qf-5hg.3 measurement" begin
+    @testset "load_rxx_table — measured RXX counts" begin
         # The default path is the committed measurement table; spot-check the
         # contract the estimator relies on (keys + positive slopes). Scope is
-        # 1D Heisenberg only (qf-mnq); the 2D TFIM is out of scope for the
+        # 1D Heisenberg only; the 2D TFIM is out of scope for the
         # RXX plot (user decision 2026-06-08).
         tbl = load_rxx_table()
         for n in 3:9
@@ -591,19 +590,15 @@
     end
 
     # ========================================================================
-    # qf-5hg code-verification adversarial tests (drafts/qf-5hg-code-verification.md)
-    # These cover gaps the existing suite left open: distinct per-leg M on all
-    # three legs, the substep(2/4-duration)-vs-block(2/3-evolution) weight
-    # distinction, the controlled-formula partition completeness, NaN
-    # propagation from a legacy table, the GNS controlled collapse, DLL
-    # coherent handling, and coherent-leg M/r validation fallback failures.
+    # Gate-count edge cases: independent per-leg steps, duration weights,
+    # controlled partitions, missing table entries and validation fallbacks.
     # ========================================================================
 
     # ---- count_trotter_steps: distinct per-leg M on ALL THREE legs ----
     # The existing ladder-identity test only varies M on one leg. This pins the
     # M-cancellation independently on each leg with three DIFFERENT M values, so
     # a leg accidentally reading another leg's M would break an identity.
-    @testset "count_trotter_steps — three-leg distinct M ladder identity (qf-5hg verify)" begin
+    @testset "count_trotter_steps — three-leg distinct M ladder identity" begin
         rD, rbm, rbp = 6, 7, 8
         MD, Mbm, Mbp = 5, 4, 3   # all distinct
         cfg = Config(;
@@ -644,7 +639,7 @@
     # SUBSTEP count (1+2+1=4) but 1 in the BLOCK count (3 contiguous ladders).
     # The outer leg has 2 evolutions e^{∓iHt/σ} (weight 2 both). Distinct r per
     # leg disentangles the 2·r_bm and 3·r_bp block contributions.
-    @testset "count_trotter_steps — substep/block weight distinction (qf-5hg verify)" begin
+    @testset "count_trotter_steps — substep/block weight distinction" begin
         rD, rbm, rbp, M = 5, 6, 7, 3
         cfg = Config(;
             sim = Thermalize(), domain = TrotterDomain(), construction = KMS(),
@@ -676,7 +671,7 @@
     # b_coh = blocks_per_step − 2·r_D (NOT total_blocks − 2·r_D — the RxxBudget
     # docstring TEXT says total_blocks, which would be wrong by an n_steps factor;
     # the CODE correctly uses the per-step quantity, asserted here).
-    @testset "estimate_rxx_count — controlled partition completeness (qf-5hg verify)" begin
+    @testset "estimate_rxx_count — controlled partition completeness" begin
         function _cfg(; with_gqsp, d, nq = 3, r = 3, M = 2)
             Config(;
                 sim = Thermalize(), domain = TrotterDomain(), construction = KMS(),
@@ -721,7 +716,7 @@
     end
 
     # ---- estimate_rxx_count: GNS controlled collapse + NaN propagation ----
-    @testset "estimate_rxx_count — GNS controlled + legacy NaN (qf-5hg verify)" begin
+    @testset "estimate_rxx_count — GNS controlled + legacy NaN" begin
         tab_full = Dict(("h", 3) => (;
             geometry = "-", rxx_slope_per_substep = 20.0, rxx_intercept = 3.0,
             rxx_L1 = 23.0, rxx_fit_max_abs_dev = 0.0, f_ctrl1 = 3.0, f_ctrl2 = 6.0,
@@ -764,9 +759,9 @@
     end
 
     # ---- count_trotter_steps: DLL is coherent (with_coherent(DLL)=true) ----
-    # DLL Trotter dynamics is not implemented: its historical KMS-like resource
+    # DLL Trotter dynamics is not implemented: KMS-like resource
     # arithmetic is available only as an explicitly labelled hypothetical.
-    @testset "count_trotter_steps — DLL coherent handling (qf-5hg verify)" begin
+    @testset "count_trotter_steps — DLL coherent handling" begin
         function _dll_trotter_resource_config(filter)
             Config(;
                 sim = Thermalize(), domain = TrotterDomain(), construction = DLL(),
@@ -800,7 +795,7 @@
             cfg, TEST_HAM, 10.0; allow_hypothetical = true)
         @test cnt.construction == :DLL
         @test cnt.cost_interpretation === :hypothetical_unimplemented_dll_trotter
-        @test cnt.n_be_queries == 1                       # direct exp(-iδB), not GNS-0
+        @test cnt.n_be_queries == 1                       # Direct exp(-iδB) requires one query.
         @test cnt.b_substeps_per_be > 0
         @test cnt.b_substeps_per_step == cnt.b_substeps_per_be
         @test cnt.blocks_per_step == 2 * NUM_ENERGY_BITS + (2 + 3) * NUM_ENERGY_BITS
@@ -830,7 +825,7 @@
     # If a coherent leg's M (or r) is unset AND the legacy fallback is also unset,
     # the per-leg accessor returns nothing and the counter must throw — not
     # silently build a ladder from `nothing`.
-    @testset "count_trotter_steps — coherent leg M/r fallback validation (qf-5hg verify)" begin
+    @testset "count_trotter_steps — coherent leg M/r fallback validation" begin
         # M_D set per-leg, but b-leg M and legacy num_trotter_steps_per_t0 unset.
         cfg_no_bM = Config(;
             sim = Thermalize(), domain = TrotterDomain(), construction = KMS(),
@@ -857,7 +852,7 @@
     end
 
     # ---- load_rxx_table: malformed column counts + blank-line skipping ----
-    @testset "load_rxx_table — malformed rows + blank lines (qf-5hg verify)" begin
+    @testset "load_rxx_table — malformed rows + blank lines" begin
         mktempdir() do dir
             hdr10 = "name\tn\tgeometry\trxx_slope_per_substep\trxx_intercept\trxx_L1\trxx_fit_max_abs_dev\tf_ctrl1\tf_ctrl2\tqiskit_version"
             # 11 columns → ArgumentError.

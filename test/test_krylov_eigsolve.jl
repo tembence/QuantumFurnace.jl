@@ -201,20 +201,13 @@ using QuantumFurnace
     end
 
     # ========================================================================
-    # Testset 9 — qf-8fr: symmetric Hamiltonians do NOT collapse the Arnoldi.
-    #
-    # Classical 1D Ising H = sum Z_i Z_{i+1} is invariant under translation and
-    # spin-flip (otimes_i X). The maximally mixed state I/d is a fixed point
-    # of both symmetries; if `krylov_spectral_gap` seeded Arnoldi with I/d
-    # (the pre-qf-8fr default), the Krylov subspace would stay in the trivial
-    # symmetric sector and miss the true gap eigenmode — which is the
-    # spin-flip-odd magnetisation at lambda = -4.45e-2 for n=4. The patched
-    # `_krylov_default_x0` adds a small traceless GUE perturbation, breaking
-    # the symmetry while preserving the trace-1 normalisation. This test
-    # would FAIL on the pre-qf-8fr code (returns the 2nd-symmetric-sector
-    # eigenvalue, ~3.8x too large at n=4).
+    # Classical Ising is invariant under translation and global spin flip.
+    # Arnoldi seeded with I/d stays in the symmetric sector and can miss
+    # the slow magnetisation mode. The default traceless random perturbation
+    # gives the seed overlap with other symmetry sectors. Compare its gap
+    # estimate against the full dense spectrum on this small fixture.
     # ========================================================================
-    @testset "krylov_spectral_gap — symmetric system regression (qf-8fr)" begin
+    @testset "krylov_spectral_gap — symmetric system regression" begin
         system = make_classical_ising_n3()
         (; ham, jumps) = system
         cfg_e = make_classical_ising_config(Lindbladian(), system)
@@ -229,7 +222,7 @@ using QuantumFurnace
         res = krylov_spectral_gap(cfg_e, ham, jumps;
                                   krylovdim=40, howmany=4)
         @test isapprox(res.spectral_gap, gap_dense; rtol=1e-8)
-        @info "qf-8fr classical Ising regression" n=3 beta_phys=system.beta_phys gap_krylov=res.spectral_gap gap_dense=gap_dense rel_err=abs(res.spectral_gap - gap_dense)/gap_dense
+        @info "classical Ising regression" n=3 beta_phys=system.beta_phys gap_krylov=res.spectral_gap gap_dense=gap_dense rel_err=abs(res.spectral_gap - gap_dense)/gap_dense
 
         # Also exercise BohrDomain — same physical Lindbladian, different domain wiring.
         cfg_b = make_classical_ising_config(Lindbladian(), system; domain=BohrDomain())
@@ -238,11 +231,11 @@ using QuantumFurnace
         @test isapprox(res_b.spectral_gap, gap_dense; rtol=1e-8)
         # Energy ≡ Bohr to machine precision for classical Ising (no quadrature error).
         @test isapprox(res.spectral_gap, res_b.spectral_gap; rtol=1e-10)
-        @info "qf-8fr Energy ≡ Bohr cross-check" gap_E=res.spectral_gap gap_B=res_b.spectral_gap
+        @info "Energy ≡ Bohr cross-check" gap_E=res.spectral_gap gap_B=res_b.spectral_gap
     end
 
     # ========================================================================
-    # Testset 10 — qf-umr: krylov_spectral_gap `workspace=` reuse.
+    # krylov_spectral_gap `workspace=` reuse.
     #
     # The two numerical pipelines (trajectory/mixing-time vs spectral-gap/
     # spectrum) are decoupled, sharing only the one expensive resource — the
@@ -257,7 +250,7 @@ using QuantumFurnace
     #       forwarded Workspace equals the self-build path bitwise.
     # n=3 throughout — sandbox-cheap.
     # ========================================================================
-    @testset "krylov_spectral_gap workspace= reuse (qf-umr)" begin
+    @testset "krylov_spectral_gap workspace= reuse" begin
         d3 = 2^3
 
         # -- (a) Lindbladian: workspace= reuse is bit-identical to fresh build --
@@ -375,7 +368,7 @@ using QuantumFurnace
                 cfg, N3_HAM, N3_JUMPS, rho_0, t_grid;
                 krylovdim=30, compute_true_gap=true)
             # Forwarded-workspace path: predict_* reuses this ws for BOTH Pass-1
-            # and the internal Pass-2 krylov_spectral_gap (qf-umr).
+            # and the internal Pass-2 krylov_spectral_gap.
             ws = Workspace(cfg, N3_HAM, N3_JUMPS)
             tj_ws = predict_lindbladian_trajectory(
                 cfg, N3_HAM, N3_JUMPS, rho_0, t_grid;

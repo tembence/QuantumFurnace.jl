@@ -1,4 +1,4 @@
-"""Step 3 of qf-0x6: Qiskit proof-of-concept circuit for GQSP.
+"""Qiskit proof-of-concept circuit for GQSP.
 
 End-to-end:
     1. Random Hermitian H on n_sys qubits with ||H|| <= 1.
@@ -100,7 +100,7 @@ def angles_from_jacobi_anger(d: int, delta_alpha: float, *, N_bs: int | None = N
 
 
 def main():
-    print("== Step 3 — Qiskit POC of GQSP ==\n")
+    print("== Qiskit proof of concept for GQSP ==\n")
     np.random.seed(42)
 
     for n_sys in (1, 2):

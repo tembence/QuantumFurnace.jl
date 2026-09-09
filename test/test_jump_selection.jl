@@ -1,4 +1,4 @@
-# Tests for the dissipative jump-selection rule (qf-2vo).
+# Tests for the dissipative jump-selection rule.
 #
 # Covers:
 #   1. Default Config.jump_selection == :sweep and validate_config! reject other symbols.
@@ -12,7 +12,7 @@ using LinearAlgebra
 using Random
 using Test
 
-@testset "Jump selection: :sweep | :random (qf-2vo)" begin
+@testset "Jump selection: :sweep | :random" begin
     @testset "Config defaults & validation" begin
         cfg = make_config(Thermalize(), EnergyDomain();
             num_qubits=3, construction=KMS(), delta=0.05, mixing_time=1.0)

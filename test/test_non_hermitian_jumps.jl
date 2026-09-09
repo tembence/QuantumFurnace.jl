@@ -1,23 +1,12 @@
-@testset "Non-Hermitian jumps end-to-end (qf-bm1)" begin
+@testset "Non-Hermitian jumps end-to-end" begin
 
     # =====================================================================
     # End-to-end correctness checks for non-Hermitian jump operators in
     # the CKG-KMS construction.
     #
-    # Background (qf-bm1, see proofs/non-hermitian-coherent/proof-v1.md
-    # and .claude-memory/feedback_non_hermitian_jumps.md):
-    #
-    # Q1 — KMS-DB requires (A, A†) pairs.
-    #      Single non-Hermitian jumps make the Lindbladian violate
-    #      α(ω₁,ω₂) = α(-ω₂,-ω₁) e^{-β(ω₁+ω₂)/2} skew-symmetry.
-    # Q2 — Coherent term has a per-jump contact contribution
-    #      κ_NH ∫ b_-(t) e^{-iHt/σ} A^a† A^a e^{iHt/σ} dt.
-    #      For physically-valid (paired) jump sets, the contact terms
-    #      cancel (Σ A^a† A^a is symmetric and the cancellation makes the
-    #      summed B match B_bohr). The production code does not need to
-    #      add the contact term separately.
-    # Q3 — All `JumpOp.hermitian` dispatch branches in the codebase have
-    #      been audited clean (see .claude-memory/q3_branch_audit.md).
+    # KMS detailed balance requires adjoint-paired jump sets.
+    # In the Time coherent integral, paired sources cancel the per-jump
+    # contact contributions proportional to A†A, recovering B_bohr.
     #
     # The tests below verify these claims against the existing production
     # code paths.
@@ -230,7 +219,7 @@
         # construction carries its own Strang error in addition to the
         # Energy/Time quadrature error.  At β=5 the EnergyDomain / TimeDomain
         # discretisation saturates near machine precision, but Trotter sits
-        # just above 1e-10 at the default per-leg substep counts (qf-e4z.20).
+        # just above 1e-10 at the default per-leg substep counts.
         for (β, tol_machine, tol_quad, tol_trotter) in [
             (5.0,  1e-10, 1e-10, 5e-10),
             (10.0, 1e-10, 5e-5,  5e-5),
@@ -297,7 +286,7 @@
     end
 
     # =====================================================================
-    # Test 2b: Hermitian-limit reduction (acceptance criterion #2).
+    # Test 2b: Hermitian-limit reduction.
     # Take a Hermitian operator X, mark `hermitian=false`, and construct
     # the Lindbladian. Compare to the same X with `hermitian=true`. The
     # two paths exercise different code branches (full-grid vs half-grid
@@ -475,7 +464,7 @@ end
         Bb = dll_coherent_op_bohr(paired, ham, f, beta)
         @test isapprox(Bt, Bth; atol=1e-12, rtol=0)
         # Production truncation still couples the coherent and dissipative
-        # cutoffs (T13). Verify the NH defects equal the Hermitian floor;
+        # cutoffs. Verify the NH defects equal the Hermitian floor;
         # the explicit-window checks below separately reach 1e-9.
         Dt = materialize_discriminant(Lt, rho_beta)
         Dth = materialize_discriminant(Lth, rho_beta)

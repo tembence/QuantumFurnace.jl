@@ -1,4 +1,4 @@
-@testset "DLL multi-channel filter (qf-7go.1)" begin
+@testset "DLL multi-channel filter" begin
     # -----------------------------------------------------------------------
     # (a) Constructor: k = 1 stores the channel verbatim, β-mismatch throws,
     #     empty channel vector throws, channel without `beta` throws.
@@ -138,7 +138,7 @@
     end
 
     # =====================================================================
-    # ShiftedSymmetricFilter + dll_multichannel_translates (qf-7go.5)
+    # ShiftedSymmetricFilter + dll_multichannel_translates
     # =====================================================================
     @testset "(g) ShiftedSymmetricFilter shift=0 reduces to scaled base" begin
         β = 5.0

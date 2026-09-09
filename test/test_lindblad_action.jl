@@ -143,7 +143,7 @@ end
         n_grid           = 121
         t_grid           = collect(range(0.0, t_max, length = n_grid))
 
-        # PHYSICS CHECK: |1><1| is diagonal — leading decay rate is exactly
+        # |1><1| is diagonal — leading decay rate is exactly
         # gamma_+ + gamma_- (population/T_1 sector). Off-diagonal initial
         # state would bring in slower T_2 modes plus iw rotation.
         rho_0 = Matrix{ComplexF64}(undef, 2, 2)
@@ -338,10 +338,8 @@ end
                              num_qubits=3, construction=KMS())
         d = size(sys.ham.data, 1)
         rho_0 = Matrix{ComplexF64}(I(d) / d)
-        # PHYSICS CHECK: post-qf-etx the smooth-Metro gap is its true continuum
-        # value (no longer artificially inflated by the grid-dependent 1/gnf
-        # sample-sup), so τ_mix grew by ~36% to ≈30. t=120 (~4× τ_mix) keeps
-        # the equilibrium tail well-resolved at the 1e-6 threshold.
+        # t=120 is about four mixing times on this fixture and resolves
+        # the equilibrium tail at the 1e-6 distance threshold.
         t_grid = collect(range(0.0, 120.0, length=121))
 
         res = integrate_to_gibbs(config, sys.ham, sys.jumps, rho_0, t_grid;
@@ -370,14 +368,14 @@ end
                              num_qubits=3, construction=KMS())
         d = size(sys.ham.data, 1)
         rho_0 = Matrix{ComplexF64}(I(d) / d)
-        # Post-qf-etx τ_mix scaling — see (e) above.
+        # Use the same mixing-time horizon as in (e).
         t_grid = collect(range(0.0, 120.0, length=121))
 
         res = integrate_to_gibbs(config, sys.ham, sys.jumps, rho_0, t_grid;
                                   mode=:K, krylovdim=20, tol=1e-10)
 
         @test res.all_converged
-        # PHYSICS CHECK: KMS-DB ⇒ K is HS-self-adjoint ⇒ chi² is Lyapunov in
+        # KMS-DB ⇒ K is HS-self-adjoint ⇒ chi² is Lyapunov in
         # continuum (monotone non-increasing). Krylov truncation at tol=1e-10
         # introduces O(1e-9) violations of strict monotonicity at machine
         # precision; relax by 1e-9.
@@ -412,7 +410,7 @@ end
         )
         d = size(sys.ham.data, 1)
         rho_0 = Matrix{ComplexF64}(I(d) / d)
-        # PHYSICS CHECK: DLL ν-window is narrower than CKG; thermalisation is
+        # DLL ν-window is narrower than CKG; thermalisation is
         # slower. t=100 (51 grid points, dt=2.0) gives dist[end] ~5e-10, well
         # below the 1e-7 threshold (sharpened from the plan's provisional 1e-3).
         t_grid = collect(range(0.0, 100.0, length=51))
@@ -501,7 +499,7 @@ end
         @test isfinite(est_int.mixing_time)
         @test isfinite(est_therm.mixing_time)
         rel_err = abs(est_int.mixing_time - est_therm.mixing_time) / est_therm.mixing_time
-        # PHYSICS CHECK: 10% accommodates Trotter (O(δ·τ_mix) per-step error) +
+        # 10% accommodates Trotter (O(δ·τ_mix) per-step error) +
         # bi-exp fit noise on both sides. Tighter would catch noise; looser
         # would miss factor-of-2+ qualitative bugs.
         @test rel_err < 0.10
@@ -512,7 +510,7 @@ end
     # (j) Single-point sweep at n=3, β=10
     # -----------------------------------------------------------------------
     @testset "(j) Single-point sweep (:krylov eigenmode schema)" begin
-        # Production default for thesis numerics is method=:krylov (qf-e4y).
+        # Production default for thesis numerics is method=:krylov.
         # Schema: gap_est, mixing_time, mixing_time_source ∈ {:extrapolated,
         # :floor, :nan}, floor_distance. NO fitted_gap / r_squared /
         # converged_fit on this path.
@@ -586,10 +584,10 @@ end
     end
 
     # -----------------------------------------------------------------------
-    # qf-lkb.10: adaptive t_max_factor + observed-mixing fallback
+    # adaptive t_max_factor + observed-mixing fallback
     # -----------------------------------------------------------------------
     @testset "(l1) Adaptive t_max_factor scales with target_epsilon" begin
-        # PHYSICS CHECK: heuristic factor = max(5.0, 1.5 * log10(1/eps))
+        # heuristic factor = max(5.0, 1.5 * log10(1/eps))
         # gives 5 at 1e-3 (legacy), 9 at 1e-6, 14 at 1e-9. Verify by
         # inspecting `t_max_factor` field of the returned NamedTuple.
         for (eps, expected_factor) in [(1e-3, 5.0), (1e-6, 9.0), (1e-9, 13.5)]
@@ -613,7 +611,7 @@ end
         @test res[1].mixing_time_source ∈ (:extrapolated, :observed)
     end
 
-    @testset "(l4) param_table_bson threads ideal-Lindbladian recipe (qf-e4z)" begin
+    @testset "(l4) param_table_bson threads ideal-Lindbladian recipe" begin
         # When the ideal-Lindbladian table is provided, CKG / EnergyDomain cells
         # pick (r_D, w0_D, t0_D) from the row matching (n, β, eps, filter_kind)
         # rather than the legacy hardcoded (12, 0.05). Smooth-Metro saturates at
@@ -658,7 +656,7 @@ end
         # τ_mix from the two configurations must agree to better than 1e-5
         # (smooth-Metro is at machine precision in quadrature by r_D = 6).
         @test isapprox(r_legacy.mixing_time, r_table.mixing_time, rtol=1e-5)
-        # qf-e4y.5: schema migration — :krylov path emits `gap_est`
+        # The :krylov path emits `gap_est`
         # (sourced from the predictor's eigendecomposition) instead of
         # the legacy `fitted_gap`. Both rows are :krylov here.
         @test isapprox(r_legacy.gap_est, r_table.gap_est, rtol=1e-6)
@@ -704,7 +702,7 @@ end
     end
 
     # -----------------------------------------------------------------------
-    # Matrix-free DLL apply_lindbladian! (qf-lkb.9)
+    # Matrix-free DLL apply_lindbladian!
     # -----------------------------------------------------------------------
     @testset "(m) Matrix-free DLL agreement vs dense Liouvillian" begin
         rng = MersenneTwister(0xCAFE)
@@ -800,21 +798,19 @@ end
     # against the n>5 dense-Liouvillian cliff)
     # -----------------------------------------------------------------------
     # -----------------------------------------------------------------------
-    # qf-lkb.11.1: CKG EnergyDomain agreement with BohrDomain
+    # CKG EnergyDomain agreement with BohrDomain
     # -----------------------------------------------------------------------
     # Production sweeps switch from BohrDomain (O(d⁴) Bohr-pair scaling) to
     # EnergyDomain (O(N · d²) where N = 2^num_energy_bits is fixed). The two
     # representations of the CKG KMS-DB Lindbladian are equivalent in the
-    # continuum (see issue qf-lkb.11 description); the EnergyDomain Riemann
+    # continuum; the EnergyDomain Riemann
     # sum has an exponentially small quadrature error at default settings
     # (σ=1/β=0.1, w0=0.05, num_energy_bits=12 ⇒ N=4096). At n=3,4,5 we expect
     # agreement at the FP-accumulation floor (~1e-9 relative on a ||L||~1
     # operator) — orders of magnitude tighter than the physics-meaningful
     # threshold for τ_mix downstream.
     #
-    # PHYSICS CHECK: smooth Metropolis a=0, s=0.25 is the thesis-numerics
-    # convention (memory: feedback per qf-lkb.11 description). Differs from
-    # the legacy a=β/30, s=0.4 used in `make_config`.
+    # Use smooth Metropolis with a=0, s=0.25 for this comparison.
     @testset "(q0) CKG EnergyDomain ≈ BohrDomain dense Liouvillian (n=3,4,5)" begin
         rel_threshold = 1e-9
         for n in (3, 4, 5)
@@ -848,7 +844,7 @@ end
     end
 
     # -----------------------------------------------------------------------
-    # qf-lkb.11.1: CKG EnergyDomain end-to-end mixing (n=3, β=10)
+    # CKG EnergyDomain end-to-end mixing (n=3, β=10)
     # -----------------------------------------------------------------------
     @testset "(q1) CKG EnergyDomain end-to-end @ n=3, β=10 (mode=:L)" begin
         beta = 10.0
@@ -870,7 +866,7 @@ end
         )
         d = size(sys.ham.data, 1)
         rho_0 = Matrix{ComplexF64}(I(d) / d)
-        # PHYSICS CHECK: same horizon as test (e). EnergyDomain CKG should
+        # same horizon as test (e). EnergyDomain CKG should
         # converge to Gibbs to the same precision (matvec-equivalent dense
         # Liouvillians per (q0)).
         t_grid = collect(range(0.0, 60.0, length=61))
@@ -892,7 +888,7 @@ end
     end
 
     # -----------------------------------------------------------------------
-    # qf-lkb.11.1: CKG EnergyDomain K-mode (qf-lkb.11.1)
+    # CKG EnergyDomain K-mode
     # -----------------------------------------------------------------------
     @testset "(q2) CKG EnergyDomain end-to-end @ n=3, β=10 (mode=:K)" begin
         beta = 10.0
@@ -920,7 +916,7 @@ end
                                   mode=:K, krylovdim=20, tol=1e-10)
 
         @test res.all_converged
-        # PHYSICS CHECK: KMS-DB ⇒ K is HS-self-adjoint ⇒ chi² is Lyapunov
+        # KMS-DB ⇒ K is HS-self-adjoint ⇒ chi² is Lyapunov
         # (monotone non-increasing). Same per-step Krylov-tol slack as (f).
         @test all(diff(res.distances) .<= 1e-9)
         @test res.distances[end]^2 < 1e-12
@@ -944,7 +940,7 @@ end
         rel_err_kms = abs(krylov_kms.spectral_gap - gap_dense_kms) / gap_dense_kms
         @test rel_err_kms < 1e-2
 
-        # DLL Gaussian: same check via the matrix-free DLL apply (qf-lkb.9).
+        # DLL Gaussian: same check via the matrix-free DLL apply.
         # make_config does not forward `filter`; build Config directly mirroring
         # the make_config defaults plus filter / DLL construction.
         config_dll = Config(

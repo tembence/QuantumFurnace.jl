@@ -1,4 +1,4 @@
-# T00–T02 regression gates for DLL construction and matrix-free Time evolution.
+# regression gates for DLL construction and matrix-free Time evolution.
 using Test, QuantumFurnace, LinearAlgebra, Random
 
 @testset "Research contract: DLL baseline regressions" begin
@@ -22,9 +22,9 @@ using Test, QuantumFurnace, LinearAlgebra, Random
     Lt = construct_lindbladian(paired, cfg(TimeDomain()), ham)
     Lth = construct_lindbladian(hermitian, cfg(TimeDomain()), ham)
     @test isapprox(Lb, Lbh; atol=1e-12, rtol=0)
-    # T01: same grid and same linear source span must give the same generator.
+    # same grid and same linear source span must give the same generator.
     @test isapprox(Lt, Lth; atol=1e-12, rtol=0)
-    @info "T00 paired-source baseline" full_error=opnorm(Lt-Lb) hermitian_error=opnorm(Lth-Lbh) gibbs_residual=norm(Lt*vec(Matrix(ham.gibbs)))
+    @info "paired-source baseline" full_error=opnorm(Lt-Lb) hermitian_error=opnorm(Lth-Lbh) gibbs_residual=norm(Lt*vec(Matrix(ham.gibbs)))
 
     ws = Workspace(cfg(TimeDomain()), ham, hermitian)
     @test ws isa Workspace

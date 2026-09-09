@@ -1,6 +1,6 @@
 # test/test_kms_geometry_sandbox.jl
 #
-# Sandbox shadow of test_kms_geometry.jl (qf-x56.1). The NO_SANDBOX heavy
+# Sandbox shadow of test_kms_geometry.jl. The NO_SANDBOX heavy
 # test exercises the KMS-geometry public surface over multiple (n, β,
 # filter) cells; this shadow covers the same public invariants at the smallest
 # fixture that still exercises every code path:
@@ -150,7 +150,7 @@ end
 
     # -----------------------------------------------------------------------
     # (2) KMS-DB witness via materialize_discriminant and spectral_gap_kms
-    #     cross-check vs krylov_spectral_gap. PHYSICS CHECK: KMS-DB ⇒ the
+    #     cross-check vs krylov_spectral_gap. KMS-DB ⇒ the
     #     anti-Hermitian part of D_S = Φ⁻¹ L_S Φ vanishes; dense and Krylov
     #     gap must coincide because the spectrum is invariant under similarity.
     # -----------------------------------------------------------------------
@@ -244,7 +244,7 @@ end
         Λ   = max_dirichlet_rate_kms(L_super, gibbs)
         ρ   = intrinsic_mixing_ratio(L_super, gibbs)
 
-        # PHYSICS CHECK: Λ ≥ gap (the modal-Poincaré constant lower-bounds
+        # Λ ≥ gap (the modal-Poincaré constant lower-bounds
         # the spectral gap of L for KMS-DB Lindbladians) and ρ = gap/Λ ∈ (0, 1].
         @test Λ ≥ gap - 1e-12
         @test 0.0 < ρ ≤ 1.0 + 1e-12

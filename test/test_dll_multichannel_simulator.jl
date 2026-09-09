@@ -1,4 +1,4 @@
-@testset "DLL multi-channel simulator integration (qf-7go.4)" begin
+@testset "DLL multi-channel simulator integration" begin
     # =====================================================================
     # End-to-end smoke tests for `Config{Lindbladian, *, DLL}` with a
     # multi-channel filter. Verifies that:
@@ -11,7 +11,7 @@
     # =====================================================================
     _BETAS = (1.0, 5.0, 10.0)
     # N=10 (Nt=1024): same t_max ≈ 63 as legacy N=12, 16× less NUFFT memory.
-    # Bohr↔Time error already at FINUFFT floor by Nt ≥ 256 (qf-5nz). Required
+    # Bohr↔Time error already at FINUFFT floor by Nt ≥ 256. Required
     # to keep the k∈{1,2,4} channel sweep below the 3.5 GB sandbox cap.
     _NEB = 10
     _T0_CFG = 2π / (2^_NEB * 0.05)
@@ -152,7 +152,7 @@
     #
     # the sum of per-channel coherent operators. This is exactly what
     # `dll_coherent_op_bohr(jumps, ham, ::DLLMultiChannelFilter, β)`
-    # returns. The shifted-symmetric `q_ℓ` (qf-7go.5) is real-even, so
+    # returns. The shifted-symmetric `q_ℓ` is real-even, so
     # each channel satisfies q_ℓ(-ν) = q_ℓ(ν)^* = q_ℓ(ν) (Eq. 3.2),
     # giving a valid KMS-DBC L_a^(ℓ).
     #

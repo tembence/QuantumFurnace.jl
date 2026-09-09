@@ -2,7 +2,7 @@ using LinearAlgebra: I, eigen, eigvals, svdvals, norm, tr, Hermitian
 using Test
 using QuantumFurnace
 
-# qf-ev5.4 / qf-ev5.6: Krylov spectral-expansion trajectory predictor for
+# Krylov spectral-expansion trajectory predictor for
 # Config{Lindbladian}. Validates the new `predict_lindbladian_trajectory`
 # against (i) the existing ODE-based `lindblad_action_integrate` and
 # (ii) a dense reference `e^{tL} rho_0` at small n.
@@ -78,7 +78,7 @@ using QuantumFurnace
         @test res_kr.total_matvecs <= length(t_grid) * 30  # well under ODE budget
         @test isa(res_kr.all_converged, Bool)
 
-        # PHYSICS CHECK: with the 3n=9 single-Pauli jump set + KMS-DB the slow
+        # with the 3n=9 single-Pauli jump set + KMS-DB the slow
         # spectrum is well-separated; krylovdim=40 captures the entire
         # diagonal-sector dynamics on n=3 (d² = 64). 1e-7 covers the bi-exp-fit
         # accuracy regime (slow-tail dynamics) with margin for numerical noise.
@@ -98,7 +98,7 @@ using QuantumFurnace
         rho_tau .= (rho_tau .+ rho_tau') ./ 2
         @test isapprox(sum(svdvals(rho_tau .- sigma_beta)) / 2, 1e-3; rtol=1e-2)
 
-        # qf-3uj: the curve-fit estimator must REJECT a trajectory-predictor
+        # the curve-fit estimator must REJECT a trajectory-predictor
         # result; τ_mix on this path comes only from the bisection above.
         @test_throws ArgumentError estimate_mixing_time(res_kr; model=:biexp,
                                                          target_epsilon=1e-3,
@@ -107,7 +107,7 @@ using QuantumFurnace
         @info "(a) n=3 spectral expansion vs dense" max_abs_err matvecs_kr=res_kr.total_matvecs matvecs_ode=res_ode.total_matvecs
 
         # Spectral gap from Krylov should match dense at machine precision.
-        # PHYSICS CHECK: dense `eigen` gap and Krylov `eigsolve` gap differ
+        # dense `eigen` gap and Krylov `eigsolve` gap differ
         # only by KrylovKit tolerance (1e-10).
         eigs_dense = sort(eigvals(L_dense); by = v -> abs(real(v)))
         gap_dense = abs(real(eigs_dense[2]))
@@ -131,7 +131,7 @@ using QuantumFurnace
         res_kr = predict_lindbladian_trajectory(cfg, sys.ham, sys.jumps, rho_0, t_grid;
                                                  krylovdim=40, tol=1e-10)
 
-        # PHYSICS CHECK: both are matrix-free using the same apply_lindbladian!,
+        # both are matrix-free using the same apply_lindbladian!,
         # so the residual is dominated by Krylov-truncation in different
         # subspaces (Arnoldi for spectral; KrylovKit.exponentiate for ODE).
         # 1e-6 covers a 64-dim non-normal generator with eigenvalue clusters.
@@ -208,7 +208,7 @@ using QuantumFurnace
     # (e0) sweep_mixing_times method=:krylov agrees with method=:ode
     # -----------------------------------------------------------------------
     @testset "(e0) sweep_mixing_times: :ode vs :krylov agreement" begin
-        # PHYSICS CHECK: at n=3 with the standard 3n single-Pauli jump set,
+        # at n=3 with the standard 3n single-Pauli jump set,
         # the spectral expansion captures the entire diagonal-sector dynamics
         # at krylovdim=60 (out of d²=64 modes available). τ_mix from bi-exp
         # extrapolation must therefore agree with the ODE-based sweep within
@@ -257,23 +257,12 @@ using QuantumFurnace
     end
 
     # -----------------------------------------------------------------------
-    # (f) qf-e4z.26: parity-symmetric Hamiltonian regression
-    #
-    # Mirrors the qf-8fr regression test for krylov_spectral_gap
-    # (`test_krylov_eigsolve.jl::"krylov_spectral_gap — symmetric system
-    # regression (qf-8fr)"`). Verifies that `predict_lindbladian_trajectory`
-    # also reports the TRUE Lindbladian gap on a symmetry-preserving fixture,
-    # not the parity-even sector gap.
-    #
-    # Setup: classical 1D Ising n=3 PBC, β_phys=0.5, CKG smooth-Metropolis
-    # EnergyDomain. The Hamiltonian H = Σ Z_i Z_{i+1} commutes with the
-    # spin-flip P = X^⊗N, so L̂ commutes with P̂[ρ] = PρP. With the buggy
-    # Arnoldi seed `x_0 = vec(I/d)`, the reported `spectral_gap` was the
-    # 2nd-symmetric-sector mode at λ ≈ -0.169 instead of the true gap at
-    # λ ≈ -0.045 in the spin-flip-odd magnetisation sector (the original
-    # qf-8fr classical-Ising-n=4 finding generalises to n=3).
+    # (f) Gap estimation on a parity-symmetric classical Ising fixture.
+    # H = Σ Z_i Z_{i+1} commutes with P = X^⊗N. A trajectory from I/d
+    # remains parity-even, while the slow magnetisation mode is parity-odd.
+    # A separate gap solve must recover the dense-reference gap.
     # -----------------------------------------------------------------------
-    @testset "(f) predict_lindbladian_trajectory — symmetric system regression (qf-e4z.26)" begin
+    @testset "(f) predict_lindbladian_trajectory — symmetric system regression" begin
         n_ising = 3
         terms_zz = Vector{Vector{Matrix{ComplexF64}}}([[Z, Z]])
         coeffs_zz = [1.0]
@@ -323,23 +312,13 @@ using QuantumFurnace
         perm = sortperm(real.(ev_dense); by=abs)
         gap_dense = abs(real(ev_dense[perm[2]]))
 
-        # predict_lindbladian_trajectory from symmetric rho_0 = I/d:
-        # post-qf-e4z.26 must report the TRUE gap (pre-fix returned the
-        # parity-even-sector gap, which is larger). The qf-0fv gating of
-        # Pass-2 behind `compute_true_gap` means this fixture (rho_0 = I/d
-        # on parity-symmetric H) must explicitly opt in — that's exactly
-        # what this test validates.
+        # Enable the separate gap solve for the symmetric initial state I/d.
         rho_0 = Matrix{ComplexF64}(I(d_ising) / d_ising)
         t_grid = collect(range(0.0, 100.0, length=21))
         traj = predict_lindbladian_trajectory(cfg, ham_ising, jumps_ising, rho_0, t_grid;
                                               krylovdim=40, compute_true_gap=true)
-        # qf-e4z.27 tightens rtol from 1e-6 → 1e-8: the spectral_gap is
-        # now sourced from a dedicated `krylov_spectral_gap` pass with
-        # KrylovKit thick restart, which converges to KrylovKit `tol=1e-10`
-        # by construction (vs the qf-e4z.26 single-pass band-aid that
-        # only achieved 1e-6 due to MGS Arnoldi noise on the 1e-6
-        # perturbed seed).
+        # Compare the separate Krylov gap estimate with the dense reference.
         @test isapprox(traj.spectral_gap, gap_dense; rtol=1e-8)
-        @info "qf-e4z.26 classical Ising parity regression" n=n_ising β_phys=β_phys gap_predict=traj.spectral_gap gap_dense=gap_dense rel_err=abs(traj.spectral_gap - gap_dense)/gap_dense
+        @info "classical Ising parity regression" n=n_ising β_phys=β_phys gap_predict=traj.spectral_gap gap_dense=gap_dense rel_err=abs(traj.spectral_gap - gap_dense)/gap_dense
     end
 end

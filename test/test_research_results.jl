@@ -60,34 +60,34 @@ using QuadGK: quadgk
 
     @testset "Custom definitions and frozen samples" begin
         capture=Ref(1.)
-        f=KMSFilter(.8;q_positive=x->capture[]*exp(-x^2),name=:t19_closure)
+        f=KMSFilter(.8;q_positive=x->capture[]*exp(-x^2),name=:captured_filter)
         ws=Workspace(H;beta_phys=.8,filter=f)
         r=simulate_gibbs(ws;times=[0.,.1],quiet...)
         mktempdir() do dir
             path=save_result(r,joinpath(dir,"closure.bson"))
             s=load_result(path)
             @test_throws ArgumentError Workspace(s)
-            w=Workspace(s;filters=Dict((:t19_closure,"1")=>f))
+            w=Workspace(s;filters=Dict((:captured_filter,"1")=>f))
             @test w.G_left ≈ ws.G_left atol=1e-13
             @test w.dll_lindblads[1] ≈ ws.dll_lindblads[1] atol=1e-13
             capture[]=2.
             # Saving never calls or resamples the original mutable closure.
             saved_again=save_result(r,joinpath(dir,"closure_after_mutation.bson"))
             @test isequal(QF._result_to_dict(load_result(saved_again)),QF._result_to_dict(s))
-            @test_throws ArgumentError Workspace(s;filters=Dict((:t19_closure,"1")=>f))
-            wrong=KMSFilter(.8;q_positive=x->exp(-x^2),name=:t19_closure,version="2")
-            @test_throws ArgumentError Workspace(s;filters=Dict((:t19_closure,"1")=>wrong))
+            @test_throws ArgumentError Workspace(s;filters=Dict((:captured_filter,"1")=>f))
+            wrong=KMSFilter(.8;q_positive=x->exp(-x^2),name=:captured_filter,version="2")
+            @test_throws ArgumentError Workspace(s;filters=Dict((:captured_filter,"1")=>wrong))
         end
         factory=(beta,p)->KMSFilter(beta;q_positive=x->exp(-p.width*x^2),
-            name=:t19_registered,version="3",parameters=p)
-        register_filter!(:t19_registered,"3",factory)
-        @test_throws ArgumentError register_filter!(:t19_registered,"3",factory)
+            name=:registered_filter,version="3",parameters=p)
+        register_filter!(:registered_filter,"3",factory)
+        @test_throws ArgumentError register_filter!(:registered_filter,"3",factory)
         registered=factory(.8,(;width=1.))
         r=simulate_gibbs(H;beta_phys=.8,filter=registered,times=[0.,.1],quiet...)
         mktempdir() do dir
             s=load_result(save_result(r,joinpath(dir,"registered.bson")))
             @test Workspace(s) isa Workspace
-            delete!(QF._FILTER_REGISTRY,(:t19_registered,"3"))
+            delete!(QF._FILTER_REGISTRY,(:registered_filter,"3"))
             @test_throws ArgumentError Workspace(s)
         end
     end
@@ -140,7 +140,7 @@ using QuadGK: quadgk
         end
         beta=.8; model=ComplexF64[.2 .3im;-.3im -.2]
         A=ComplexF64[.2+.1im .8-.3im;-.2+.7im .4-.1im]; sources=[A,Matrix(A')]
-        custom=KMSFilter(beta;q_positive=x->exp(-(beta*x)^2/8)*cis(.2x),name=:t19_time)
+        custom=KMSFilter(beta;q_positive=x->exp(-(beta*x)^2/8)*cis(.2x),name=:time_filter)
         prepared=prepare_filter_transform(custom;window=20.,coherent=(;time_step=.12,time_window=6.,frequency_grid_size=257,policy=:error))
         timed=Workspace(model;beta_phys=beta,filter=prepared,jumps=sources,
             domain=TimeDomain(),time_step=.12,num_energy_bits=7)
@@ -156,7 +156,7 @@ using QuadGK: quadgk
                 coherent_time_window=19.2,coherent_time_step=.15,backend=:direct))
         joint_time=Workspace(ComplexF64[-.35 0;0 .35];beta_phys=beta,construction=KMS(),
             transition_weight=joint,jumps=sources,domain=TimeDomain(),time_step=.15,num_energy_bits=8)
-        for (ws,definitions) in ((timed,Dict((:t19_time,"1")=>custom)),(energy,Dict()),(joint_time,Dict(:ckg_joint=>joint)))
+        for (ws,definitions) in ((timed,Dict((:time_filter,"1")=>custom)),(energy,Dict()),(joint_time,Dict(:ckg_joint=>joint)))
             r=simulate_gibbs(ws;times=[0.,.01],quiet...)
             mktempdir() do dir
                 s=load_result(save_result(r,joinpath(dir,"transform.bson")))
@@ -178,14 +178,14 @@ using QuadGK: quadgk
 
     @testset "Mixed source-family replay" begin
         A=ComplexF64[.2+.1im .8-.3im;-.2+.7im .4-.1im]
-        f=KMSFilter(.8;q_positive=x->exp(-x^2),name=:t19_source_family)
+        f=KMSFilter(.8;q_positive=x->exp(-x^2),name=:source_family_filter)
         family=DLLMultiChannelFilter((f,DLLGaussianFilter(.8)),.8)
         assignment=DLLSourceFilters((family,family),.8)
         w=Workspace(H;beta_phys=.8,jumps=[A,Matrix(A')],filter=assignment,rates=[.7,.7])
         r=simulate_gibbs(w;times=[0.,.01],quiet...)
         mktempdir() do dir
             s=load_result(save_result(r,joinpath(dir,"source_family.bson")))
-            restored=Workspace(s;filters=Dict((:t19_source_family,"1")=>f))
+            restored=Workspace(s;filters=Dict((:source_family_filter,"1")=>f))
             @test restored.G_left ≈ w.G_left atol=1e-12
             @test all(isapprox(a,b;atol=1e-12) for (a,b) in zip(restored.dll_lindblads,w.dll_lindblads))
         end

@@ -145,21 +145,19 @@ function assert_kms_skew_symmetric(α::AbstractMatrix, ν_grid::AbstractVector,
 end
 
 # ---------------------------------------------------------------------------
-# Physical parameters (LOCKED decisions)
+# Physical parameters
 # ---------------------------------------------------------------------------
-# `BETA` is the algorithm-side inverse temperature β_alg (against the
-# rescaled spectrum stored in `ham.eigvals`). Equal to `cfg.beta` in every
-# Config constructed below. `SIGMA = 1/BETA` lives on the same scale. The
-# qf-6vr refactor (Phase qf-bphys) keeps these semantics unchanged — see
+# `BETA` is the algorithm-side inverse temperature β_alg for `ham.eigvals`.
+# `SIGMA = 1/BETA` uses the same energy scale; see the
 # `Config.beta` docstring in `src/structs.jl`.
 const NUM_QUBITS = 4
 const DIM = 2^NUM_QUBITS  # 16
 const BETA = 10.0
-const BETA_ALG = BETA      # qf-6vr explicit alias for self-documenting tests
+const BETA_ALG = BETA      # Algorithm-side inverse temperature
 const SIGMA = 1.0 / BETA  # 0.1
 
 # ---------------------------------------------------------------------------
-# Tolerance tiers (LOCKED decisions)
+# Tolerance tiers
 # ---------------------------------------------------------------------------
 const TOL_EXACT = 1e-12          # machine precision identities
 const TOL_QUADRATURE = 1e-6      # quadrature / discretization errors
@@ -232,7 +230,7 @@ const TEST_SYSTEM = make_test_system()
 const TEST_HAM = TEST_SYSTEM.hamiltonian
 const TEST_JUMPS = TEST_SYSTEM.jumps
 const TEST_GIBBS = TEST_SYSTEM.gibbs
-# qf-6vr: physical inverse temperature for the n=4 fixture; satisfies
+# physical inverse temperature for the n=4 fixture; satisfies
 # `BETA == BETA_PHYS · TEST_HAM.rescaling_factor` (= BETA_ALG by construction).
 const BETA_PHYS = BETA / TEST_HAM.rescaling_factor
 
@@ -244,7 +242,7 @@ const N3_HAM = N3_SYSTEM.hamiltonian
 const N3_JUMPS = N3_SYSTEM.jumps
 const N3_GIBBS = N3_SYSTEM.gibbs
 const N3_DIM = 2^3  # 8
-# qf-6vr: physical inverse temperature for the n=3 fixture; satisfies
+# physical inverse temperature for the n=3 fixture; satisfies
 # `BETA == N3_BETA_PHYS · N3_HAM.rescaling_factor`.
 const N3_BETA_PHYS = BETA / N3_HAM.rescaling_factor
 

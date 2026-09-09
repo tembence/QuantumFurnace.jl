@@ -1,6 +1,6 @@
 using Test, QuantumFurnace, LinearAlgebra
 
-@testset "T14 source-specific DLL channels" begin
+@testset "source-specific DLL channels" begin
     QF=QuantumFurnace
     beta_phys=.8
     H=ComplexF64[.2 .3im;-.3im -.2]

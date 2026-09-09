@@ -5,11 +5,11 @@ using QuantumFurnace: register_t0_D, register_w0_D, register_r_D,
     register_t0_b_minus, register_w0_b_minus, register_r_b_minus,
     register_t0_b_plus, register_w0_b_plus, register_r_b_plus
 
-# qf-9z0.4: byte-identical regression + independent-variation Lindbladian
+# byte-identical regression + independent-variation Lindbladian
 # checks for the per-term register design.
 #
 # Setting all three triples equal to the legacy `(num_energy_bits, t0, w0)`
-# value MUST reproduce the pre-qf-9z0 Lindbladian exactly, regardless of
+# value must reproduce the shared-register Lindbladian exactly, regardless of
 # construction (KMS / GNS / DLL) or domain (Bohr / Energy / Time).
 
 const _BETA_REG_INDEP = 5.0
@@ -109,7 +109,7 @@ function _new_dll_cfg(; N::Int = 10, w0::Real = 0.05, beta = _BETA_REG_INDEP)
     )
 end
 
-@testset "Per-register independence (qf-9z0.4)" begin
+@testset "Per-register independence" begin
     sys = _make_reg_indep_fixture()
 
     @testset "byte-identical regression: KMS / $(typeof(dom))" for dom in (BohrDomain(), EnergyDomain(), TimeDomain())
@@ -128,7 +128,7 @@ end
         # `_config_to_dict` writes both legacy and per-term keys.
         # `_dict_to_config_kwargs` reads either schema; old caches without
         # per-term keys land in the legacy fields and the helper accessors
-        # auto-promote at access time. Mirrors qf-lkb.11 BSON dual-schema work.
+        # auto-promote at access time.
         cfg_orig = _new_kms_cfg(TimeDomain())  # explicit per-term triples
         d_new = QuantumFurnace._config_to_dict(cfg_orig)
         @test haskey(d_new, :num_energy_bits_D)

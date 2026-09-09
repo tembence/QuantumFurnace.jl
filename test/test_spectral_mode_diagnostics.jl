@@ -2,7 +2,7 @@
 #
 # Unit + lightweight-integration tests for the per-mode spectral diagnostics
 # helper (`spectral_mode_diagnostics` / `SpectralModeDiagnostics`, src/diagnostics.jl),
-# the cheap always-on Pass-1 diagnostics of qf-6yw.
+# for the retained trajectory modes.
 #
 # These synthetic unit tests use hand-built decompositions (no fixtures) so they
 # are fast and sandbox-safe. The predictor wiring (every predict_lindbladian_
@@ -16,7 +16,7 @@ using Random
 using Test
 using QuantumFurnace
 
-@testset "spectral_mode_diagnostics (qf-6yw)" begin
+@testset "spectral_mode_diagnostics" begin
 
     # -----------------------------------------------------------------------
     # (a) Purely diagonal R ⇒ off_diag_weight ≈ 0.

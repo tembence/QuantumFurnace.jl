@@ -1,5 +1,5 @@
 """
-TINF-02: Regression tests with frozen BSON reference data.
+Regression tests with frozen BSON reference data.
 
 DM regression tests compare fresh DM computations against frozen reference density matrices
 stored in test/reference/*.bson. Any numerical drift from code changes will cause failures.
@@ -14,7 +14,7 @@ using LinearAlgebra: Diagonal, adjoint, norm
 source_root = dirname(@__DIR__)
 ref_dir = joinpath(source_root, "test", "reference")
 
-@testset "TINF-02: Regression tests" begin
+@testset "Regression tests" begin
 
     @testset "pairwise Hermitian projection and stationary phase" begin
         raw = ComplexF64[
@@ -63,7 +63,7 @@ ref_dir = joinpath(source_root, "test", "reference")
 
         max_err = maximum(abs.(rho_fresh - rho_ref))
         @test isapprox(rho_fresh, rho_ref; atol=1e-10)  # Deterministic DM: exp(delta*L) matches to machine precision; 1e-10 allows FP accumulation in matrix exponential (DIM^2 * eps ~ 64 * 1e-16 ~ 6e-15)
-        @info "TINF-02: DM regression (EnergyDomain)" max_element_error=max_err threshold_atol=1e-10
+        @info "DM regression (EnergyDomain)" max_element_error=max_err threshold_atol=1e-10
     end
 
     # ------------------------------------------------------------------
@@ -81,7 +81,7 @@ ref_dir = joinpath(source_root, "test", "reference")
 
         max_err = maximum(abs.(rho_fresh - rho_ref))
         @test isapprox(rho_fresh, rho_ref; atol=1e-10)  # Deterministic DM with coherent term: same rationale as EnergyDomain DM regression
-        @info "TINF-02: DM regression (TrotterDomain, coherent)" max_element_error=max_err threshold_atol=1e-10
+        @info "DM regression (TrotterDomain, coherent)" max_element_error=max_err threshold_atol=1e-10
     end
 
     @testset "run_lindblad dense spectral API" begin

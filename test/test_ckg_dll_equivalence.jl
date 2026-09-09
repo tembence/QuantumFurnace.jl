@@ -21,7 +21,7 @@ function ckg_equivalence_reference(alpha,nus,beta,ham,jumps)
     (;R,B,L)
 end
 
-@testset "T18 finite-Bohr CKG to DLL reference" begin
+@testset "finite-Bohr CKG to DLL reference" begin
     H=Matrix(Diagonal([0.,0.25,0.75,1.25]))
     A=ComplexF64[0.2 0.3im 0.1 0.7; 0.1 -0.2 0.4im 0.2;
         0.3 0.0 0.2 0.1im; -0.2im 0.1 0.5 0.3]

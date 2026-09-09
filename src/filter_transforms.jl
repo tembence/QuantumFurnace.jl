@@ -196,8 +196,8 @@ function _coherent_transform_controls(options::NamedTuple,::Type{T}) where {T}
     return c
 end
 _is_dll_bohr_spec(p::PreparedFilterTransform) = !(p.base isa GaussianFilter)
-# A numerical plan is accepted through the finite-sampling preparation boundary,
-# not as a structural channel certificate. Prepared channel families await T14.
+# Numerical transforms are checked on the sampled Bohr set during preparation;
+# they do not provide a structural detailed-balance certificate.
 _is_admissible_dll_filter(::PreparedFilterTransform) = false
 _dll_time_supported(::PreparedFilterTransform) = true
 function _require_admissible_dll_filter(p::PreparedFilterTransform;beta=nothing)

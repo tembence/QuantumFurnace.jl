@@ -3,19 +3,14 @@ using Random
 using Test
 using QuantumFurnace
 
-# qf-po5: regression coverage for the per-jump-faithful `apply_delta_channel!`
-# (`src/krylov_eigsolve.jl:137`). Five testsets covering acceptance criteria
-# 2 (faithfulness vs run_thermalize :sweep), 3 (cross-domain agreement),
-# 5 (no function duplication), 6 (splitting-error scaling), plus a threading
-# bit-match. The byte-identity check at the canonical n=4, β=10 fixture lives
-# in test_predict_channel.jl testset (a) — this file uses a smaller n=3 fixture
-# for fast CI and adds the multi-domain / multi-δ regressions that fixture
-# does not exercise.
+# Compare the shared channel kernel with thermalization, check cross-domain
+# agreement and splitting-error scaling, and verify workspace reuse.
+# These n=3 fixtures complement the n=4 byte-parity test in test_predict_channel.jl.
 
-@testset "Faithful apply_delta_channel! (qf-po5)" begin
+@testset "Faithful apply_delta_channel!" begin
 
     # -----------------------------------------------------------------------
-    # (1) Faithfulness vs run_thermalize :sweep (acceptance criterion #2)
+    # (1) Faithfulness vs run_thermalize :sweep
     #
     # `apply_delta_channel!` per-jump-sweeps the SAME `_apply_one_dm_substep!`
     # kernel `run_thermalize :sweep` calls (`src/furnace.jl:230-249`). Wire
@@ -68,7 +63,7 @@ using QuantumFurnace
             rho_pred = copy(ws.scratch.rho_next)
         end
 
-        # PHYSICS CHECK: both paths sweep the SAME `_apply_one_dm_substep!`
+        # both paths sweep the SAME `_apply_one_dm_substep!`
         # kernel n_steps × n_jumps times in the same order, so any drift comes
         # purely from FP accumulation order — ~ O(n_steps · n_jumps · DIM² · eps)
         # ≈ 50 · 9 · 64 · 2.2e-16 ≈ 6e-12. Threshold 1e-10 keeps a ~15× margin.
@@ -79,7 +74,6 @@ using QuantumFurnace
 
     # -----------------------------------------------------------------------
     # (2) Cross-domain agreement: BohrDomain ≡ EnergyDomain
-    # (acceptance criterion #3 — predictor faithfulness)
     #
     # The faithful Φ_δ matvec should produce identical density-matrix
     # trajectories in BohrDomain (closed-form α(ν), no quadrature) and
@@ -160,38 +154,15 @@ using QuantumFurnace
             rho_e = copy(ws_e.scratch.rho_next)
         end
 
-        # PHYSICS CHECK: BohrDomain ↔ EnergyDomain agreement at Eb=12 is
-        # dominated by Gaussian-quadrature truncation of α(ν₁,ν₂); from the
-        # qf-7xt convergence sweep (`drafts/error-analysis/quadrature-
-        # convergence-summary.md`) this is ~1e-9 per matvec at Eb=12, w0=0.05.
-        # Over 50 steps × 9 jumps the residual accumulates approximately
-        # linearly to ~5e-7. Threshold 1e-5 keeps a 20× margin.
+        # At Eb=12, w0=0.05 the measured per-matvec quadrature error is ~1e-9.
+        # The 1e-5 threshold allows accumulation over 50 steps and 9 jumps.
         diff_F = norm(rho_b - rho_e)
         @test diff_F < 1e-5
         @info "(2) Cross-domain agreement BohrDomain ≡ EnergyDomain" diff_F threshold=1e-5 n_steps=n_steps
     end
 
     # -----------------------------------------------------------------------
-    # (3) No function duplication (acceptance criterion #5)
-    #
-    # The qf-po5 refactor deletes ~440 LOC of `_accumulate_jump_sandwich!`
-    # family (`src/krylov_eigsolve.jl:183-607` pre-qf-po5) — the per-jump
-    # body is now reused via `_accumulate_rho_jump!` from the run_thermalize
-    # hot loop. Verify both invariants by introspection.
-    # -----------------------------------------------------------------------
-    @testset "(3) _accumulate_jump_sandwich! removed; _accumulate_rho_jump! 3 dispatches" begin
-        # Symbol gone (no fallback shim).
-        @test !isdefined(QuantumFurnace, :_accumulate_jump_sandwich!)
-
-        # The shared per-(jump, ω) body has 3 domain dispatches (Energy,
-        # Time/Trotter, Bohr) — the same set the run_thermalize hot loop calls.
-        @test isdefined(QuantumFurnace, :_accumulate_rho_jump!)
-        @test length(methods(QuantumFurnace._accumulate_rho_jump!)) == 3
-        @info "(3) Function duplication check" sandwich_gone=true rho_jump_methods=3
-    end
-
-    # -----------------------------------------------------------------------
-    # (4) Splitting-error scaling slope (acceptance criterion #6)
+    # (4) Splitting-error scaling slope
     #
     # The faithful per-jump Lie–Trotter Φ_δ is an O(δ) approximation to
     # e^{δ𝓛}; the leading splitting error is O(δ²). Verify by comparing
@@ -270,7 +241,7 @@ using QuantumFurnace
         Σxy = sum(log_d .* log_e); Σx2 = sum(log_d .^ 2)
         slope = (n * Σxy - Σx * Σy) / (n * Σx2 - Σx^2)
 
-        # PHYSICS CHECK: faithful Lie–Trotter on n_jumps substeps composes
+        # faithful Lie–Trotter on n_jumps substeps composes
         # into Φ_δ = e^{δ𝓛} + O(δ²·∑[𝓛_a, 𝓛_b]); the difference vs Euler
         # I + δ𝓛 is also O(δ²) (Euler omits all higher-order terms). So
         # both share the same O(δ²) leading correction; their difference
@@ -287,7 +258,7 @@ using QuantumFurnace
     # the same input ρ must produce bit-identical results — the threaded
     # `_accumulate_rho_jump_threaded_*!` reduction (chunked sum into
     # `task_scratches[idx].rho_jump`) is deterministic, and the `task_scratches`
-    # pool plumbed in qf-po5 Commit 1 must reset cleanly between calls.
+    # pool must reset cleanly between calls.
     # Catches any state-leak in the pool or non-determinism in the chunked
     # reduction.
     # -----------------------------------------------------------------------

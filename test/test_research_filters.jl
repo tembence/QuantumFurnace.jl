@@ -7,7 +7,7 @@ struct ResearchPhaseProbe{F} <: AbstractFilter
 end
 QuantumFurnace.freq_kernel(f::ResearchPhaseProbe, nu::Real) = f.amplitude(nu)
 
-@testset "T10 complex finite Bohr filters" begin
+@testset "complex finite Bohr filters" begin
     QF = QuantumFurnace
     rng = MersenneTwister(710)
     H = pauli_hamiltonian(2, [-0.7 => (1=>:Z,), 0.3 => (2=>:Y,)])
@@ -61,7 +61,7 @@ QuantumFurnace.freq_kernel(f::ResearchPhaseProbe, nu::Real) = f.amplitude(nu)
     @test_throws ArgumentError QF._prepare_dll_bohr_filter(ResearchPhaseProbe(1.0,x->NaN),[0.0,0.5])
 end
 
-@testset "T11 user specifications and physical callbacks" begin
+@testset "user specifications and physical callbacks" begin
     QF = QuantumFurnace
     beta_phys = 0.8
     phase = KMSFilter(beta_phys;q_positive=x->exp(-x*x/0.7^2)*cis(0.4x),
@@ -185,7 +185,7 @@ end
     end
 end
 
-@testset "T11 working precision and documented example" begin
+@testset "working precision and documented example" begin
     f=KMSFilter(0.8;q_positive=x->exp(-x*x)*cis(x),name=:precision)
     w=Workspace(Float32[1 0;0 -1];beta_phys=0.8,filter=f)
     @test eltype(w.G_left) == ComplexF32

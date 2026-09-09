@@ -1,5 +1,5 @@
 """
-One-time script to generate frozen BSON reference data for regression tests (TINF-02).
+One-time script to generate frozen BSON reference data for regression tests.
 
 Run via: julia --project test/reference/generate_references.jl
 
@@ -15,7 +15,7 @@ here; this script maintains only the retained dense-DM references.
 
 using QuantumFurnace, LinearAlgebra, BSON
 
-# Load shared test fixtures (N3 system: 3-qubit)
+# Load shared 3-qubit test fixtures
 include(joinpath(@__DIR__, "..", "test_helpers.jl"))
 
 # ---------------------------------------------------------------------------

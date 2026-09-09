@@ -1,6 +1,6 @@
 # test/test_faithful_apply_delta_channel_sandbox.jl
 #
-# Sandbox shadow of test_faithful_apply_delta_channel.jl (qf-x56.4). The
+# Sandbox shadow of test_faithful_apply_delta_channel.jl. The
 # heavy test runs 5 testsets including a 5-δ slope sweep and a 4096-OFT
 # threading bit-match. This shadow keeps the two invariants that survive a
 # physics-meaningful tightening:
@@ -22,22 +22,14 @@ using Test
 using QuantumFurnace
 
 
-@testset "Faithful apply_delta_channel! [sandbox shadow] (qf-x56.4)" begin
+@testset "Faithful apply_delta_channel! [sandbox shadow]" begin
 
     # -----------------------------------------------------------------------
     # (2-sb) Bohr ↔ Energy cross-domain agreement
     #
-    # 10 outer steps at δ=1e-3 (vs 50 in the heavy test). PHYSICS CHECK:
-    # Bohr ↔ Energy agreement is dominated by Gaussian quadrature truncation
-    # of α(ν₁, ν₂) at Eb=12, w0=0.05 — per qf-yt9 v2 / the 1e-9 cross-domain
-    # controllability rule (.claude/rules/julia-code.md Test Suite section),
-    # the EnergyDomain↔BohrDomain operator-norm error at this register sizing
-    # is 1e-9 controllable. Over 10 outer steps × 9 jumps the residual is
-    # bounded by ~10·9·δ·1e-9 ≈ 1e-10, dominated by the apply_delta_channel!
-    # per-step matvec error not the dense L norm. Threshold 1e-8 honours the
-    # cross-domain rule with a 100× margin against accumulated FP-floor noise.
-    # Empirical at this fixture: ~1e-10.
-    # -----------------------------------------------------------------------
+    # At Eb=12, w0=0.05 the measured single-step quadrature error is ~1e-9.
+    # Ten outer steps give ~1e-10 accumulated error on this fixture; use 1e-8
+    # tolerance to allow floating-point accumulation across jumps.
     @testset "(2-sb) Bohr ≡ Energy faithful Φ_δ @ n=3, β=10, 10 steps" begin
         beta = 10.0
         delta = 1e-3

@@ -1,6 +1,6 @@
 # test/test_dll_kms_db_sandbox.jl
 #
-# Sandbox shadow of test_dll_kms_db.jl::(j) (qf-x56.5). The heavy (j)
+# Sandbox shadow of test_dll_kms_db.jl::(j). The heavy (j)
 # testset is gated NO_SANDBOX and runs the same multi-t0 convergence sweep
 # at Nt = 4096 (r_D = 12). This shadow keeps the complete t0-factor ladder
 # on the same β = 10 fixture at r_D = 10 (Nt = 1024).
@@ -43,7 +43,7 @@ function _sandbox_dll_meta_cfg_b(beta::Real, num_energy_bits::Int)
 end
 
 
-@testset "DLL KMS-DB (j-sb) sandbox shadow (qf-x56.5)" begin
+@testset "DLL KMS-DB (j-sb) sandbox shadow" begin
     @testset "(j-sb) DLL Metropolis Bohr ↔ Time t0 ladder" begin
         beta = 10.0
         r_D = 10

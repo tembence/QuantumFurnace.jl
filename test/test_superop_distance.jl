@@ -6,7 +6,7 @@ using QuantumFurnace: _jumps_in_basis, build_dense_superoperator, trace_distance
                      _load_channel_param_table, make_trotter_for_config,
                      _iterate_channel_states
 
-# qf-72g: matrix-free trace-norm distance between two superoperator propagators.
+# matrix-free trace-norm distance between two superoperator propagators.
 # Decisive correctness checks (all NUMERICAL — matrix-free == dense linear algebra,
 # which holds at any n, so n=3 is fine here; physics judgments live in the driver
 # at n≥4). The channel arm uses the CANONICAL 3-leg TrotterTriple via
@@ -24,11 +24,11 @@ using QuantumFurnace: _jumps_in_basis, build_dense_superoperator, trace_distance
 #       t, negative k_grid — all throw ArgumentError.
 #   (g) generator-form fixed point at SMALLER δ (1e-4) vs dense — exercises the
 #       documented O(1/δ) small-δ conditioning of the (Φ_δ-I)/δ extraction.
-#   (h) qf-e4z.48 robust arm_fixed_point (:dense exact, :krylov Gibbs-seeded, :auto
+#   (h) robust arm_fixed_point (:dense exact, :krylov Gibbs-seeded, :auto
 #       residual-gated) + fixed_point_gibbs_distance (½‖σ_Φ-ρ_β‖₁, the thermodynamic
 #       error axis read alongside the gap distortion); residual as a stationarity certificate.
 
-@testset "superop_distance (qf-72g)" begin
+@testset "superop_distance" begin
     rho_plus(m) = (psi = ones(ComplexF64, 2^m) ./ sqrt(2.0^m); psi * psi')
     param_table = QuantumFurnace._package_data_path("channel_param_table.bson")
 
@@ -203,7 +203,7 @@ using QuantumFurnace: _jumps_in_basis, build_dense_superoperator, trace_distance
             @info "(c) fixed-point distances" LL=fpLL.distance CL=fpCL.distance dense=T_inf_dense
         end
 
-        @testset "(h) robust arm_fixed_point + fixed_point_gibbs_distance (qf-e4z.48)" begin
+        @testset "(h) robust arm_fixed_point + fixed_point_gibbs_distance" begin
             # (h1) DENSE = exact ground truth: kind-aware (μ≈1 for the channel), and the
             # fixed point is the Hermitian eigenvector of the full complex-linear
             # channel. A reference-free residual certifies it.
@@ -215,7 +215,7 @@ using QuantumFurnace: _jumps_in_basis, build_dense_superoperator, trace_distance
             @test fpd.steady_gap > 1e-9     # unique (gapped) steady state, not degenerate
 
             # (h2) Gibbs-seeded generator Krylov must reproduce the dense fixed point —
-            # the qf-e4z.48 seed fix (krylovdim=64 = full at n=3 ⇒ tight).
+            # krylovdim=64 spans the full operator space at n=3.
             fpk = arm_fixed_point(armC; seed = gibbs_common, method = :krylov, krylovdim = 64)
             @test fpk.method === :krylov
             @test fpk.residual < 1e-6
@@ -247,7 +247,7 @@ using QuantumFurnace: _jumps_in_basis, build_dense_superoperator, trace_distance
             r_bad = QuantumFurnace._arm_stationarity_residual(armC, Matrix{ComplexF64}(I(d) / d))
             @test r_bad > 100 * fpd.residual
 
-            # (h7) qf-dee #7: min_eigval is a PSD certificate. A valid density-matrix
+            # (h7) min_eigval is a PSD certificate. A valid density-matrix
             # fixed point has min eigenvalue ≥ -psd_tol (no warn); the helper fires a
             # @warn on a non-PSD matrix and returns its (negative) min eigenvalue.
             @test fpd.min_eigval ≥ -1e-10            # channel fp is a valid ρ (PSD)
@@ -291,7 +291,7 @@ using QuantumFurnace: _jumps_in_basis, build_dense_superoperator, trace_distance
             @test threshold_result.residual > 0
         end
 
-        @testset "(i) anti-Hermitian discriminant norm: channel KMS-DB violation (qf-e4z.50)" begin
+        @testset "(i) anti-Hermitian discriminant norm: channel KMS-DB violation" begin
             ws_C = Workspace(cfg_C, ham, jumps_C; trotter = trotter)
             fwd_c!(out, X) = (apply_delta_channel!(ws_C, Matrix{ComplexF64}(X), cfg_C, ham; hermitize = false);
                               copyto!(out, ws_C.scratch.rho_next); out)
@@ -353,13 +353,8 @@ using QuantumFurnace: _jumps_in_basis, build_dense_superoperator, trace_distance
         end
 
         @testset "(d) cross-domain L-vs-L controllability (EnergyDomain vs BohrDomain)" begin
-            # Two Lindbladians with the SAME generator (β,σ,s,a) and the SAME working
-            # basis (ham.eigvecs ⇒ identical V, basis=ham.eigvecs): EnergyDomain at
-            # r_D=7 vs the quadrature-free BohrDomain. They must agree to MACHINE
-            # PRECISION (the 1e-9 cross-domain-controllability invariant in
-            # .claude/rules/julia-code.md). A nonzero T at any t flags a generator /
-            # basis / index-map bug — there is no quadrature slack to hide behind at
-            # r_D=7 on this fixture.
+            # Match generator parameters and working bases. With r_D=7 on this
+            # fixture, the EnergyDomain quadrature agrees with BohrDomain to 1e-9.
             cfg_B = Config(
                 sim = Lindbladian(), domain = BohrDomain(), construction = KMS(),
                 num_qubits = n, with_linear_combination = true,

@@ -1,6 +1,6 @@
 using QuadGK
 
-@testset "DLL filter (Phase 50 / qf-3i8.1)" begin
+@testset "DLL filter" begin
 
     # -----------------------------------------------------------------------
     # (a) Gaussian time kernel matches the hardcoded form used in production
@@ -321,7 +321,7 @@ using QuadGK
     end
 
     # -----------------------------------------------------------------------
-    # (h2) validate_config! mismatch handling for DLLMetropolisFilter (qf-wmg.4)
+    # (h2) validate_config! mismatch handling for DLLMetropolisFilter
     # -----------------------------------------------------------------------
     @testset "(h2) validate_config! Metropolis beta + S checks" begin
         # Mismatched beta → should throw.

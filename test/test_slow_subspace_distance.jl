@@ -5,17 +5,15 @@ using QuantumFurnace
 using QuantumFurnace: _jumps_in_basis, build_dense_superoperator, trace_distance_nh,
                      make_trotter_for_config, _load_hamiltonian_bson
 
-# qf-e4z.45: slow_subspace_generator_distance — one-scalar slow-subspace
+# slow_subspace_generator_distance — one-scalar slow-subspace
 # generator-mismatch ε_slow = ‖⟨L_j | (G_test − G_ref) | R_k⟩‖₂ between a TEST
 # propagator and a REFERENCE propagator, projected onto the reference's K slowest
-# biorthonormal eigenpairs. Deliverable pairing: ref = ideal CKG Lindbladian 𝓛,
+# biorthonormal eigenpairs. Fixture pairing: ref = ideal CKG Lindbladian 𝓛,
 # test = faithful δ-channel Φ_δ. Generator-mismatch M = (Φ_δ−I)/δ − 𝓛.
 #
-# CANONICAL OPERATING POINT (β_phys = 0.5): the n=3 seed-46 disordered-Heisenberg
-# cell is pinned from the qf-72g.1 v4 param table (n=3, β_phys=0.5, smooth_metro):
-# s=0.25, a=0, δ=1e-3, r_D=8, M_D=20, r_b±=8, gqsp_degree=1 (the v4 BSON is
-# gitignored, so the values are pinned here). β_alg = β_phys·rescaling is DERIVED at
-# runtime (never a bare β_alg), per the β_phys/β_alg convention.
+# Fixture: n=3 seed-46 disordered Heisenberg at β_phys=0.5, smooth Metropolis.
+# s=0.25, a=0, δ=1e-3, r_D=8, M_D=20, r_b±=8, gqsp_degree=1.
+# Derive β_alg = β_phys * rescaling_factor at runtime.
 #
 # LINEARITY: `channel_arm` calls `apply_delta_channel!(...; hermitize=false)`, so
 # the channel is complex-linear and acts faithfully on arbitrary operator modes.
@@ -35,7 +33,7 @@ using QuantumFurnace: _jumps_in_basis, build_dense_superoperator, trace_distance
 #   (e) TWO-𝓛 quadrature smoke + controllability (error ↓ toward 1e-9 as r_D grows).
 #   (f) INPUT validation + include_stationary structure.
 
-@testset "slow_subspace_generator_distance (qf-e4z.45)" begin
+@testset "slow_subspace_generator_distance" begin
     n = 3
     d = 2^n
     β_phys = 0.5
@@ -159,7 +157,7 @@ using QuantumFurnace: _jumps_in_basis, build_dense_superoperator, trace_distance
         @test res.ref_gen_residual < 1e-10           # ⟨L_j|G_ref|R_k⟩ = λ_k δ_jk
         @test res.converged
         @test res.gap_ref > 0
-        @info "(b) K=1 deliverable" eps_slow=res.eps_slow rel_gap=res.eps_slow_rel_gap M11=res.M[1,1] densePT=Δλ_PT_dense exact=Δλ_exact
+        @info "(b) First-order gap shift" eps_slow=res.eps_slow rel_gap=res.eps_slow_rel_gap M11=res.M[1,1] densePT=Δλ_PT_dense exact=Δλ_exact
     end
 
     @testset "(c) modal anti-Hermiticity is non-gating" begin
@@ -225,7 +223,7 @@ using QuantumFurnace: _jumps_in_basis, build_dense_superoperator, trace_distance
         @test isapprox(dot(decomp.L_modes[1], decomp.R_modes[1]), 1; atol=1e-12)
     end
 
-    @testset "(g) qf-dee #4: |λ₂−λ₃| neighbor-spacing PT-validity guard" begin
+    @testset "(g) |λ₂−λ₃| neighbor-spacing PT-validity guard" begin
         # First-order PT for the gap shift needs ε_slow ≪ the gap mode's spacing to its
         # nearest non-stationary neighbour |λ₂−λ₃|, not just ≪|λ₂|. At this n=3 cell the
         # spectrum is crowded (|λ₂−λ₃|≈5e-4) so the dense-validated ratio sits at ≈0.11 —

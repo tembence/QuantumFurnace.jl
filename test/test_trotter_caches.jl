@@ -1,7 +1,7 @@
 """
 Tests for the TrotterDomain Trotter caches.
 
-The canonical KMS coherent scheme is the qf-e4z.20 `TrotterTriple` (three
+The canonical KMS coherent scheme is the `TrotterTriple` (three
 independent per-leg Strang caches). The single-cache `TrottTrott` is the
 dissipator-only (GNS) cache and the per-leg building block of `TrotterTriple`.
 
@@ -140,10 +140,10 @@ end
 end
 
 # ============================================================================
-# qf-e4z.20 — independent per-leg Trotter caches (TrotterTriple).
+# Independent per-leg Trotter caches (TrotterTriple).
 # ============================================================================
 
-@testset "qf-e4z.20 TrotterTriple — independent per-leg caches" begin
+@testset "TrotterTriple — independent per-leg caches" begin
     ham = N3_HAM
     n = 3
     beta = BETA

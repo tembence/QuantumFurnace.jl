@@ -650,7 +650,7 @@ function ckg_to_dll(alpha::AbstractMatrix, frequencies, beta::Real;
         "Tilted coefficient norm overflows working precision; rescale the coefficient clock."))
     hermiticity<=tol*scale && reflection<=tol*scale || throw(ArgumentError(
         "CKG coefficient fails finite-Bohr Hermiticity/KMS: tilted defects $hermiticity, $reflection exceed $(tol*scale)."))
-    # PHYSICS CHECK: U's columns satisfy P*conj(U)=U. Its real basis
+    # U's columns satisfy P*conj(U)=U. Its real basis
     # represents the antiunitary-fixed subspace, also in degenerate eigenspaces.
     U=zeros(Complex{T},m,m); column=0
     for i in 1:m

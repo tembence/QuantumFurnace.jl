@@ -1,4 +1,4 @@
-@testset "Diagnostics (Phase 26)" begin
+@testset "Diagnostics" begin
 
     # Build the 3-qubit Lindbladian (BohrDomain for exact Gibbs fixed point)
     config = make_config(Lindbladian(), BohrDomain(); num_qubits=3, construction=KMS())
@@ -6,9 +6,9 @@
     L_dense = Matrix{ComplexF64}(L_sparse)
 
     # -----------------------------------------------------------------------
-    # DIAG-01: Eigendata extraction
+    # Eigendata extraction
     # -----------------------------------------------------------------------
-    @testset "DIAG-01: extract_leading_eigendata" begin
+    @testset "extract_leading_eigendata" begin
         result = extract_leading_eigendata(L_dense; n_modes=10)
 
         @test result isa EigenDecompositionResult
@@ -23,12 +23,12 @@
         # Dense eigen() on DIM^2=64 matrix; steady-state eigenvalue is exactly 0 in theory,
         # error is O(DIM^2 * eps) ~ 64 * 2.2e-16 ~ 1.4e-14. Threshold 1e-10 gives ~7000x margin.
         @test abs(result.eigenvalues[1]) < 1e-10
-        @info "DIAG-01: steady-state eigenvalue" abs_lambda1=abs(result.eigenvalues[1]) threshold=1e-10
+        @info "steady-state eigenvalue" abs_lambda1=abs(result.eigenvalues[1]) threshold=1e-10
 
         # Spectral gap is positive
         @test result.spectral_gap == abs(real(result.eigenvalues[2]))
         @test result.spectral_gap > 0.0
-        @info "DIAG-01: spectral gap" gap=result.spectral_gap
+        @info "spectral gap" gap=result.spectral_gap
 
         # Right/left eigenvector dimensions
         @test size(result.right_eigenvectors) == (N3_DIM^2, 10)
@@ -42,7 +42,7 @@
         biorth = result.left_eigenvectors' * result.right_eigenvectors
         biorth_err = maximum(abs.(biorth - I(10)))
         @test isapprox(biorth, I(10); atol=1e-8)
-        @info "DIAG-01: biorthonormality" max_error=biorth_err threshold_atol=1e-8
+        @info "biorthonormality" max_error=biorth_err threshold_atol=1e-8
 
         # Im/Re ratios
         @test length(result.im_re_ratios) == 10
@@ -60,16 +60,16 @@
             max_eigvec_err = max(max_eigvec_err, err_k)
             @test isapprox(L_dense * r_k, lam_k * r_k; atol=1e-8)
         end
-        @info "DIAG-01: eigenvector equation" max_residual=max_eigvec_err threshold_atol=1e-8 modes_checked=3
+        @info "eigenvector equation" max_residual=max_eigvec_err threshold_atol=1e-8 modes_checked=3
     end
 
     # Need eigendata for subsequent tests
     eigen_result = extract_leading_eigendata(L_dense; n_modes=10)
 
     # -----------------------------------------------------------------------
-    # DIAG-02: Fixed point distance
+    # Fixed point distance
     # -----------------------------------------------------------------------
-    @testset "DIAG-02: compute_fixed_point_distance" begin
+    @testset "compute_fixed_point_distance" begin
         fp = compute_fixed_point_distance(eigen_result, N3_GIBBS)
 
         @test fp isa FixedPointResult
@@ -77,21 +77,21 @@
         # Bohr-domain KMS detailed balance fixes Gibbs exactly; the transition
         # profile changes rates, not the stationary state.
         @test fp.trace_distance < 1e-12
-        @info "DIAG-02: Bohr fixed point trace distance" trace_distance=fp.trace_distance threshold=1e-12
+        @info "Bohr fixed point trace distance" trace_distance=fp.trace_distance threshold=1e-12
 
         # Fixed point is normalized: tr(rho) = 1.
         # Density matrix reconstruction from eigenvector; trace error O(DIM * eps) ~ 8 * 2.2e-16 ~ 1.8e-15.
         # Threshold 1e-12 gives ~550x margin.
         fp_tr = real(tr(fp.fixed_point))
         @test isapprox(tr(fp.fixed_point), 1.0; atol=1e-12)
-        @info "DIAG-02: fixed point trace" trace=fp_tr deviation=abs(fp_tr - 1.0) threshold_atol=1e-12
+        @info "fixed point trace" trace=fp_tr deviation=abs(fp_tr - 1.0) threshold_atol=1e-12
 
         # Fixed point is Hermitian: ||rho - rho'|| < atol.
         # Eigenvector-based reconstruction preserves Hermiticity to machine precision.
         # Error O(DIM^2 * eps) ~ 64 * 2.2e-16 ~ 1.4e-14. Threshold 1e-12 gives ~70x margin.
         herm_err = maximum(abs.(fp.fixed_point - fp.fixed_point'))
         @test isapprox(fp.fixed_point, fp.fixed_point'; atol=1e-12)
-        @info "DIAG-02: fixed point Hermiticity" max_error=herm_err threshold_atol=1e-12
+        @info "fixed point Hermiticity" max_error=herm_err threshold_atol=1e-12
 
         # Fixed point has correct dimension
         @test size(fp.fixed_point) == (N3_DIM, N3_DIM)
@@ -102,7 +102,7 @@
         fp_eigvals = eigvals(Hermitian(fp.fixed_point))
         min_eigval = minimum(fp_eigvals)
         @test all(v -> v >= -1e-12, fp_eigvals)
-        @info "DIAG-02: fixed point positivity" min_eigenvalue=min_eigval threshold=-1e-12
+        @info "fixed point positivity" min_eigenvalue=min_eigval threshold=-1e-12
 
         # Eigenvectors carry an arbitrary global phase. A stationary mode equal
         # to `im * rho` must be phase-aligned before Hermitian projection.
@@ -121,27 +121,27 @@
     end
 
     # -----------------------------------------------------------------------
-    # DIAG-03/04: Anti-Hermitian defect
+    # Anti-Hermitian defect
     # -----------------------------------------------------------------------
-    @testset "DIAG-03/04: compute_anti_hermitian_defect" begin
+    @testset "compute_anti_hermitian_defect" begin
         defect = compute_anti_hermitian_defect(L_dense, N3_GIBBS)
 
         @test defect isa DefectResult
 
         # A_norm is non-negative (Frobenius norm of anti-Hermitian part)
         @test defect.A_norm >= 0.0
-        @info "DIAG-03: anti-Hermitian norm" A_norm=defect.A_norm
+        @info "anti-Hermitian norm" A_norm=defect.A_norm
 
         # H_gap is positive (non-trivial Hermitian part has a gap)
         @test defect.H_gap > 0.0
-        @info "DIAG-04: Hermitian gap" H_gap=defect.H_gap
+        @info "Hermitian gap" H_gap=defect.H_gap
 
         # Consistency check: defect_ratio = A_norm / H_gap.
         # This is a pure arithmetic identity (division). Error is O(eps) relative.
         # Threshold 1e-14 is well above machine epsilon 2.2e-16.
         ratio_err = abs(defect.defect_ratio - defect.A_norm / defect.H_gap)
         @test isapprox(defect.defect_ratio, defect.A_norm / defect.H_gap; atol=1e-14)
-        @info "DIAG-03/04: defect ratio consistency" defect_ratio=defect.defect_ratio error=ratio_err threshold_atol=1e-14
+        @info "defect ratio consistency" defect_ratio=defect.defect_ratio error=ratio_err threshold_atol=1e-14
 
         # Threshold is 0.1
         @test defect.threshold == 0.1
@@ -154,9 +154,9 @@
     end
 
     # -----------------------------------------------------------------------
-    # DIAG-05: Overlap coefficients
+    # Overlap coefficients
     # -----------------------------------------------------------------------
-    @testset "DIAG-05: compute_overlap_coefficients" begin
+    @testset "compute_overlap_coefficients" begin
         # Build observables in eigenbasis
         V = N3_HAM.eigvecs
         n_qubits = 3
@@ -198,7 +198,7 @@
             max_c1_mixed = max(max_c1_mixed, abs(overlap.coefficients[i, 1]))
             @test abs(overlap.coefficients[i, 1]) < 1e-8
         end
-        @info "DIAG-05: steady-state overlap (maximally_mixed)" max_abs_c1=max_c1_mixed threshold=1e-8
+        @info "steady-state overlap (maximally_mixed)" max_abs_c1=max_c1_mixed threshold=1e-8
 
         # Gap mode overlap vector
         @test length(overlap.gap_mode_overlap) == 2
@@ -222,13 +222,13 @@
             max_c1_up = max(max_c1_up, abs(overlap_up.coefficients[i, 1]))
             @test abs(overlap_up.coefficients[i, 1]) < 1e-8
         end
-        @info "DIAG-05: steady-state overlap (all_up)" max_abs_c1=max_c1_up threshold=1e-8
+        @info "steady-state overlap (all_up)" max_abs_c1=max_c1_up threshold=1e-8
     end
 
     # -----------------------------------------------------------------------
-    # DIAG-06: Symmetry labels
+    # Symmetry labels
     # -----------------------------------------------------------------------
-    @testset "DIAG-06: compute_sz_labels" begin
+    @testset "compute_sz_labels" begin
         labels = compute_sz_labels(eigen_result, N3_HAM; n_modes=10)
 
         @test length(labels) == 10
@@ -244,14 +244,14 @@
             @test !isempty(label.sector_weights)
             max_purity = max(max_purity, label.purity)
         end
-        @info "DIAG-06: Sz label purities" max_purity=max_purity n_labels=length(labels)
+        @info "Sz label purities" max_purity=max_purity n_labels=length(labels)
 
         # Steady-state mode (k=1) should have delta_sz = 0
         # (fixed point is diagonal => Sz(i) - Sz(j) = 0 for nonzero entries)
         @test labels[1].delta_sz == 0.0
         # Should be pure in delta_sz=0 sector (purity > 0.95 by definition of is_pure)
         @test labels[1].purity > 0.95
-        @info "DIAG-06: steady-state Sz" delta_sz=labels[1].delta_sz purity=labels[1].purity
+        @info "steady-state Sz" delta_sz=labels[1].delta_sz purity=labels[1].purity
     end
 
     # -----------------------------------------------------------------------
@@ -321,7 +321,7 @@
         @test result.eigen isa EigenDecompositionResult
         @test length(result.eigen.eigenvalues) == 10
 
-        # Fixed point sub-result: trace distance < 0.01 (same rationale as DIAG-02 above)
+        # Fixed point sub-result: trace distance < 0.01 (same rationale as the fixed-point test above)
         @test result.fixed_point isa FixedPointResult
         @test result.fixed_point.trace_distance < 0.01
         @info "Bundle: fixed point trace distance" trace_distance=result.fixed_point.trace_distance threshold=0.01
@@ -337,7 +337,7 @@
         @test result.overlaps[2].initial_state_name == "all_plus"
         @test result.overlaps[3].initial_state_name == "maximally_mixed"
         # Steady-state overlap coefficient c_1 near zero for all initial states and observables.
-        # Same reasoning as DIAG-05: Tr[O * (rho0 - rho_beta)] ~ O(DIM * eps). Threshold 1e-8.
+        # Same reasoning as the overlap test: Tr[O * (rho0 - rho_beta)] ~ O(DIM * eps). Threshold 1e-8.
         max_c1_bundle = 0.0
         for ov in result.overlaps
             @test ov isa OverlapResult
@@ -408,9 +408,9 @@ end
     dim = N3_DIM
 
     # -------------------------------------------------------------------
-    # DIAG-01: Eigendata extraction on TrotterDomain L
+    # Eigendata extraction on TrotterDomain L
     # -------------------------------------------------------------------
-    @testset "DIAG-01: TrotterDomain eigendata" begin
+    @testset "TrotterDomain eigendata" begin
         result = extract_leading_eigendata(L_trott; n_modes=10)
 
         @test result isa EigenDecompositionResult
@@ -420,14 +420,14 @@ end
         @test issorted(abs.(real.(result.eigenvalues)))
 
         # First eigenvalue near zero (steady state).
-        # Same reasoning as BohrDomain DIAG-01: dense eigen on DIM^2=64 matrix,
+        # Same reasoning as BohrDomain eigendata: dense eigen on DIM^2=64 matrix,
         # error O(DIM^2 * eps) ~ 1.4e-14. Threshold 1e-10 gives ~7000x margin.
         @test abs(result.eigenvalues[1]) < 1e-10
-        @info "DIAG-01 Trotter: steady-state eigenvalue" abs_lambda1=abs(result.eigenvalues[1]) threshold=1e-10
+        @info "Trotter: steady-state eigenvalue" abs_lambda1=abs(result.eigenvalues[1]) threshold=1e-10
 
         # Spectral gap is positive
         @test result.spectral_gap > 0.0
-        @info "DIAG-01 Trotter: spectral gap" gap=result.spectral_gap
+        @info "Trotter: spectral gap" gap=result.spectral_gap
 
         # Biorthonormality: V_left' * V_right approx I
         # Same error analysis as BohrDomain: O(DIM^2 * eps * sqrt(n_modes)) ~ 5e-14.
@@ -435,7 +435,7 @@ end
         biorth = result.left_eigenvectors' * result.right_eigenvectors
         biorth_err = maximum(abs.(biorth - I(10)))
         @test isapprox(biorth, I(10); atol=1e-8)
-        @info "DIAG-01 Trotter: biorthonormality" max_error=biorth_err threshold_atol=1e-8
+        @info "Trotter: biorthonormality" max_error=biorth_err threshold_atol=1e-8
 
         # Eigenvectors satisfy eigenvalue equation.
         # Same error analysis as BohrDomain: O(DIM^2 * eps) per entry. Threshold 1e-8.
@@ -447,15 +447,15 @@ end
             max_eigvec_err = max(max_eigvec_err, err_k)
             @test isapprox(L_trott * r_k, lam_k * r_k; atol=1e-8)
         end
-        @info "DIAG-01 Trotter: eigenvector equation" max_residual=max_eigvec_err threshold_atol=1e-8 modes_checked=3
+        @info "Trotter: eigenvector equation" max_residual=max_eigvec_err threshold_atol=1e-8 modes_checked=3
     end
 
     eigen_trott = extract_leading_eigendata(L_trott; n_modes=10)
 
     # -------------------------------------------------------------------
-    # DIAG-02: Fixed point distance with Trotter-basis Gibbs
+    # Fixed point distance with Trotter-basis Gibbs
     # -------------------------------------------------------------------
-    @testset "DIAG-02: TrotterDomain fixed point distance" begin
+    @testset "TrotterDomain fixed point distance" begin
         fp = compute_fixed_point_distance(eigen_trott, gibbs_trott)
 
         @test fp isa FixedPointResult
@@ -463,30 +463,30 @@ end
         # Numerical error need not be strictly nonzero. This fixture resolves
         # the Trotter approximation to O(1e-8).
         @test fp.trace_distance < 1e-6
-        @info "DIAG-02 Trotter: fixed point trace distance" trace_distance=fp.trace_distance upper_bound=1e-6
+        @info "Trotter: fixed point trace distance" trace_distance=fp.trace_distance upper_bound=1e-6
 
-        # Fixed point is normalized: same error analysis as BohrDomain DIAG-02.
+        # Fixed point is normalized: same error analysis as BohrDomain fixed-point tests.
         fp_tr = real(tr(fp.fixed_point))
         @test isapprox(tr(fp.fixed_point), 1.0; atol=1e-12)
-        @info "DIAG-02 Trotter: fixed point trace" trace=fp_tr deviation=abs(fp_tr - 1.0) threshold_atol=1e-12
+        @info "Trotter: fixed point trace" trace=fp_tr deviation=abs(fp_tr - 1.0) threshold_atol=1e-12
 
-        # Fixed point is Hermitian: same error analysis as BohrDomain DIAG-02.
+        # Fixed point is Hermitian: same error analysis as BohrDomain fixed-point tests.
         herm_err = maximum(abs.(fp.fixed_point - fp.fixed_point'))
         @test isapprox(fp.fixed_point, fp.fixed_point'; atol=1e-12)
-        @info "DIAG-02 Trotter: fixed point Hermiticity" max_error=herm_err threshold_atol=1e-12
+        @info "Trotter: fixed point Hermiticity" max_error=herm_err threshold_atol=1e-12
 
         # Fixed point is a valid density matrix (non-negative eigenvalues)
         fp_eigvals = eigvals(Hermitian(fp.fixed_point))
         min_eigval = minimum(fp_eigvals)
         @test all(v -> v >= -1e-12, fp_eigvals)
-        @info "DIAG-02 Trotter: fixed point positivity" min_eigenvalue=min_eigval threshold=-1e-12
+        @info "Trotter: fixed point positivity" min_eigenvalue=min_eigval threshold=-1e-12
 
     end
 
     # -------------------------------------------------------------------
-    # DIAG-03/04: Anti-Hermitian defect in the Hamiltonian eigenbasis
+    # Anti-Hermitian defect in the Hamiltonian eigenbasis
     # -------------------------------------------------------------------
-    @testset "DIAG-03/04: TrotterDomain anti-Hermitian defect" begin
+    @testset "TrotterDomain anti-Hermitian defect" begin
         L_trott_ham = QuantumFurnace._change_dense_superoperator_basis(
             L_trott, N3_TROTTER.eigvecs, N3_HAM.eigvecs)
         defect = compute_anti_hermitian_defect(L_trott_ham, N3_GIBBS)
@@ -495,17 +495,17 @@ end
 
         # A_norm is non-negative (Frobenius norm)
         @test defect.A_norm >= 0.0
-        @info "DIAG-03 Trotter: anti-Hermitian norm" A_norm=defect.A_norm
+        @info "Trotter: anti-Hermitian norm" A_norm=defect.A_norm
 
         # H_gap is positive
         @test defect.H_gap > 0.0
-        @info "DIAG-04 Trotter: Hermitian gap" H_gap=defect.H_gap
+        @info "Trotter: Hermitian gap" H_gap=defect.H_gap
 
         # Consistency: defect_ratio = A_norm / H_gap.
         # Pure arithmetic identity. Threshold 1e-14 well above eps.
         ratio_err = abs(defect.defect_ratio - defect.A_norm / defect.H_gap)
         @test isapprox(defect.defect_ratio, defect.A_norm / defect.H_gap; atol=1e-14)
-        @info "DIAG-03/04 Trotter: defect ratio" defect_ratio=defect.defect_ratio error=ratio_err threshold_atol=1e-14
+        @info "Trotter: defect ratio" defect_ratio=defect.defect_ratio error=ratio_err threshold_atol=1e-14
 
         # Threshold is 0.1
         @test defect.threshold == 0.1
@@ -513,9 +513,9 @@ end
     end
 
     # -------------------------------------------------------------------
-    # DIAG-05: Overlap coefficients with Trotter-basis observables
+    # Overlap coefficients with Trotter-basis observables
     # -------------------------------------------------------------------
-    @testset "DIAG-05: TrotterDomain overlap coefficients" begin
+    @testset "TrotterDomain overlap coefficients" begin
         Vt = N3_TROTTER.eigvecs
 
         # Z1 in Trotter basis
@@ -535,9 +535,9 @@ end
         @test overlap.observable_names == ["Z1"]
 
         # c_1 near zero (steady-state mode, rho_beta subtracted).
-        # Same reasoning as BohrDomain DIAG-05. Threshold 1e-8.
+        # Same reasoning as BohrDomain overlaps. Threshold 1e-8.
         @test abs(overlap.coefficients[1, 1]) < 1e-8
-        @info "DIAG-05 Trotter: steady-state overlap" abs_c1=abs(overlap.coefficients[1, 1]) threshold=1e-8
+        @info "Trotter: steady-state overlap" abs_c1=abs(overlap.coefficients[1, 1]) threshold=1e-8
 
         # Gap mode overlap is non-negative
         @test length(overlap.gap_mode_overlap) == 1
@@ -545,14 +545,14 @@ end
     end
 
     # -------------------------------------------------------------------
-    # DIAG-06: Sz labels with Trotter eigenvectors
+    # Sz labels with Trotter eigenvectors
     # -------------------------------------------------------------------
-    @testset "DIAG-06: TrotterDomain Sz labels" begin
+    @testset "TrotterDomain Sz labels" begin
         labels = compute_sz_labels(eigen_trott, N3_TROTTER.eigvecs, n_qubits; n_modes=10)
 
         @test length(labels) == 10
 
-        # Purity bounds with FP tolerance (same reasoning as BohrDomain DIAG-06)
+        # Purity bounds with FP tolerance (same reasoning as BohrDomain symmetry labels)
         max_purity = 0.0
         for label in labels
             @test label isa SzSectorLabel
@@ -561,7 +561,7 @@ end
             @test !isempty(label.sector_weights)
             max_purity = max(max_purity, label.purity)
         end
-        @info "DIAG-06 Trotter: Sz label purities" max_purity=max_purity n_labels=length(labels)
+        @info "Trotter: Sz label purities" max_purity=max_purity n_labels=length(labels)
 
         # Steady-state mode (k=1) should have delta_sz ~ 0
         @test labels[1].delta_sz == 0.0
@@ -581,7 +581,7 @@ end
         @test length(result.eigen.eigenvalues) == 10
 
         # Bundle coverage is orchestration-only; numerical fixed-point accuracy
-        # is asserted once in DIAG-02 above.
+        # is asserted once in the fixed-point test above.
         @test result.fixed_point isa FixedPointResult
         @test isfinite(result.fixed_point.trace_distance)
 

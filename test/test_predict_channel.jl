@@ -2,7 +2,7 @@ using LinearAlgebra: I, eigvals, svdvals, norm, tr, Hermitian
 using Test
 using QuantumFurnace
 
-# qf-ev5.{1,5}: Krylov spectral-expansion predictor for the IMPLEMENTED CPTP
+# Krylov spectral-expansion predictor for the IMPLEMENTED CPTP
 # channel Φ_δ that run_thermalize executes (per-jump :sweep, weak-measurement
 # Kraus + coherent unitary). The forward matvec is byte-for-byte the same
 # kernel run_thermalize uses, so the Krylov reconstruction must agree with
@@ -66,7 +66,7 @@ using QuantumFurnace
         @test 0.0 < res_kr.spectral_gap < 1.0
 
         # Byte-identical agreement with run_thermalize on the entire
-        # trajectory at every save point. PHYSICS CHECK: the forward closure
+        # trajectory at every save point. the forward closure
         # in predict_channel_trajectory uses the SAME _apply_one_dm_substep!
         # kernel run_thermalize calls, so any drift comes from finite Krylov
         # subspace + dense eigen(H) tolerance only — well below 1e-10 for
@@ -109,7 +109,7 @@ using QuantumFurnace
     end
 
     # -----------------------------------------------------------------------
-    # (b1) TrotterDomain + GQSP smoke (qf-ev5.8): same matvec kernel as
+    # (b1) TrotterDomain + GQSP smoke: same matvec kernel as
     #      run_thermalize ⇒ byte-identical reconstruction at small δ.
     # -----------------------------------------------------------------------
     @testset "(b1) TrotterDomain + GQSP smoke" begin
@@ -143,13 +143,13 @@ using QuantumFurnace
         res_th = run_thermalize(N3_TROTTER_JUMPS, cfg, N3_HAM, N3_TROTTER;
                                  initial_dm=copy(rho_0), save_every=25)
 
-        # Channel fixed point (CPTP). PHYSICS CHECK: GQSP at degree d
+        # Channel fixed point (CPTP). GQSP at degree d
         # introduces O((δα)^(d+1)) per-step non-CPTPness via polynomial
         # truncation; at δ=1e-3, d=1 this is ~ (δα)^2 ~ 1e-6, easily
         # within 1e-5.
         @test abs(abs(res_kr.eigenvalues[1]) - 1.0) < 1e-5
 
-        # PHYSICS CHECK: closure uses the same _apply_one_dm_substep! kernel
+        # closure uses the same _apply_one_dm_substep! kernel
         # as run_thermalize through _precompute_coherent_unitary +
         # _precompute_per_jump_channels, so the residual is dominated by
         # Krylov-subspace truncation only. 1e-6 covers d=1 GQSP truncation
@@ -199,20 +199,12 @@ using QuantumFurnace
     end
 
     # -----------------------------------------------------------------------
-    # (d) qf-e4z.27: parity-symmetric Hamiltonian regression for the
-    #     channel predictor — sister of `test_predict_lindbladian.jl::(f)`.
-    #
-    # Setup: classical 1D Ising n=3 PBC, β_phys=0.5, CKG smooth-Metropolis
-    # Thermalize/EnergyDomain. The Hamiltonian H = Σ Z_i Z_{i+1} commutes
-    # with the spin-flip P = X^⊗N, so the channel Φ_δ inherits the
-    # symmetry. With single-seed Arnoldi from `vec(I/d)` the captured
-    # spectrum is parity-EVEN-only and `eigenvalues[2]` overestimates
-    # the true Lindbladian gap; the qf-e4z.27 fix reports the
-    # spectral_gap via a separate `krylov_spectral_gap` call which
-    # uses KrylovKit thick restart + the `_krylov_default_x0` GUE seed
-    # to capture parity-odd modes reliably at every n.
+    # (d) Channel gap estimation on a parity-symmetric classical Ising fixture.
+    # H = Σ Z_i Z_{i+1} commutes with P = X^⊗N, and Φ_δ inherits this
+    # symmetry. A trajectory from I/d only captures parity-even modes.
+    # A separate gap solve probes the slow modes outside that sector.
     # -----------------------------------------------------------------------
-    @testset "(d) predict_channel_trajectory — symmetric system regression (qf-e4z.27)" begin
+    @testset "(d) predict_channel_trajectory — symmetric system regression" begin
         n_ising = 3
         terms_zz = Vector{Vector{Matrix{ComplexF64}}}([[QuantumFurnace.Z, QuantumFurnace.Z]])
         coeffs_zz = [1.0]
@@ -274,23 +266,19 @@ using QuantumFurnace
         perm = sortperm(real.(ev_dense); by=abs)
         gap_dense = abs(real(ev_dense[perm[2]]))
 
-        # qf-0fv: this regression specifically validates the qf-e4z.27
-        # Pass-2 fix on parity-symmetric (rho_0=I/d, L) — opt in via
-        # `compute_true_gap=true`. Pass-1 default would report the
-        # parity-even sub-spectrum gap, which the original qf-e4z.27
-        # test was written to catch.
+        # Enable the separate gap solve for the symmetric initial state I/d.
         rho_0 = Matrix{ComplexF64}(I(d_ising) / d_ising)
         k_grid = collect(0:500:20000)
         traj = predict_channel_trajectory(cfg, ham_ising, jumps_ising, rho_0, k_grid;
                                            krylovdim=40, compute_true_gap=true)
-        # post-qf-e4z.27 spectral_gap must report the TRUE Lindbladian
-        # gap. The Lindbladian↔channel `λ_L = (μ-1)/δ` conversion on
+        # Compare the channel decay rate with the Lindbladian gap.
+        # The Lindbladian↔channel `λ_L = (μ-1)/δ` conversion on
         # the *implemented* Φ_δ has leading O(δ·|λ|) error (Taylor of
         # (μ-1)/δ around exp(δλ)/δ gives λ + δ·λ²/2 + O(δ²)); for
         # δ=1e-3 and λ ~ 0.16 this is ~3e-5 absolute / ~2e-4 relative.
         # Tolerance 1e-3 relative is comfortably above the bound.
         rel_err = abs(traj.spectral_gap - gap_dense) / gap_dense
         @test rel_err < 1e-3
-        @info "qf-e4z.27 classical Ising parity regression (channel)" n=n_ising β_phys=β_phys gap_predict=traj.spectral_gap gap_dense=gap_dense rel_err
+        @info "classical Ising parity regression (channel)" n=n_ising β_phys=β_phys gap_predict=traj.spectral_gap gap_dense=gap_dense rel_err
     end
 end

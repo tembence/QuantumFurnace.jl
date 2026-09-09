@@ -1,5 +1,5 @@
 """
-Integration tests for the GQSP coherent step inside `run_thermalize` (qf-63j.3).
+Integration tests for the GQSP coherent step inside `run_thermalize`.
 
 The GQSP polynomial `f_d(B/α)` matches `exp(-iδ B)` to `O((δα)^{d+1})`. With small
 δ, the simulator's final density matrix should agree with the matrix-exponential
@@ -17,9 +17,9 @@ Test plan:
 using LinearAlgebra: opnorm, tr, Hermitian, eigvals
 using Random: Xoshiro
 
-@testset "GQSP integration in run_thermalize (qf-63j.3)" begin
+@testset "GQSP integration in run_thermalize" begin
 
-    # Use the small N3 Heisenberg fixtures and a small δ where polynomial trunc
+    # Use the small 3-qubit Heisenberg fixtures and a small δ where polynomial trunc
     # error is below the unraveling step error. Short mixing_time keeps the test fast.
     function _therm_cfg(domain; with_gqsp::Bool, gqsp_degree::Int=1, delta::Float64=1e-3, mixing_time::Float64=0.05)
         cfg = make_config(Thermalize(), domain;
@@ -88,7 +88,7 @@ using Random: Xoshiro
         td_exp  = r_exp.trace_distances[end]
         td_gqsp = r_gqsp.trace_distances[end]
         # (a) genuine thermalization in both paths (initial mixed state ↦ near-Gibbs).
-        # Threshold 0.20 (qf-4fb): the trace distance to Gibbs falls from ~0.46
+        # Threshold 0.20: the trace distance to Gibbs falls from ~0.46
         # (id/d initial) to 0.1655 over 500 steps on the build_heis_1d n=3 draw — a
         # 2.8× reduction, i.e. genuine relaxation. The endpoint is a fixture-specific
         # magnitude: it is set by the EnergyDomain L gap (≈0.17 here, so the slowest

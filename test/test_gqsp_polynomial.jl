@@ -1,6 +1,6 @@
 """
 Tests for the GQSP polynomial approximation `_gqsp_apply_polynomial` and the
-block-encoding-norm helper `_gqsp_block_encoding_alpha` (qf-63j.2).
+block-encoding-norm helper `_gqsp_block_encoding_alpha`.
 
 `_gqsp_apply_polynomial(B, α, δ, d)` computes the raw Jacobi–Anger
 Chebyshev truncation
@@ -76,7 +76,7 @@ function _laurent_apply(W::AbstractMatrix, delta_alpha::Real, d::Int)
     return Lop
 end
 
-@testset "GQSP polynomial _gqsp_apply_polynomial (qf-63j.2)" begin
+@testset "GQSP polynomial _gqsp_apply_polynomial" begin
 
     @testset "d=1 closed form: J_0(δα) I − 2i J_1(δα) (B/α)" begin
         rng = MersenneTwister(0xc0ffee)
@@ -185,7 +185,7 @@ end
 
 end
 
-@testset "GQSP block-encoding norm _gqsp_block_encoding_alpha (qf-63j.2)" begin
+@testset "GQSP block-encoding norm _gqsp_block_encoding_alpha" begin
     # Synthetic dicts mirroring the truncated-func Dict format from _compute_truncated_func
     b_minus = Dict(0.0 => complex(0.5), 0.1 => complex(0.3), -0.1 => complex(0.2))
     b_plus  = Dict(0.0 => complex(1.0, 0.0), 0.05 => complex(0.0, 0.5))
@@ -209,7 +209,7 @@ end
     @test α2 ≈ 4 * α atol=1e-14
 end
 
-@testset "Jacobi–Anger operator/Laurent equivalence (qf-63j.2)" begin
+@testset "Jacobi–Anger operator/Laurent equivalence" begin
     # Applying the raw Laurent truncation L_d to the qubitization walk and
     # extracting its ancilla block gives the Chebyshev expansion f_d(B/α).
     # This is an algebraic identity, not a claim that L_d is itself unitary.
@@ -233,7 +233,7 @@ end
     end
 end
 
-@testset "n=3 Heisenberg slope-2 anchor (qf-63j.2)" begin
+@testset "n=3 Heisenberg slope-2 anchor" begin
     # End-to-end check: build B_a via B_time on the actual n=3 disordered Heisenberg
     # test system, compute α via the helper using the same _compute_b_minus / _compute_b_plus
     # kernels the simulator will use, and verify f_1(B_a/α) → exp(-iδ B_a) with slope 2.
@@ -267,10 +267,8 @@ end
     @test isapprox(slope, 2.0; atol=0.2)
 end
 
-@testset "Clenshaw at d ∈ {3,4,5,6} matches naive Chebyshev sum (qf-ak4)" begin
-    # Direct correctness check of the Clenshaw branch in `_gqsp_apply_polynomial`
-    # at d > 2 — the d ≤ 2 branches are pinned by the closed-form testsets above
-    # (and d=3 by their construction), but d ≥ 4 was previously untested.
+@testset "Clenshaw at d ∈ {3,4,5,6} matches naive Chebyshev sum" begin
+    # Check the Clenshaw branch at d > 2 against the forward recurrence.
     # Reference: build the explicit Chebyshev expansion
     #     f_d(x) = J_0(δα) I + Σ_{k=1}^d 2 (-i)^k J_k(δα) T_k(x)
     # via the forward Chebyshev recurrence T_0 = I, T_1 = x, T_{k+1} = 2 x T_k − T_{k-1}
@@ -305,7 +303,7 @@ end
     end
 end
 
-@testset "Per-d residual shrinkage to exp(-iδB) (qf-ak4)" begin
+@testset "Per-d residual shrinkage to exp(-iδB)" begin
     # Bessel-tail bound (Motlagh & Wiebe 2024, Eq. 63): J_n(t) ∈ Θ((t/2)^n / n!),
     # so the leading-order residual ratio between consecutive d is
     #     err_d / err_{d-1} ≈ (δα) / (2(d+1)),

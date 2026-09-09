@@ -1,4 +1,4 @@
-@testset "DLL KMS-DB verification (Phase 51 / qf-3i8.5)" begin
+@testset "DLL KMS-DB verification" begin
 
     # =====================================================================
     # End-to-end KMS detailed-balance verification of the full DLL
@@ -40,7 +40,7 @@
             s = 0.4,
             # N=10 (Nt=1024): same t_max ≈ 63 as legacy N=12, 16× less NUFFT
             # memory. Bohr↔Time error is FINUFFT-floor-limited at this fixture
-            # (~3e-9, qf-5nz), well clear of the Gaussian 1e-3 tolerance below.
+            # (~3e-9), well clear of the Gaussian 1e-3 tolerance below.
             num_energy_bits = 10,
             t0 = 2pi / (2^10 * 0.05),
             num_trotter_steps_per_t0 = 10,
@@ -144,7 +144,7 @@
     end
 
     # =====================================================================
-    # DLL Metropolis-type filter (qf-wmg.5) — same Bohr fixture, swap the
+    # DLL Metropolis-type filter — same Bohr fixture, swap the
     # Gaussian filter for DLLMetropolisFilter. KMS-DB is a property of the
     # algebraic construction (Theorem 10) and only requires the filter to
     # be a real, positive, even q(ν): both Gaussian and Metropolis qualify.
@@ -193,7 +193,7 @@
     # therefore set by `t0` alone.
     # ---------------------------------------------------------------------
     # ---------------------------------------------------------------------
-    # qf-x56.5: the (j-sb) sandbox shadow of (j) lives in its own file
+    # the (j-sb) sandbox shadow of (j) lives in its own file
     # `test_dll_kms_db_sandbox.jl` so that the inter-file `GC.gc(true)`
     # in runtests.jl clears the (a)..(i) NUFFT workspaces before the
     # Nt = 4096 (r_D = 12) Bohr ↔ Time pair runs. Inlining it here pushed
@@ -202,7 +202,7 @@
     # ---------------------------------------------------------------------
 
     # ---------------------------------------------------------------------
-    # (j) is gated NO_SANDBOX (qf-5nz): the legacy N=12 / Nt=4096 grid is
+    # (j) is gated NO_SANDBOX: the legacy N=12 / Nt=4096 grid is
     # required to demonstrate convergence to the FINUFFT precision floor
     # (err5_fine ≤ 1e-9, err10_fine ≤ 1e-7). Coarsening Nt would invalidate
     # the assertion's intent, and N=12 + four sequential 4096² NUFFTs spike

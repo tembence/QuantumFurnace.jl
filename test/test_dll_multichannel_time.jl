@@ -1,11 +1,11 @@
-@testset "DLL multi-channel TimeDomain operators (qf-7go.3)" begin
+@testset "DLL multi-channel TimeDomain operators" begin
     # =====================================================================
     # n=3 disordered Heisenberg fixture with the same trapezoidal grid as
     # `test_dll_coherent.jl`. β-sweep ∈ {1, 5, 10}.
     # =====================================================================
     _MR_BETAS = (1.0, 5.0, 10.0)
     # N=10 (Nt=1024): same t_max ≈ 63 as legacy N=12, 16× less NUFFT memory.
-    # Bohr↔Time error already at FINUFFT floor (~3e-9) by Nt=256 (qf-5nz).
+    # Bohr↔Time error already at FINUFFT floor (~3e-9) by Nt=256.
     _NUM_ENERGY_BITS = 10
     _T0 = 2π / (2^_NUM_ENERGY_BITS * 0.05)
 

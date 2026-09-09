@@ -565,7 +565,7 @@ function slow_subspace_generator_distance(
     # to the nearest non-stationary spacing, not merely the gap magnitude.
     λ_neighbor_spacing = length(decomp.eigenvalues) >= 3 ?
         abs(decomp.eigenvalues[2] - decomp.eigenvalues[3]) : NaN
-    # Warn only for the K=1 gap-shift deliverable: there λ₃ IS the gap mode's first
+    # Warn only for the K=1 gap-shift diagnostic: there λ₃ IS the gap mode's first
     # excluded neighbour and ε_slow IS the gap shift, so the check is exactly "is the
     # first-order gap shift ≪ the gap-to-neighbour spacing". For K>1 this scalar spacing
     # does not certify the whole retained block; interpretation requires checking the

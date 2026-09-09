@@ -1,4 +1,4 @@
-"""Step 4 Python POC: GQSP applied to B_a (loaded from Julia export).
+"""GQSP applied to B_a loaded from a Julia export.
 
 Loads the canonical B_a matrix produced by `scripts/scratch_gqsp_B_n3.jl`
 and applies the GQSP pipeline (Jacobi-Anger + BS Q + MW angles + Qiskit circuit)
@@ -76,7 +76,7 @@ def main():
     alpha = float(meta["alpha"])
     Ba_norm = float(meta["Ba_norm"])
 
-    print("== Step 4 Python POC: GQSP on B_a ==\n")
+    print("== GQSP on B_a ==\n")
     print(f"  n_sys = {n_sys}, dim = {B_a.shape[0]}")
     print(f"  ‖H‖   = {np.linalg.norm(H, ord=2):.4f}")
     print(f"  ‖B_a‖ = {Ba_norm:.4f}, α = {alpha:.4f}, ‖B_a/α‖ = {Ba_norm/alpha:.4f}")
@@ -84,7 +84,7 @@ def main():
         print(f"  WARNING: ‖B_a/α‖ > 1 — block-encoding precondition violated")
         return
 
-    # Use the same 1-ancilla qubitization as Step 3, but with H' := B_a/α
+    # Use one-ancilla qubitization with H' := B_a/α
     # (rescaled so ‖H'‖ ≤ 1 for the simple block-encoding construction).
     H_eff = B_a / alpha
     UH = build_block_encoding_one_anc(H_eff)

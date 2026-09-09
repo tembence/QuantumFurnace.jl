@@ -1,7 +1,7 @@
 """
-DM reference tests: detailed balance (DMTST-01) and domain error hierarchy (DMTST-02).
+DM reference tests: detailed balance and domain error hierarchy.
 
-DMTST verifies the Gibbs fixed point independently in every construction
+These tests verify the Gibbs fixed point independently in every construction
 domain. No ordering between independent quadrature and Trotter errors is
 assumed; those errors can cancel.
 """
@@ -45,7 +45,7 @@ end
 
 @testset "Complex coherent convention" begin
     # A complex Hermitian coupling is required here: real fixtures cannot
-    # distinguish B from transpose(B) and previously hid a transposed commutator.
+    # distinguish B from transpose(B); complex fixtures resolve this ambiguity.
     eigvals = [0.0, 0.4]
     raw = (
         matrix = ComplexF64[0 0; 0 0.4],
