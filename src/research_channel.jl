@@ -156,11 +156,7 @@ function simulate_gibbs(jumps::Vector{JumpOp},cfg::Config{Thermalize},ham::HamHa
         isapprox(jump.in_eigenbasis,U'*jump.data*U;atol=100eps(T),rtol=100eps(T)) ||
             throw(ArgumentError("JumpOp cache does not match the channel working basis."))
     end
-    initial=rho0===nothing ? fill(one(CT)/d,d,d) : Matrix{CT}(rho0)
-    size(initial)==(d,d) || throw(ArgumentError("rho0 dimensions must match H."))
-    checks=state_diagnostics(initial;rtol=max(1e-9,100eps(T)),dense_max_dim=d,max_dense_bytes=max_bytes)
-    all(x->x.status==:pass,values(checks)) || throw(ArgumentError("rho0 must be finite, Hermitian, positive and unit trace."))
-    rho=basis==:computational || rho0===nothing ? Matrix(U'*initial*U) : initial
+    initial,rho = _prepare_initial_density(rho0,U,basis,CT,max_bytes)
     raw_checks=NamedTuple[]
     observe(step,A)=push!(raw_checks,state_diagnostics(A;rtol=max(1e-9,100eps(T)),
         dense_max_dim=diagnostics==:strict ? d : 64,max_dense_bytes=max_bytes))

@@ -79,7 +79,7 @@ struct GaussianMixtureTransition{T<:AbstractFloat,N,P} <: AbstractCKGTransition
         all(x->isfinite(x)&&x>0,(b,e)) || throw(ArgumentError("beta and sigma must be positive and finite."))
         _check_ckg_scales(b,e)
         xs=Tuple(T(x) for x in centers); ws=Tuple(T(w) for w in weights)
-        # PHYSICS CHECK: the Gaussian identity beta=2*x/(sigma^2+variance).
+        # the Gaussian identity beta=2*x/(sigma^2+variance).
         all(x->isfinite(x)&&x>b*e^2/2 && isfinite(2x/b-e^2) && 2x/b-e^2>0,xs) ||
             throw(ArgumentError("Each centre must exceed beta*sigma^2/2 with finite positive variance."))
         all(w->isfinite(w)&&w>=0,ws) && isfinite(sum(ws)) && sum(ws)>0 ||
@@ -193,7 +193,7 @@ function _physical_ckg_transition(r::GaussianMixtureTransition,R::T,beta::T) whe
         provenance=merge(r.provenance,(;input_to_algorithm_scale=R)))
 end
 
-"""Lower typed rates into the existing legacy configuration fields."""
+"""Convert typed rates to Config parameter fields."""
 _ckg_legacy_fields(r::GaussianTransition)=(;with_linear_combination=false,gaussian_parameters=(r.beta*(r.sigma^2+r.sigma_gamma^2)/2,r.sigma_gamma),a=nothing,s=nothing)
 _ckg_legacy_fields(r::MetropolisTransition)=(;with_linear_combination=true,gaussian_parameters=(nothing,nothing),a=zero(r.beta),s=zero(r.beta))
 _ckg_legacy_fields(r::SmoothMetropolisTransition)=(;with_linear_combination=true,gaussian_parameters=(nothing,nothing),a=r.a,s=r.s)
@@ -228,7 +228,7 @@ function _collect_ckg_transition_errors!(errors,cfg)
     else
         expected=_ckg_legacy_fields(rate)
         for key in keys(expected)
-            _ckg_parameter_match(getproperty(cfg,key),getproperty(expected,key)) || push!(errors,"Typed built-in $key must match its legacy lowering; use prepare_gibbs_inputs or the physical facade.")
+            _ckg_parameter_match(getproperty(cfg,key),getproperty(expected,key)) || push!(errors,"Typed built-in $key must match its typed transition; use prepare_gibbs_inputs or the physical interface.")
         end
     end
     return nothing
@@ -247,14 +247,14 @@ function _resolve_physical_ckg(beta,filter,transition_weight)
         return rate,rate.oft
     end
     physical_filter=filter===nothing ? GaussianFilter(rate.sigma) : filter
-    physical_filter isa GaussianFilter || throw(ArgumentError("T15 CKG rates require GaussianFilter; arbitrary OFT substitution needs T16 joint-kernel validation."))
+    physical_filter isa GaussianFilter || throw(ArgumentError("Typed CKG rates require GaussianFilter; use CKGJointKernel for a custom OFT."))
     isapprox(physical_filter.sigma,rate.sigma;rtol=100eps(typeof(float(beta))),atol=0) ||
         throw(ArgumentError("GaussianFilter.sigma must equal the transition's physical sigma."))
     return rate,physical_filter
 end
 
 function _ckg_grid(domain,time_step,num_energy_bits,energy_step)
-    domain isa TrotterDomain && throw(ArgumentError("Custom CKG Trotter requires a retained local Hamiltonian decomposition and a separately validated joint coherent evolution algorithm; it is unsupported even with local terms. Built-in Trotter remains available through legacy Config and make_trotter_for_config."))
+    domain isa TrotterDomain && throw(ArgumentError("Custom CKG Trotter requires a retained local Hamiltonian decomposition and a separately validated joint coherent evolution algorithm; it is unsupported even with local terms. Built-in Trotter remains available through Config and make_trotter_for_config."))
     domain isa Union{BohrDomain,EnergyDomain,TimeDomain} || throw(ArgumentError("Unsupported CKG domain."))
     if domain isa TimeDomain
         time_step isa Real && isfinite(time_step) && time_step>0 && num_energy_bits isa Integer && 0<num_energy_bits<63 ||
@@ -275,10 +275,10 @@ function _ckg_preflight(H;beta_phys,temperature,filter,jumps,rates,complete_adjo
     domain,time_step,num_energy_bits,clock,transition_weight,energy_step,max_bytes)
     _ckg_grid(domain,time_step,num_energy_bits,energy_step)
     # Reuse all model/source/temperature and resource checks without spectral work.
-    base=_gibbs_preflight(H;beta_phys,temperature,filter=DLLGaussianFilter,jumps,rates,
-        complete_adjoint,basis,domain=BohrDomain(),construction=DLL(),clock,max_bytes)
+    base=_physical_preflight(H;beta_phys,temperature,jumps,rates,
+        complete_adjoint,basis,clock,max_bytes)
     rate,physical_filter=_resolve_physical_ckg(base.beta_phys,filter,transition_weight)
-    domain isa TimeDomain && !(rate isa CKGJointKernel) && throw(ArgumentError("CKG Time facade requires CKGJointKernel and explicit time_transform controls; typed built-ins retain legacy Config Time/Trotter support."))
+    domain isa TimeDomain && !(rate isa CKGJointKernel) && throw(ArgumentError("CKG Time interface requires CKGJointKernel and explicit time_transform controls; typed built-ins retain Config Time/Trotter support."))
     if rate isa CKGJointKernel
         m=big(base.dimension)^2-base.dimension+1
         n=domain isa EnergyDomain ? big(2)^num_energy_bits : big(8)*rate.panels
@@ -308,27 +308,28 @@ function _prepare_ckg_inputs(H;beta_phys,temperature,filter,jumps,rates,complete
     basis,domain,time_step,num_energy_bits,clock,transition_weight,energy_step)
     _ckg_grid(domain,time_step,num_energy_bits,energy_step)
     # Reuse owned sources, physical temperature, cached-Gibbs checks and explicit clock.
-    base=prepare_gibbs_inputs(H;beta_phys,temperature,filter=DLLGaussianFilter,jumps,rates,
-        complete_adjoint,basis,domain=BohrDomain(),construction=DLL(),clock)
+    base=_prepare_physical_inputs(H;beta_phys,temperature,jumps,rates,
+        complete_adjoint,basis,clock)
     ham=base.hamiltonian; T=eltype(ham.eigvals)
     physical_rate,physical_filter=_resolve_physical_ckg(base.provenance.beta_phys,filter,transition_weight)
-    domain isa TimeDomain && !(physical_rate isa CKGJointKernel) && throw(ArgumentError("CKG Time facade requires CKGJointKernel with explicit time_transform controls; use legacy Config for typed built-in Time."))
+    domain isa TimeDomain && !(physical_rate isa CKGJointKernel) && throw(ArgumentError("CKG Time interface requires CKGJointKernel with explicit time_transform controls; use Config for typed built-in Time."))
     physical_rate isa CKGJointKernel && return _prepare_joint_ckg_inputs(base,physical_rate,domain,num_energy_bits,energy_step,time_step)
-    algorithm_rate=_physical_ckg_transition(physical_rate,T(ham.rescaling_factor),base.config.beta)
+    algorithm_rate=_physical_ckg_transition(physical_rate,T(ham.rescaling_factor),base.provenance.beta_alg)
     algorithm_filter=GaussianFilter(algorithm_rate.sigma)
-    cfg=Config(;sim=Lindbladian(),domain,construction=KMS(),num_qubits=base.config.num_qubits,
-        beta=base.config.beta,beta_phys=base.config.beta_phys,sigma=algorithm_rate.sigma,
+    cfg=Config(;sim=Lindbladian(),domain,construction=KMS(),num_qubits=trailing_zeros(size(ham.data,1)),
+        beta=base.provenance.beta_alg,beta_phys=base.provenance.beta_phys,sigma=algorithm_rate.sigma,
         filter=algorithm_filter,transition_weight=algorithm_rate,_ckg_legacy_fields(algorithm_rate)...,
         num_energy_bits_D=num_energy_bits,w0_D=energy_step===nothing ? nothing : T(energy_step/ham.rescaling_factor))
     validate_config!(cfg,ham;atol=100eps(T),rtol=100eps(T))
-    # PHYSICS CHECK: C_alg(w)=sqrt(R)*C_phys(R*w), gamma_alg(w)=gamma_phys(R*w),
+    # C_alg(w)=sqrt(R)*C_phys(R*w), gamma_alg(w)=gamma_phys(R*w),
     # so d(w_alg)*C_alg*C_alg preserves alpha and needs no extra generator factor.
     evidence=(;balance=:gaussian_oft_structural_kms,positivity=:nonnegative_rate,
         alpha=:analytic,coherent=:canonical_analytic,outer_frequency_quadrature=domain isa EnergyDomain,
         rate_normalization=physical_rate isa GaussianMixtureTransition ? physical_rate.normalization : :legacy_unit_bound,
         rate_divisor=_transition_divisor(physical_rate),
         mixture=physical_rate isa GaussianMixtureTransition ? physical_rate.provenance : nothing)
-    provenance=merge(base.provenance,(;construction=:CKG_KMS,
+    provenance=merge(base.provenance,(;construction=:CKG_KMS,filter_input_frame=:physical,
+        source_filter_assignments=nothing,physical_time_step=nothing,algorithm_time_step=nothing,
         physical_filter,algorithm_filter,physical_filters=((;family=:CKGGaussian,sigma=physical_filter.sigma,frame=:physical),),
         algorithm_filters=((;family=:CKGGaussian,sigma=algorithm_filter.sigma,frame=:algorithm),),
         physical_transition=physical_rate,algorithm_transition=algorithm_rate,

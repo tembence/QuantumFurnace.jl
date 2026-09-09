@@ -1,6 +1,20 @@
 using Test, QuantumFurnace, LinearAlgebra
 BLAS.set_num_threads(1)
 
+@testset "Strict state checks above six qubits" begin
+    d = 128
+    source = Matrix(Diagonal(vcat(ones(d ÷ 2), -ones(d ÷ 2))))
+    workspace = Workspace(zeros(d, d); beta_phys=0.8, jumps=[source])
+    equilibrium = Matrix{ComplexF64}(I, d, d) / d
+    for method in (:krylov, :predictor)
+        result = simulate_gibbs(workspace; times=[0.0], rho0=equilibrium,
+            diagnostics=:strict, method, gap_options=(; max_matvecs=0))
+        @test result.convergence.status == :already_within_threshold
+        @test result.trajectory.raw_checks[1].positivity.status == :pass
+        @test result.trajectory.rho_final ≈ equilibrium atol=1e-12
+    end
+end
+
 @testset "DLL research facade" begin
     H = Hermitian(.3X+.4Y+.7Z)
     times = [0.,.2,1.,4.]

@@ -2,7 +2,7 @@ using Test, QuantumFurnace, LinearAlgebra, QuadGK, BSON
 
 struct UnsupportedCKGTransition <: AbstractCKGTransition end
 
-@testset "T15 typed CKG rates and Gaussian mixtures" begin
+@testset "typed CKG rates and Gaussian mixtures" begin
     beta=0.8; sigma=0.35
     rates=(GaussianTransition(beta;sigma,sigma_gamma=0.6),
         MetropolisTransition(beta;sigma),SmoothMetropolisTransition(beta;sigma),
@@ -145,6 +145,38 @@ struct UnsupportedCKGTransition <: AbstractCKGTransition end
             @test errors[end]<errors[1]/100
         end
     end
+    @testset "Physical sources, clocks and cached Hamiltonian validation" begin
+        H = Hermitian(0.3X + 0.4Y + 0.7Z)
+        beta = 0.8
+        ham = HamHam(H; beta_phys=beta)
+        A = ComplexF64[0.2im 1.1+0.3im; -0.4im 0.5]
+        r = GaussianTransition(beta; sigma=0.4, sigma_gamma=0.6)
+        options = (; construction=KMS(), transition_weight=r, jumps=[A],
+            complete_adjoint=true, rates=1.7)
+        raw = prepare_gibbs_inputs(ham; beta_phys=beta, options...)
+        clock = GeneratorClock{Float64}(:declared_clock, 2.7, 3.4)
+        scaled = prepare_gibbs_inputs(ham; temperature=inv(beta), clock, options...)
+        @test length(raw.jumps) == 2
+        @test raw.jumps[1].data ≈ sqrt(1.7)*A
+        @test raw.jumps[2].data ≈ sqrt(1.7)*A'
+        @test scaled.jumps[1].data ≈ sqrt(2.7)*raw.jumps[1].data
+        @test scaled.provenance.temperature_input == :temperature
+        @test scaled.provenance.cached_gibbs_check == :passed
+        @test scaled.provenance.generator_multiplier ≈ 2.7
+        @test scaled.provenance.time_multiplier ≈ inv(2.7)
+        @test scaled.provenance.source_filter_assignments === nothing
+        L = construct_lindbladian(raw.jumps, raw.config, raw.hamiltonian)
+        scaled_L = construct_lindbladian(scaled.jumps, scaled.config, scaled.hamiltonian)
+        @test scaled_L ≈ 2.7L atol=1e-12 rtol=1e-12
+        @test exp(0.3L) ≈ exp((0.3/2.7)*scaled_L) atol=1e-12 rtol=1e-12
+        @test_throws ArgumentError prepare_gibbs_inputs(ham; beta_phys=1.2, options...)
+        bad_gibbs = deepcopy(ham)
+        parent(bad_gibbs.gibbs)[1,2] = 0.1
+        @test_throws ArgumentError prepare_gibbs_inputs(bad_gibbs; beta_phys=beta, options...)
+        bad_bohr = deepcopy(ham)
+        bad_bohr.bohr_freqs[1,2] += 0.1
+        @test_throws ArgumentError prepare_gibbs_inputs(bad_bohr; beta_phys=beta, options...)
+    end
     @testset "Typed built-ins retain legacy Time generators" begin
         H=ComplexF64[0.2 0.1im; -0.1im 0.9]
         for r in rates[1:4]
@@ -161,7 +193,7 @@ struct UnsupportedCKGTransition <: AbstractCKGTransition end
     end
 end
 
-@testset "T16 general complex CKG joint compiler" begin
+@testset "general complex CKG joint compiler" begin
     beta_phys=0.8
     # Independent structural family: C=e^(beta*x/4)q, gamma=e^(-beta*w/2)g,
     # q conjugate-reflected, g even nonnegative. Normalisation is explicit.
@@ -303,7 +335,7 @@ end
     end
 end
 
-@testset "T17 general CKG Time and capability gate" begin
+@testset "general CKG Time and capability gate" begin
     beta=.8; H=ComplexF64[-.35 0;0 .35]
     A=ComplexF64[.2 .3im;.4 -.1]; sources=[A,Matrix(A')]
     z=inv(sqrt(first(quadgk(x->exp(beta*x/2-2x^4),-Inf,Inf;rtol=1e-12))))

@@ -229,7 +229,6 @@ function validate_config!(
     _collect_simulation_errors!(errors, config)
 
     # --- Common Validation Logic ---
-    # GNS coherent check removed: type system enforces with_coherent(::GNS) = false via trait.
 
     # DLL carries its thermal weighting in the filter, without a CKG rate.
     if !(config.construction isa DLL) && !(config.transition_weight isa Union{GaussianMixtureTransition,PreparedCKGJointKernel})
@@ -333,7 +332,7 @@ function validate_config!(
         end
     end
 
-    # --- DLL construction validation (DLL-2) ---
+    # DLL construction validation.
     if config.construction isa DLL
         if config.sim isa Thermalize &&
            !(_allow_hypothetical_dll_trotter && config.domain isa TrotterDomain)
@@ -344,10 +343,8 @@ function validate_config!(
             push!(errors, "DLL construction requires an explicit AbstractFilter " *
                           "(e.g. DLLGaussianFilter(beta) or DLLMetropolisFilter(beta)).")
         end
-        # EnergyDomain DLL is not in the DLL-2 scope; the paper's EnergyDomain
-        # analogue would re-introduce an outer ω-grid and is deferred.
         if config.domain isa EnergyDomain
-            push!(errors, "DLL construction is not supported in EnergyDomain (out of scope for DLL-2).")
+            push!(errors, "DLL construction is not supported in EnergyDomain.")
         end
         # Trotter-domain DLL needs a quadrature defined on Trotter eigenvalues.
         if config.domain isa TrotterDomain && !_allow_hypothetical_dll_trotter
@@ -434,20 +431,23 @@ function validate_config!(
         end
     end
 
-    # HamHam caches the Gibbs state at construction. Check its diagonal weights
-    # even on the legacy beta_alg-only path so dynamics and diagnostics cannot
-    # silently use different temperatures.
+    _validate_cached_gibbs(ham, config.beta; atol, rtol)
+    return nothing
+end
+
+function _validate_cached_gibbs(ham::HamHam, algorithm_beta; atol, rtol)
+    dim = size(ham.data, 1)
     length(ham.eigvals) == dim || throw(ArgumentError(
         "ham.eigvals length $(length(ham.eigvals)) does not match dimension $dim."))
     size(ham.gibbs) == (dim, dim) && all(isfinite, ham.gibbs) ||
         throw(ArgumentError("ham.gibbs must be a finite matrix matching ham dimensions."))
     emin = minimum(ham.eigvals)
-    weights = exp.(-config.beta .* (ham.eigvals .- emin))
+    weights = exp.(-algorithm_beta .* (ham.eigvals .- emin))
     weights ./= sum(weights)
     @inbounds for i in 1:dim
         isapprox(ham.gibbs[i, i], weights[i]; atol=atol, rtol=rtol) ||
             throw(ArgumentError(
-                "ham.gibbs was cached at a beta_alg different from config.beta=$(config.beta). " *
+                "ham.gibbs does not match the requested algorithm beta=$(algorithm_beta). " *
                 "Reconstruct HamHam with the same beta before building dynamics."))
     end
     @inbounds for j in 1:dim, i in 1:dim
@@ -458,8 +458,7 @@ function validate_config!(
     return nothing
 end
 
-# These are coordinate conversions of existing full DLL Fourier pairs, with
-# no generator-time rescaling: F_alg(nu) = F_phys(R*nu).
+# DLL Fourier coordinate conversion: F_alg(nu) = F_phys(R*nu).
 _physical_dll_filter(f::DLLGaussianFilter, R::T, beta::T) where {T} =
     DLLGaussianFilter(beta)
 _physical_dll_filter(f::DLLMetropolisFilter, R::T, beta::T) where {T} =
@@ -490,35 +489,82 @@ _dll_provenance_channels(f::AbstractFilter)=_flatten_local_dll_channels((f,))
 _physical_dll_filter(f::AbstractFilter, R, beta) = throw(ArgumentError(
     "Physical conversion is implemented only for built-in DLL filters; got $(typeof(f))."))
 
+
+function _prepare_physical_inputs(H; beta_phys, temperature, jumps, rates,
+    complete_adjoint, basis, clock)
+    (beta_phys === nothing) != (temperature === nothing) || throw(ArgumentError(
+        "Provide exactly one of beta_phys or temperature (energy units, k_B=1)."))
+    temperature_kind = temperature === nothing ? :beta_phys : :temperature
+    if temperature !== nothing
+        isfinite(temperature) && temperature > 0 || throw(ArgumentError(
+            "temperature must be finite and positive (k_B=1); endpoint limits are unsupported."))
+        beta_phys = inv(float(temperature))
+    end
+    isfinite(beta_phys) && beta_phys > 0 || throw(ArgumentError(
+        "beta_phys must be finite and > 0; beta=0 (infinite temperature) and beta=Inf (zero temperature) are unsupported."))
+    clock === nothing || clock isa GeneratorClock || throw(ArgumentError(
+        "clock must be nothing (raw generator) or an explicit GeneratorClock."))
+    H isa Union{HamHam,AbstractMatrix,NamedTuple} || throw(ArgumentError(
+        "H must be a physical matrix, raw Hamiltonian tuple, or HamHam."))
+    ham = HamHam(H; beta_phys)
+    T = eltype(ham.eigvals)
+    physical_beta = T(beta_phys)
+    algorithm_beta = beta_alg(ham, physical_beta)
+    if H isa HamHam
+        _validate_cached_gibbs(H, algorithm_beta; atol=100eps(T), rtol=100eps(T))
+        _jump_matches(H.bohr_freqs, ham.bohr_freqs, 100eps(T)) &&
+            H.bohr_dict == ham.bohr_dict || throw(ArgumentError(
+                "Prebuilt Hamiltonian Bohr caches are stale; reconstruct HamHam explicitly."))
+    end
+    prepared = prepare_jumps(jumps, ham; basis, rates, complete_adjoint)
+    multiplier = clock === nothing ? one(T) : T(clock.multiplier)
+    isfinite(multiplier) && multiplier > 0 && isfinite(inv(multiplier)) || throw(ArgumentError(
+        "Clock multiplier must be representable, finite and positive."))
+    compiled_jumps = clock === nothing ? prepared.jumps :
+        prepare_jumps(prepared.jumps, ham; rates=multiplier).jumps
+    provenance = (; beta_phys=physical_beta, beta_alg=algorithm_beta,
+        input_beta_phys=beta_phys, working_precision=T,
+        spectral_preparation=H isa AbstractMatrix ? :diagonalised : :validated_cached,
+        gibbs_preparation=H isa AbstractMatrix ? :matrix_spectral_preparation : :recomputed_from_validated_spectrum,
+        cached_gibbs_check=H isa HamHam ? :passed : :not_applicable,
+        cached_gibbs_atol=100eps(T), cached_gibbs_rtol=100eps(T),
+        rescaling_factor=ham.rescaling_factor, energy_shift=ham.shift,
+        input_frame=H isa AbstractMatrix ? :physical : :algorithm,
+        resolved_frame=:algorithm, temperature_input=temperature_kind,
+        temperature_unit=:energy_kB_one, sources=prepared.provenance,
+        clock_label=clock === nothing ? :raw_generator : clock.label,
+        generator_multiplier=multiplier, time_multiplier=inv(multiplier), derived_clock=clock,
+        clock_rate_evidence=clock === nothing ? :not_provided : :user_declared,
+        gibbs_underflow=any(iszero, diag(ham.gibbs)))
+    return (; hamiltonian=ham, jumps=compiled_jumps, provenance)
+end
+
 """
     prepare_gibbs_inputs(H; beta_phys=nothing, temperature=nothing, filter=DLLGaussianFilter,
         jumps=:onsite_paulis, rates=1, complete_adjoint=false,
         basis=:computational, domain=BohrDomain(), construction=DLL(),
         time_step=nothing, num_energy_bits=nothing, clock=nothing)
 
-Prepare `(hamiltonian, config, jumps, provenance)` for the existing low-level
-DLL constructors. `H` is a physical matrix, raw Hamiltonian tuple, or `HamHam`.
-All filter parameters and `time_step` are physical-frame inputs. A filter type
-or factory receives `beta_phys`; an instance must match that temperature.
-Built-in Gaussian, Metropolis, symmetric translates and multiple channels are
-supported. CKG configuration remains available through the legacy Config API.
+Prepare `(hamiltonian, config, jumps, provenance)` from a physical matrix, raw
+Hamiltonian tuple or `HamHam`. DLL is the default; `construction=KMS()` selects
+CKG with a typed transition or joint kernel. Filter parameters and grid steps
+use physical units. A filter factory receives `beta_phys`; instances must
+match that temperature.
 
-Supply exactly one of `beta_phys` or `temperature` (energy units, `k_B=1`).
-Finite `beta_phys > 0` is required: neither the infinite-temperature `beta=0`
-limit nor the zero-temperature `beta=Inf` limit is implemented by these kernels.
-A prebuilt Hamiltonian must already cache the requested Gibbs state; explicitly
-use `HamHam(ham; beta_phys=new_beta)` to change temperature without diagonalising.
+Supply exactly one finite positive `beta_phys` or `temperature` (`k_B=1`).
+A prebuilt Hamiltonian must cache the requested Gibbs state. Use
+`HamHam(ham; beta_phys=new_beta)` to change its temperature without diagonalising.
 
-Bohr needs no registers. Time requires an explicit physical `time_step` and
-`num_energy_bits`; legacy filters use their shared time grid for both terms. Prepared filters
-accept independent coherent controls via prepare_filter_transform. No accuracy certificate
-or default quadrature resolution is inferred from these controls.
+Bohr uses no registers. DLL Time requires physical `time_step` and
+`num_energy_bits`; custom filters require `prepare_filter_transform` and its
+independent coherent controls. CKG Energy uses `energy_step` and
+`num_energy_bits`; general CKG Time requires a joint kernel with transform
+controls. Check discretisation accuracy independently.
 
-The default clock is `:raw_generator`, multiplier one. An optional existing
-`GeneratorClock` applies `sqrt(clock.multiplier)` to every prepared source,
-thus multiplying the entire generator (including B). Its `rate` is a user
-declaration, not an estimated spectral gap. For `L_new=m*L_raw`, decay rates
-multiply by `m`, and an equal evolution uses `t_new=t_raw/m`.
+The default clock is `:raw_generator`. An explicit `GeneratorClock` multiplies
+every source by `sqrt(clock.multiplier)`, scaling the complete generator and
+its decay rates by `clock.multiplier`. Equal evolutions then use reciprocal
+times. `clock.rate` is a user declaration, not an estimated gap.
 """
 function prepare_gibbs_inputs(H; beta_phys::Union{Nothing,Real}=nothing,
     temperature::Union{Nothing,Real}=nothing, filter=nothing,
@@ -533,19 +579,9 @@ function prepare_gibbs_inputs(H; beta_phys::Union{Nothing,Real}=nothing,
     transition_weight===nothing && energy_step===nothing || throw(ArgumentError("DLL does not use a CKG transition_weight or energy_step."))
     filter===nothing && (filter=DLLGaussianFilter)
     construction isa DLL || throw(ArgumentError(
-        "prepare_gibbs_inputs supports DLL and typed CKG KMS; use the legacy Config API for GNS."))
+        "prepare_gibbs_inputs supports DLL and typed CKG KMS; use the Config API for GNS."))
     domain isa Union{BohrDomain,TimeDomain} || throw(ArgumentError(
         "DLL preparation supports BohrDomain and TimeDomain only."))
-    (beta_phys === nothing) != (temperature === nothing) || throw(ArgumentError(
-        "Provide exactly one of beta_phys or temperature (energy units, k_B=1)."))
-    temperature_kind = temperature === nothing ? :beta_phys : :temperature
-    if temperature !== nothing
-        isfinite(temperature) && temperature > 0 || throw(ArgumentError(
-            "temperature must be finite and positive (k_B=1); endpoint limits are unsupported."))
-        beta_phys = inv(float(temperature))
-    end
-    isfinite(beta_phys) && beta_phys > 0 || throw(ArgumentError(
-        "beta_phys must be finite and > 0; beta=0 (infinite temperature) and beta=Inf (zero temperature) are unsupported."))
     if domain isa BohrDomain
         time_step === nothing && num_energy_bits === nothing || throw(ArgumentError(
             "BohrDomain does not use time registers; omit time_step and num_energy_bits."))
@@ -554,14 +590,11 @@ function prepare_gibbs_inputs(H; beta_phys::Union{Nothing,Real}=nothing,
             num_energy_bits !== nothing && num_energy_bits > 0 || throw(ArgumentError(
                 "TimeDomain requires positive physical time_step and num_energy_bits."))
     end
-    clock === nothing || clock isa GeneratorClock || throw(ArgumentError(
-        "clock must be nothing (raw generator) or an explicit GeneratorClock."))
-    H isa Union{HamHam,AbstractMatrix,NamedTuple} || throw(ArgumentError(
-        "H must be a physical matrix, raw Hamiltonian tuple, or HamHam."))
-    ham = HamHam(H; beta_phys)
+    base = _prepare_physical_inputs(H; beta_phys, temperature, jumps, rates,
+        complete_adjoint, basis, clock)
+    ham = base.hamiltonian
     T = eltype(ham.eigvals)
-    physical_beta = T(beta_phys)
-    algorithm_beta = beta_alg(ham, physical_beta)
+    physical_beta, algorithm_beta = base.provenance.beta_phys, base.provenance.beta_alg
     filter isa AbstractFilter || applicable(filter, physical_beta) || throw(ArgumentError(
         "filter must be a built-in DLL instance or a factory accepting physical beta."))
     physical_filter = filter isa AbstractFilter ? filter : filter(physical_beta)
@@ -573,13 +606,11 @@ function prepare_gibbs_inputs(H; beta_phys::Union{Nothing,Real}=nothing,
         "Filter must match beta_phys at Hamiltonian precision: " * join(filter_errors, "; ")))
     physical_filter = _physical_dll_filter(physical_filter, one(T), physical_beta)
     algorithm_filter = _physical_dll_filter(physical_filter, ham.rescaling_factor, algorithm_beta)
-    prepared = prepare_jumps(jumps, ham; basis, rates, complete_adjoint)
     if physical_filter isa DLLSourceFilters
-        length(physical_filter.assignments)==prepared.provenance.input_count || throw(ArgumentError("One DLL filter assignment is required per input source."))
-        ids=prepared.provenance.source_indices
+        length(physical_filter.assignments)==base.provenance.sources.input_count || throw(ArgumentError("One DLL filter assignment is required per input source."))
+        ids=base.provenance.sources.source_indices
         physical_filter=DLLSourceFilters(Tuple(physical_filter.assignments[i] for i in ids),physical_beta)
         algorithm_filter=DLLSourceFilters(Tuple(algorithm_filter.assignments[i] for i in ids),algorithm_beta)
-        _validate_dll_source_assignments(algorithm_filter,prepared.jumps)
     end
     cfg = Config(; sim=Lindbladian(), domain, construction,
         num_qubits=trailing_zeros(size(ham.data,1)), with_linear_combination=false,
@@ -588,45 +619,20 @@ function prepare_gibbs_inputs(H; beta_phys::Union{Nothing,Real}=nothing,
         filter=algorithm_filter, num_energy_bits_D=num_energy_bits,
         t0_D=time_step === nothing ? nothing : T(time_step * ham.rescaling_factor))
     validate_config!(cfg, ham; atol=100eps(T), rtol=100eps(T))
-    if H isa HamHam
-        validate_config!(cfg, H; atol=100eps(T), rtol=100eps(T))
-        _jump_matches(H.bohr_freqs, ham.bohr_freqs, 100eps(T)) &&
-            H.bohr_dict == ham.bohr_dict || throw(ArgumentError(
-                "Prebuilt Hamiltonian Bohr caches are stale; reconstruct HamHam explicitly."))
-    end
-    multiplier = clock === nothing ? one(T) : T(clock.multiplier)
-    isfinite(multiplier) && multiplier > 0 && isfinite(inv(multiplier)) || throw(ArgumentError(
-        "Clock multiplier must be representable, finite and positive."))
-    compiled_jumps = clock === nothing ? prepared.jumps :
-        prepare_jumps(prepared.jumps, ham; rates=multiplier).jumps
     physical_channels = _dll_provenance_channels(physical_filter)
     algorithm_channels = _dll_provenance_channels(algorithm_filter)
-    provenance = (; beta_phys=physical_beta, beta_alg=algorithm_beta,
-        input_beta_phys=beta_phys, working_precision=T,
-        spectral_preparation=H isa AbstractMatrix ? :diagonalised : :validated_cached,
-        gibbs_preparation=H isa AbstractMatrix ? :matrix_spectral_preparation : :recomputed_from_validated_spectrum,
-        cached_gibbs_check=H isa HamHam ? :passed : :not_applicable,
-        cached_gibbs_atol=100eps(T), cached_gibbs_rtol=100eps(T),
-        rescaling_factor=ham.rescaling_factor, energy_shift=ham.shift,
-        input_frame=H isa AbstractMatrix ? :physical : :algorithm,
-        filter_input_frame=:physical, resolved_frame=:algorithm,
-        temperature_input=temperature_kind, temperature_unit=:energy_kB_one,
+    provenance = merge(base.provenance, (; filter_input_frame=:physical,
         physical_filters=Tuple(_filter_frame(c,:physical,T) for c in physical_channels),
         algorithm_filters=Tuple(_filter_frame(c,:algorithm,T) for c in algorithm_channels),
         physical_filter, algorithm_filter,
         filter_evidence=Tuple(filter_evidence(c) for c in physical_channels),
-        sources=prepared.provenance,
         source_filter_assignments=algorithm_filter isa DLLSourceFilters ?
-            (;partners=_validate_dll_source_assignments(algorithm_filter,compiled_jumps),
+            (;partners=_validate_dll_source_assignments(algorithm_filter,base.jumps),
               channel_counts=map(a->length(_flatten_local_dll_channels((a,))),algorithm_filter.assignments),
               order=:input_source_then_channel,repetitions=:add_rates) : nothing,
         physical_time_step=time_step === nothing ? nothing : T(time_step),
-        algorithm_time_step=cfg.t0_D, clock_label=clock === nothing ? :raw_generator : clock.label,
-        generator_multiplier=multiplier, time_multiplier=inv(multiplier), derived_clock=clock,
-        clock_rate_evidence=clock === nothing ? :not_provided : :user_declared,
-        sigma_role=:unused_dll_compatibility,
-        gibbs_underflow=any(iszero, diag(ham.gibbs)))
-    return (; hamiltonian=ham, config=cfg, jumps=compiled_jumps, provenance)
+        algorithm_time_step=cfg.t0_D, sigma_role=:unused_dll_compatibility))
+    return (; hamiltonian=ham, config=cfg, jumps=base.jumps, provenance)
 end
 
 """

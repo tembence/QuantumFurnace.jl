@@ -157,7 +157,7 @@ function compile_ckg_kernel(r::CKGJointKernel,frequencies;strict::Bool=true,
     end
     scale=maximum(abs,reference)
     scale>0 && isfinite(scale) || throw(ArgumentError("Joint kernel has zero or nonfinite reference scale; balance is unresolved."))
-    # PHYSICS CHECK: use a bounded tilt, so low-temperature overflow cannot
+    # use a bounded tilt, so low-temperature overflow cannot
     # manufacture a passing identity. Opposite entries use swapped indices.
     function defect(a)
         worst=zero(T)
@@ -202,7 +202,7 @@ function _prepare_joint_ckg_inputs(base,r,domain,num_energy_bits,energy_step,tim
     ham=base.hamiltonian; T=eltype(ham.eigvals); R=T(ham.rescaling_factor)
     # Existing Energy actions are Float64-only; never silently narrow precision.
     T===Float64 || throw(ArgumentError("General CKG Bohr/Energy/Time facade currently requires Float64 Hamiltonian data."))
-    algorithm=CKGJointKernel(base.config.beta;oft=x->sqrt(R)*r.oft(R*x),rate=x->r.rate(R*x),
+    algorithm=CKGJointKernel(base.provenance.beta_alg;oft=x->sqrt(R)*r.oft(R*x),rate=x->r.rate(R*x),
         frequency_window=r.frequency_window./R,panels=r.panels,rtol=r.rtol,balance_rtol=r.balance_rtol,
         max_bohr_frequencies=r.max_bohr_frequencies,max_bytes=r.max_bytes,maxevals=r.maxevals,
         structural_provenance=r.structural_provenance,
@@ -214,12 +214,13 @@ function _prepare_joint_ckg_inputs(base,r,domain,num_energy_bits,energy_step,tim
     labels=domain isa EnergyDomain ? _create_energy_labels(num_energy_bits,step) : nothing
     compiled=compile_ckg_kernel(algorithm,keys(ham.bohr_dict);energy_labels=labels,energy_step=step)
     domain isa TimeDomain && (compiled=_compile_ckg_time(algorithm,compiled,T(time_step*R),num_energy_bits,length(ham.eigvals)))
-    cfg=Config(;sim=Lindbladian(),domain,construction=KMS(),num_qubits=base.config.num_qubits,
-        beta=base.config.beta,beta_phys=base.config.beta_phys,sigma=inv(base.config.beta),
+    cfg=Config(;sim=Lindbladian(),domain,construction=KMS(),num_qubits=trailing_zeros(size(ham.data,1)),
+        beta=base.provenance.beta_alg,beta_phys=base.provenance.beta_phys,sigma=inv(base.provenance.beta_alg),
         filter=compiled.oft,transition_weight=compiled,with_linear_combination=false,num_energy_bits_D=num_energy_bits,w0_D=step,
         t0_D=time_step===nothing ? nothing : T(time_step*R))
     validate_config!(cfg,ham)
-    provenance=merge(base.provenance,(;construction=:CKG_KMS,physical_filter=r.oft,algorithm_filter=compiled.oft,
+    provenance=merge(base.provenance,(;construction=:CKG_KMS,filter_input_frame=:physical,
+        source_filter_assignments=nothing,physical_filter=r.oft,algorithm_filter=compiled.oft,
         physical_transition=r,algorithm_transition=compiled,filter_evidence=(compiled.evidence,),
         physical_filters=((;family=:CKGJointOFT,frame=:physical),),
         algorithm_filters=((;family=:CKGJointOFT,frame=:algorithm),),

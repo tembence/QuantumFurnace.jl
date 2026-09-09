@@ -21,21 +21,10 @@ function Base.show(io::IO,r::GibbsSimulationResult)
         ", basis=",r.provenance.basis,")")
 end
 
-# Preflight intentionally does not call HamHam or rotate/diagonalise any matrix.
-function _gibbs_preflight(H; beta_phys=nothing,temperature=nothing,
-    filter=nothing,jumps=:onsite_paulis,rates=1,complete_adjoint::Bool=false,
-    basis::Symbol=:computational,domain::AbstractDomain=BohrDomain(),
-    construction::AbstractConstruction=DLL(),time_step=nothing,num_energy_bits=nothing,
-    clock=nothing,transition_weight=nothing,energy_step=nothing,max_bytes::Integer=256*1024^2)
-    if construction isa KMS
-        return _ckg_preflight(H;beta_phys,temperature,filter,jumps,rates,complete_adjoint,basis,
-            domain,time_step,num_energy_bits,clock,transition_weight,energy_step,max_bytes)
-    end
-    energy_step===nothing || throw(ArgumentError("DLL does not use energy_step."))
-    filter===nothing && (filter=DLLGaussianFilter)
-    construction isa DLL || throw(ArgumentError("The facade supports DLL and CKG KMS; GNS uses the legacy Config API."))
-    domain isa Union{BohrDomain,TimeDomain} || throw(ArgumentError("DLL facade supports BohrDomain and TimeDomain."))
-    transition_weight === nothing || throw(ArgumentError("DLL already includes the thermal amplitude; transition_weight must be nothing."))
+# Validate model, temperature and sources without diagonalising the Hamiltonian.
+function _physical_preflight(H; beta_phys=nothing, temperature=nothing,
+    jumps=:onsite_paulis, rates=1, complete_adjoint::Bool=false,
+    basis::Symbol=:computational, clock=nothing, max_bytes::Integer=256*1024^2)
     basis in (:computational,:eigen) || throw(ArgumentError("basis must be :computational or :eigen."))
     (beta_phys === nothing) != (temperature === nothing) || throw(ArgumentError("Supply exactly one of beta_phys or temperature."))
     beta = temperature === nothing ? beta_phys : inv(temperature)
@@ -58,6 +47,38 @@ function _gibbs_preflight(H; beta_phys=nothing,temperature=nothing,
     rate_values = rates isa Real ? (rates,) : rates
     (rates isa Real || length(rates)==count) && all(r -> r isa Real && isfinite(r) && r > 0,rate_values) ||
         throw(ArgumentError("Source rates must be positive finite scalars, one per source."))
+    source_bound = complete_adjoint && !(jumps isa Symbol) ? 2count : count
+    bytes = big(16)*d^2*(80+12source_bound+20Threads.nthreads())
+    return (;dimension=d,num_qubits=n,
+        beta_phys=beta,beta_alg=H isa AbstractMatrix ? nothing : beta*H.rescaling_factor,
+        rescaling_factor=H isa AbstractMatrix ? nothing : H.rescaling_factor,
+        basis,source_count=count,compiled_source_upper_bound=source_bound,complete_adjoint,rates,
+        clock=clock === nothing ? :raw_generator : clock.label,
+        generator_multiplier=clock === nothing ? 1. : clock.multiplier,
+        estimated_construction_bytes=bytes,max_bytes,permitted=bytes<=max_bytes,
+        spectral_preparation=:not_run,
+        unresolved=H isa AbstractMatrix ? (:beta_alg,:rescaling_factor,:cached_gibbs,:source_basis_validation) : (:cached_gibbs,:source_basis_validation),
+        resource_scope=:conservative_working_set_estimate)
+end
+
+# Preflight intentionally does not call HamHam or rotate/diagonalise any matrix.
+function _gibbs_preflight(H; beta_phys=nothing,temperature=nothing,
+    filter=nothing,jumps=:onsite_paulis,rates=1,complete_adjoint::Bool=false,
+    basis::Symbol=:computational,domain::AbstractDomain=BohrDomain(),
+    construction::AbstractConstruction=DLL(),time_step=nothing,num_energy_bits=nothing,
+    clock=nothing,transition_weight=nothing,energy_step=nothing,max_bytes::Integer=256*1024^2)
+    if construction isa KMS
+        return _ckg_preflight(H;beta_phys,temperature,filter,jumps,rates,complete_adjoint,basis,
+            domain,time_step,num_energy_bits,clock,transition_weight,energy_step,max_bytes)
+    end
+    energy_step===nothing || throw(ArgumentError("DLL does not use energy_step."))
+    filter===nothing && (filter=DLLGaussianFilter)
+    construction isa DLL || throw(ArgumentError("The facade supports DLL and CKG KMS; GNS uses the legacy Config API."))
+    domain isa Union{BohrDomain,TimeDomain} || throw(ArgumentError("DLL facade supports BohrDomain and TimeDomain."))
+    transition_weight === nothing || throw(ArgumentError("DLL already includes the thermal amplitude; transition_weight must be nothing."))
+    base = _physical_preflight(H;beta_phys,temperature,jumps,rates,complete_adjoint,basis,clock,max_bytes)
+    beta, d = base.beta_phys, base.dimension
+    matrix = H isa AbstractMatrix ? H : H isa HamHam ? H.data : H.matrix
     physical = filter isa AbstractFilter ? filter : applicable(filter,beta) ? filter(beta) :
         throw(ArgumentError("filter must be a built-in DLL instance or physical-beta factory."))
     physical isa AbstractFilter || throw(ArgumentError("Filter factory must return an AbstractFilter."))
@@ -78,7 +99,7 @@ function _gibbs_preflight(H; beta_phys=nothing,temperature=nothing,
         time_step === nothing && num_energy_bits === nothing || throw(ArgumentError("BohrDomain does not use time registers."))
         big(0)
     end
-    source_bound = complete_adjoint && !(jumps isa Symbol) ? 2count : count
+    source_bound = base.compiled_source_upper_bound
     # Includes Hamiltonian spectral copies/Bohr caches, owned input/filtered
     # sources, per-thread matvec storage, and Time pair-grid temporaries.
     coherent_bytes=big(0)
@@ -96,18 +117,10 @@ function _gibbs_preflight(H; beta_phys=nothing,temperature=nothing,
             coherent_bytes+=big(128)*(largest_time^2+largest_freq^2)
         end
     end
-    bytes = big(16)*d^2*(80+12source_bound*channels+20Threads.nthreads()) + big(64)*nt^2 + coherent_bytes
-    return (;dimension=d,num_qubits=n,construction=:DLL,domain=Symbol(nameof(typeof(domain))),
-        beta_phys=beta,beta_alg=H isa AbstractMatrix ? nothing : beta*H.rescaling_factor,
-        rescaling_factor=H isa AbstractMatrix ? nothing : H.rescaling_factor,
-        basis,filter=physical,source_count=count,compiled_source_upper_bound=source_bound,
-        channel_count=channels,complete_adjoint,rates,
-        clock=clock === nothing ? :raw_generator : clock.label,
-        generator_multiplier=clock === nothing ? 1. : clock.multiplier,
-        estimated_construction_bytes=bytes,max_bytes,permitted=bytes<=max_bytes,
-        spectral_preparation=:not_run,
-        unresolved=H isa AbstractMatrix ? (:beta_alg,:rescaling_factor,:cached_gibbs,:source_basis_validation) : (:cached_gibbs,:source_basis_validation),
-        resource_scope=:conservative_working_set_estimate)
+    bytes = base.estimated_construction_bytes + big(192)*d^2*source_bound*(channels-1) + big(64)*nt^2 + coherent_bytes
+    return merge(base,(;construction=:DLL,domain=Symbol(nameof(typeof(domain))),
+        filter=physical,channel_count=channels,estimated_construction_bytes=bytes,
+        permitted=bytes<=max_bytes))
 end
 
 """
@@ -216,6 +229,19 @@ function _simulation_controls(times,d;diagnostics,method,save_states,max_saved_b
         max_bytes,max_matvecs,max_seconds,max_extensions,max_time,method)
 end
 
+# Return the supplied state and its representation in the evolution basis.
+function _prepare_initial_density(rho0, U, basis, ::Type{CT}, max_bytes) where {CT}
+    d = size(U, 1)
+    initial = rho0 === nothing ? fill(one(CT)/d, d, d) : Matrix{CT}(rho0)
+    size(initial) == (d,d) || throw(ArgumentError("rho0 must match the Hamiltonian dimension."))
+    checks = state_diagnostics(initial; rtol=max(1e-9,100eps(real(CT))),
+        dense_max_dim=d, max_dense_bytes=max_bytes)
+    all(c.status == :pass for c in values(checks)) || throw(ArgumentError(
+        "rho0 must be finite, Hermitian, unit trace and positive."))
+    rho = basis == :computational || rho0 === nothing ? Matrix{CT}(U'*initial*U) : initial
+    return initial, rho
+end
+
 function _join_trajectories(a,b)
     return merge(a,(;t=vcat(a.t,b.t[2:end]),distances=vcat(a.distances,b.distances[2:end]),
         rho_final=b.rho_final,total_matvecs=a.total_matvecs+b.total_matvecs,
@@ -248,19 +274,15 @@ function simulate_gibbs(ws::Workspace{KrylovSpectrum};times,rho0=nothing,
     dry_run && return (;provenance=ws.research_provenance,trajectory=controls,basis,diagnostics,spectral_preparation=:already_compiled)
     controls.permitted || throw(ArgumentError("Trajectory/state storage estimate exceeds memory cap."))
     CT = eltype(ws.G_left)
-    initial = rho0 === nothing ? fill(one(CT)/d,d,d) : Matrix{CT}(rho0)
-    size(initial) == (d,d) || throw(ArgumentError("rho0 must match the Hamiltonian dimension."))
-    # Positivity of user input is mandatory, within the preflight allocation cap.
-    initial_checks = state_diagnostics(initial;rtol=max(1e-9,100eps(real(CT))),dense_max_dim=d,max_dense_bytes=max_bytes)
-    all(c.status==:pass for c in values(initial_checks)) || throw(ArgumentError("rho0 must be finite, Hermitian, unit trace and positive; no repair of invalid input is applied."))
     U = ham.eigvecs
-    rho = basis==:computational || rho0===nothing ? Matrix{CT}(U'*initial*U) : initial
+    initial, rho = _prepare_initial_density(rho0, U, basis, CT, max_bytes)
+    dense_max_dim = diagnostics == :strict ? d : 64
     sigma = Matrix{CT}(ham.gibbs)
     budget = _work_budget(max_matvecs,max_seconds)
     action! = (out,x) -> copyto!(out,apply_lindbladian!(ws,x,cfg,ham))
     integrate(r,t;save=save_states) = lindblad_action_integrate(action!,r,sigma,collect(t);
         krylovdim=min(krylovdim,d^2+1),tol,save_states=save,repair_states,record_diagnostics=true,
-        dense_max_dim=64,max_dense_bytes=max_bytes,
+        dense_max_dim,max_dense_bytes=max_bytes,
         matvec_callback=budget.tick,work_callback=budget.check)
     predictor_check = _skipped("Spectral predictor not selected.")
     modal_crossing = nothing
@@ -272,7 +294,7 @@ function simulate_gibbs(ws::Workspace{KrylovSpectrum};times,rho0=nothing,
             trajectory = predict_lindbladian_trajectory(cfg,ham,ws.jumps,rho,collect(times);
                 workspace=ws,krylovdim,tol,save_states,raw_reconstruction=true,
                 matvec_callback=budget.tick,work_callback=budget.check,
-                max_dense_bytes=max_bytes)
+                dense_max_dim,max_dense_bytes=max_bytes)
             indices = unique([1,cld(length(times),2),length(times)])
             spot = integrate(rho,times[indices];save=true)
             defects = Float64[]
