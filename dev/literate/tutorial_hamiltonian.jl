@@ -27,8 +27,8 @@ println("Total Gibbs probability: ", round(real(tr(ham.gibbs)); sigdigits=3))
 # A total probability of one checks that the prepared target state is
 # normalised. This constructs the Gibbs target; no evolution has run yet.
 
-# A finite Hermitian qubit matrix is also accepted. It retains no invented local
-# decomposition for Trotter synthesis. Temperature uses energy units, k_B=1.
+# A finite Hermitian qubit matrix is also accepted. Trotter synthesis requires
+# a separate local decomposition. Temperature uses energy units, k_B=1.
 matrix_H = Hermitian(0.3X + 0.4Y + 0.7Z)
 preflight = simulate_gibbs(matrix_H; temperature=1.25, times=[0.0, 0.1], dry_run=true)
 @assert preflight.spectral_preparation == :not_run

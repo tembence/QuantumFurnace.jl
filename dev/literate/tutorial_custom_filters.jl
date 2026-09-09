@@ -56,7 +56,7 @@ println("Reached distance < 0.001: ", last(ckg.trajectory.distances) < ckg.conve
 
 # These examples use exact Bohr-frequency filtering. For custom Time evolution
 # and its separate Fourier/coherent controls, see the
-# [interface contract](../api_contract.md#Independent-coherent-controls-and-custom-DLL-Time-(T13)).
+# [interface contract](../api_contract.md#Independent-coherent-controls-and-custom-DLL-Time).
 
 # Names and parameter tuples alone do not define a closure. Portable
 # reconstruction needs the matching registered definition or explicit resupply;
