@@ -796,3 +796,75 @@ to continue the final density matrix. Timestamps and timing/thread metadata
 are runtime evidence, not deterministic physics outputs. Sample digests are
 change checks, not authentication or proof of global function identity. Unknown
 continuum tails and unavailable tests remain explicitly unknown or not run.
+
+## Finite-channel evolution through simulate_gibbs
+
+`sim=Lindbladian()` remains the default. `sim=Thermalize()` calls the existing
+`run_thermalize` backend and returns the same `GibbsSimulationResult` envelope:
+
+```julia
+H = pauli_hamiltonian(1, [0.3 => (1 => :X,), 0.7 => (1 => :Z,)])
+channel = simulate_gibbs(H; sim=Thermalize(), construction=KMS(),
+    beta_phys=0.8, delta=0.01, steps=5,
+    channel_options=(save_every=2,), save_states=true)
+channel.trajectory.channel_steps # [0, 2, 4, 5]
+```
+
+The evolution target and the numerical method are distinct:
+
+| Selection | Target | Algorithm |
+|---|---|---|
+| Default, `method=:krylov` | Continuous Lindblad semigroup | Successive Arnoldi exponential actions |
+| `method=:predictor` | Continuous Lindblad semigroup | Captured spectral modes with propagation spot checks |
+| `sim=Thermalize()` (`method=:channel`) | Finite channel composition | Explicit `run_thermalize` density-matrix steps |
+
+Physical channel inputs currently support CKG built-in Gaussian OFT/rate
+families in Bohr and Energy domains. Supply `construction=KMS()` explicitly;
+there is no silent switch from the default DLL construction. DLL and general
+custom joint CKG channels reject. Existing Time/Trotter/GNS configurations use
+`simulate_gibbs(jumps, config::Config{Thermalize}, ham, trotter=nothing; steps, ...)`.
+The existing GQSP polynomial surrogate remains labelled as such and gives an
+inconclusive physical convergence status. It is not a certified circuit block.
+
+`delta` must be finite with `0 < delta <= 1`. Use integer `steps`, or supply
+`times` starting at zero with every entry an integer multiple of delta.
+`channel_options` accepts `save_every`, `jump_selection`, `seed`, `max_steps`,
+and `rescale_by_inv_prob`. The final completed endpoint is always recorded,
+including an endpoint between scheduled samples after cooperative budget
+exhaustion. `max_seconds` and `max_steps` are checked between outer steps;
+channel preparation and individual numerical kernels cannot be preempted.
+Memory estimates are working-set gates, not hard RSS guarantees. The requested
+step horizon is not shortened merely because an earlier sample is near Gibbs.
+
+States default to the computational basis and the computational plus product
+initial state, matching the Lindblad facade. For the legacy overload,
+`basis=:eigen` means the backend working basis: the D-register Trotter eigenbasis
+in TrotterDomain, otherwise the Hamiltonian eigenbasis. JumpOp caches must
+already match that backend basis. Raw updates are used by default;
+`repair_states=true` enables the backend's per-substep Hermitian projection,
+recorded as `provenance.hermitized`; no trace renormalisation is performed.
+
+A sweep applies all source subchannels in order. Random selection applies one
+source, with the legacy probability-compensation convention unless explicitly
+overridden, and returns density matrices conditioned on that source history.
+It does not average source histories or sample measurement outcomes. Provenance
+retains the seed, source selection multiplier, backend `gamma_norm_factor`,
+step size, actual counts, and channel representation. Physical preparation
+already applies any requested generator multiplier to source amplitudes;
+delta is not multiplied again. Hamiltonian energy rescaling alone does not
+change the channel clock. Channel compilation enforces its rate-operator bound;
+smaller delta alone does not fix an oversized source family.
+
+Channel state checks and trace drift are numerical evidence about the recorded
+states. `spectrum.reliability=:not_run`, KMS/stationarity/uniqueness remain
+unestablished, and threshold crossings are observed samples for this initial
+state/history. They are not monotone convergence or worst-case mixing claims.
+The finite channel generally differs from the ideal semigroup and can have a
+Gibbs bias. Lindblad solver/gap/extension options reject for channel runs.
+
+`save_result` and `load_result` retain channel evidence. Automatic
+`Workspace(channel_result)` and result-based continuation explicitly reject;
+they never reinterpret a channel as a Lindbladian. Continue manually using the
+same original channel inputs and `rho0=channel_result.trajectory.rho_final`.
+For random selection a fresh seeded call begins a new source-choice stream;
+no random-generator checkpoint is restored.

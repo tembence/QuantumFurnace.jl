@@ -28,6 +28,12 @@ function _prepare_oft_nufft_prefactors(
     @assert dim1 == dim2
     dim = dim1
 
+    # Hermitian-source kernels evaluate nonpositive labels through their positive
+    # partners. An untruncated even grid contains -N*w0/2 but not +N*w0/2.
+    # Cache any missing partners explicitly, retaining original slice indices;
+    # the caller's quadrature grid and its weights remain unchanged.
+    energy_labels = unique(vcat(energy_labels, abs.(energy_labels)))
+
     # Store prefactors using the energy-grid precision.
     T = eltype(energy_labels)
 

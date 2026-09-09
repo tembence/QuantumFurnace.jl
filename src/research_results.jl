@@ -266,7 +266,11 @@ function _write_result_companion_txt(r::GibbsSimulationResult,path::String)
     open(path,"w") do io
         show(io,r); println(io)
         println(io,"Schema: 1; numerical evidence, no certified worst-case mixing claim.")
-        println(io,"Rebuild with Workspace(result); unregistered callbacks require explicit resupply.")
+        if get(r.provenance,:evolution,:lindbladian)==:channel
+            println(io,"Channel evidence only; continue with original channel inputs and the saved final density matrix.")
+        else
+            println(io,"Rebuild with Workspace(result); unregistered callbacks require explicit resupply.")
+        end
     end
 end
 
@@ -281,6 +285,8 @@ and transform controls are fixed by the snapshot: use new physical inputs to
 change them. No FFT/backend plans or mutable caches are loaded.
 """
 function Workspace(r::GibbsSimulationResult;filters=Dict(),max_bytes::Integer=256*1024^2)
+    get(r.provenance,:evolution,:lindbladian)==:channel && throw(ArgumentError(
+        "Channel evidence cannot rebuild a Lindbladian workspace. Continue with original channel inputs and rho0=result.trajectory.rho_final."))
     haskey(r.provenance,:replay) || throw(ArgumentError("This result has no physical-input replay snapshot; rebuild from original inputs."))
     d=r.provenance.replay
     body=Dict(k=>v for (k,v) in d if k!=:digest)

@@ -1,9 +1,10 @@
 # DLL-first orchestration. Numerical construction/propagation stay in the
 # existing HamHam, Workspace, Krylov and diagnostic implementations.
 
-"""Combined trajectory, independent spectrum, checks and physical-input provenance.
+"""Combined trajectory, available spectral evidence, checks and input provenance.
 `trajectory.distances` is the half trace norm; `trajectory.trace_norms` is twice it.
-`save_result` retains portable evidence and a recipe for rebuilding workspaces.
+`save_result` retains portable evidence; Lindblad runs additionally retain a
+recipe for rebuilding workspaces. Channel results are evidence-only.
 """
 struct GibbsSimulationResult{T,S,D,P,C} <: AbstractResults
     trajectory::T
@@ -139,12 +140,19 @@ end
     simulate_gibbs(H; times, beta_phys, diagnostics=:standard, ...)
     simulate_gibbs(ws; times, rho0=nothing, basis=:computational, ...)
 
-Evolve the full DLL or CKG generator by matrix-free Krylov exponentiation. Inputs and
-outputs use the declared basis; default rho0 is computational |+><+| tensor power.
+`sim=Lindbladian()` (default) evolves the full DLL or CKG generator by matrix-free
+Krylov exponentiation. `sim=Thermalize()` selects the existing finite-channel
+`run_thermalize` backend with `delta` and integer `steps` (or times on that grid).
+Use explicit `construction=KMS()` for physical-input channel runs; DLL channels
+are unavailable. `channel_options=(save_every=1, jump_selection=:sweep, seed=0,
+max_steps=100000)` controls channel sampling and work. Channel evidence can be
+saved/loaded; automatic workspace reconstruction/continuation is unsupported.
+Inputs and outputs use the declared basis; default rho0 is computational |+><+| tensor power.
 The returned initial-state-specific threshold refers to trace distance (half
 trace norm), never worst-case mixing. `:not_reached_by_horizon` is not a claim of
-nonergodicity. Raw states are not repaired by default; `repair_states=true`
-explicitly enables recorded Hermitian/trace corrections.
+nonergodicity. Raw states are not repaired by default. In Lindblad mode,
+`repair_states=true` enables recorded Hermitian/trace corrections; in channel
+mode it enables per-substep Hermitian projection without trace normalisation.
 
 `method=:predictor` uses the existing state-coupled spectral predictor, retaining
 all captured modes, with independent full-state propagation spot checks and
@@ -154,14 +162,28 @@ Saved states default off and require `max_saved_bytes`. Construction, trajectory
 and diagnostics have explicit estimates/caps; `gap_options` controls the separate
 robust spectral budget. `dry_run` performs no Hamiltonian diagonalisation.
 """
-function simulate_gibbs(H::Union{AbstractMatrix,NamedTuple,HamHam};times,
+function simulate_gibbs(H::Union{AbstractMatrix,NamedTuple,HamHam};times=nothing,
+    sim::AbstractSimulation=Lindbladian(),steps=nothing,delta=nothing,channel_options::NamedTuple=(;),
     rho0=nothing,basis::Symbol=:computational,diagnostics::Symbol=:standard,
     dry_run::Bool=false,max_bytes::Integer=256*1024^2,
-    method::Symbol=:krylov,save_states::Bool=false,max_saved_bytes::Integer=64*1024^2,
+    method::Union{Nothing,Symbol}=nothing,save_states::Bool=false,max_saved_bytes::Integer=64*1024^2,
     epsilon::Real=1e-3,krylovdim::Int=30,tol::Real=1e-10,
     max_matvecs::Integer=100000,max_seconds::Real=120,
-    max_extensions::Int=0,max_time::Real=isempty(times) ? 0. : last(times),repair_states::Bool=false,
+    max_extensions::Int=0,max_time::Real=times===nothing || isempty(times) ? 0. : last(times),repair_states::Bool=false,
     gap_options::NamedTuple=NamedTuple(),kwargs...)
+    if sim isa Thermalize
+        method in (nothing,:channel) || throw(ArgumentError("Thermalize uses method=:channel; Krylov/predictor evolve the Lindbladian."))
+        max_extensions==0 && max_time==(times===nothing || isempty(times) ? 0. : last(times)) &&
+            isempty(gap_options) && krylovdim==30 && tol==1e-10 && max_matvecs==100000 ||
+            throw(ArgumentError("Lindblad solver/gap/extension controls do not apply to channel runs; use channel_options=(max_steps=...,)."))
+        return _simulate_gibbs_channel(H;times,steps,delta,rho0,basis,diagnostics,dry_run,
+            max_bytes,save_states,max_saved_bytes,epsilon,max_seconds,repair_states,channel_options,kwargs...)
+    end
+    sim isa Lindbladian || throw(ArgumentError("sim must be Lindbladian() or Thermalize()."))
+    steps===nothing && delta===nothing && isempty(channel_options) ||
+        throw(ArgumentError("steps, delta and channel_options require sim=Thermalize()."))
+    times===nothing && throw(ArgumentError("Lindbladian evolution requires times."))
+    method = something(method,:krylov)
     _validate_time_grid(times;require_zero=true)
     preflight = Workspace(H;basis,dry_run=true,max_bytes,kwargs...)
     controls = _simulation_controls(times,preflight.dimension;diagnostics,method,

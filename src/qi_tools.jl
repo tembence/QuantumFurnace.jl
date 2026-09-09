@@ -333,6 +333,7 @@ Validate that stored jump operators form an adjoint-closed multiset.
 # Keywords
 - `allow_unpaired_nonhermitian`: Skip closure checks for non-physical diagnostics.
 - `atol`: Absolute tolerance in both stored bases.
+- `rtol`: Optional relative tolerance; `nothing` preserves the legacy isapprox default.
 
 # Returns
 `nothing`; throws `ArgumentError` on invalid Hermitian flags or missing adjoints.
@@ -342,13 +343,15 @@ KMS detailed balance requires
 """
 function validate_jump_pairing(jumps::AbstractVector{<:JumpOp};
                                 allow_unpaired_nonhermitian::Bool = false,
-                                atol::Real = 1e-12)
+                                atol::Real = 1e-12,
+                                rtol::Union{Nothing,Real} = nothing)
+    tolerances = rtol === nothing ? (;atol) : (;atol,rtol)
     invalid_hermitian_indices = Int[]
     for k in eachindex(jumps)
         jumps[k].hermitian || continue
-        data_ok = isapprox(jumps[k].data, jumps[k].data'; atol=atol)
+        data_ok = isapprox(jumps[k].data, jumps[k].data'; tolerances...)
         eigenbasis_ok = isapprox(
-            jumps[k].in_eigenbasis, jumps[k].in_eigenbasis'; atol=atol)
+            jumps[k].in_eigenbasis, jumps[k].in_eigenbasis'; tolerances...)
         (data_ok && eigenbasis_ok) || push!(invalid_hermitian_indices, k)
     end
     isempty(invalid_hermitian_indices) || throw(ArgumentError(
@@ -367,9 +370,9 @@ function validate_jump_pairing(jumps::AbstractVector{<:JumpOp};
         for j in eachindex(jumps)
             (j == k || matched[j] || jumps[j].hermitian) && continue
             data_ok = size(jumps[j].data) == size(data_adjoint) &&
-                isapprox(jumps[j].data, data_adjoint; atol=atol)
+                isapprox(jumps[j].data, data_adjoint; tolerances...)
             eigenbasis_ok = size(jumps[j].in_eigenbasis) == size(eigenbasis_adjoint) &&
-                isapprox(jumps[j].in_eigenbasis, eigenbasis_adjoint; atol=atol)
+                isapprox(jumps[j].in_eigenbasis, eigenbasis_adjoint; tolerances...)
             if data_ok && eigenbasis_ok
                 partner = j
                 break

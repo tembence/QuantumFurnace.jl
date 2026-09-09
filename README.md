@@ -61,6 +61,20 @@ concerns this initial state; independent spectral diagnostics can remain
 inconclusive. The times use the generator clock set by the source amplitudes.
 Hamiltonian rescaling alone does not multiply that clock.
 
+To apply the existing finite weak-measurement channel step by step, use:
+
+```julia
+channel = simulate_gibbs(H; sim=Thermalize(), construction=KMS(),
+    beta_phys=0.8, delta=0.01, steps=100)
+channel.trajectory.channel_steps
+```
+
+This calls `run_thermalize`; it evolves the finite channel rather than the
+continuous Lindblad semigroup. Channel state diagnostics are available;
+channel spectral/KMS checks remain explicitly not run. See the executable
+[simulation tutorial](docs/src/literate/tutorial_thermalize.jl) for sampling,
+saved states, random source selection and continuation limits.
+
 Select `construction=KMS()` for CKG KMS. DLL supports Bohr and Time domains;
 custom Time filters require explicit transform controls. DLL Energy, Trotter
 and GQSP reject. General CKG joint kernels support Bohr, Energy and controlled

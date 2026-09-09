@@ -156,7 +156,18 @@ distance from the Gibbs state.
 - `initial_dm`: initial state; defaults to `I/d`.
 - `rng`: used only for `jump_selection=:random`.
 - `rescale_by_inv_prob`: override the selection-dependent rate rescaling.
-- `save_every`: record and check convergence every this many outer steps.
+- `save_every`: record and check convergence every this many outer steps; always
+  record the final completed step.
+- `num_steps`: exact nonnegative outer-step count; defaults to `ceil(mixing_time/delta)`.
+- `record_steps`: strictly increasing integer recording grid from `0` to `num_steps`;
+  overrides `save_every`.
+- `save_states`: store copies of recorded states in `metadata[:states]`.
+- `hermitize`: preserve the legacy per-substep Hermitian projection; `false` keeps raw states.
+- `convergence_cutoff`: stop at a recorded distance below this value; `0` disables it.
+- `work_callback`: optional zero-argument callback before each outer step. An internal
+  work-limit exception stops cleanly at the last completed step; other errors propagate.
+- `observation_callback`: optional `(step, rho)` callback on initial and recorded states.
+  Treat `rho` as read-only; copy it if retaining it beyond the callback.
 - `allow_unpaired_nonhermitian`: opt out of adjoint-pair validation.
 - `verbose`: print configuration and recorded distances.
 
@@ -177,6 +188,13 @@ function run_thermalize(
     rng::AbstractRNG = Random.default_rng(),
     rescale_by_inv_prob::Union{Bool, Nothing} = nothing,
     save_every::Int = 1,
+    num_steps::Union{Nothing,Int} = nothing,
+    record_steps = nothing,
+    save_states::Bool = false,
+    hermitize::Bool = true,
+    convergence_cutoff::Real = 1e-5,
+    work_callback = nothing,
+    observation_callback = nothing,
     allow_unpaired_nonhermitian::Bool = false,
     verbose::Bool = false,
 ) where {D, C, T<:AbstractFloat}
@@ -194,8 +212,27 @@ function run_thermalize(
 
     validate_config!(config, hamiltonian)
     isempty(jumps) && throw(ArgumentError("run_thermalize requires at least one jump operator."))
-    validate_jump_pairing(jumps; allow_unpaired_nonhermitian=allow_unpaired_nonhermitian)
+    # Float32 basis rotation needs relative working-precision tolerance; an
+    # absolute floor would incorrectly accept mismatched tiny sources.
+    # Preserve the legacy policy for other working precisions.
+    validate_jump_pairing(jumps; allow_unpaired_nonhermitian=allow_unpaired_nonhermitian,
+        atol=T===Float32 ? 0 : 1e-12, rtol=T===Float32 ? 100eps(T) : nothing)
     @assert save_every >= 1 "save_every must be >= 1"
+    isfinite(convergence_cutoff) && convergence_cutoff >= 0 ||
+        throw(ArgumentError("convergence_cutoff must be finite and nonnegative."))
+    total_steps = num_steps === nothing ? Int(ceil(config.mixing_time / config.delta)) : num_steps
+    total_steps >= 0 || throw(ArgumentError("num_steps must be nonnegative."))
+    requested_record_steps = if record_steps === nothing
+        nothing
+    else
+        grid = collect(record_steps)
+        !isempty(grid) && all(x -> x isa Integer && !(x isa Bool), grid) ||
+            throw(ArgumentError("record_steps must be a nonempty integer grid."))
+        first(grid) == 0 && last(grid) == total_steps &&
+            all(i -> grid[i] < grid[i + 1], 1:(length(grid) - 1)) ||
+            throw(ArgumentError("record_steps must increase strictly from 0 to num_steps."))
+        Int.(grid)
+    end
     verbose && _print_press(config)
 
     if config.domain isa TrotterDomain
@@ -232,14 +269,26 @@ function run_thermalize(
     # Precompute jump_weight_scaling for _accumulate_rho_jump!
     jump_weight_scaling = rescale ? (precomputed_data.gamma_norm_factor / p_jump) : precomputed_data.gamma_norm_factor
 
-    num_steps = Int(ceil(config.mixing_time / config.delta))
-
-    convergence_cutoff = 1e-5
-    trace_distances = [trace_distance_h(Hermitian(evolving_dm), gibbs)]
+    gibbs_matrix = Matrix(gibbs)
+    trace_distances = T[trace_distance_nh(evolving_dm, gibbs_matrix)]
     trace_values = Complex{T}[tr(evolving_dm)]
     recorded_steps = Int[0]
+    states = save_states ? [copy(evolving_dm)] : nothing
+    observation_callback === nothing || observation_callback(0, evolving_dm)
+    completed_steps = 0
+    failure = nothing
+    next_record = 2
 
-    for step in 1:num_steps
+    for step in 1:total_steps
+        if work_callback !== nothing
+            try
+                work_callback()
+            catch err
+                err isa _WorkLimit || rethrow()
+                failure = (; reason=err.reason, message=sprint(showerror, err))
+                break
+            end
+        end
         if config.jump_selection == :sweep
             # Math: $Phi_A = Phi_S compose dots compose Phi_1 approx exp(delta cal(L))$.
             @inbounds for a in 1:n_jumps
@@ -247,7 +296,8 @@ function run_thermalize(
                     evolving_dm, scratch, jumps[a],
                     coherent_unitaries === nothing ? nothing : coherent_unitaries[a],
                     K0s[a], U_residuals[a],
-                    ham_or_trott, config, precomputed_data, jump_weight_scaling,
+                    ham_or_trott, config, precomputed_data, jump_weight_scaling;
+                    hermitize=hermitize,
                 )
             end
         else  # :random
@@ -256,15 +306,22 @@ function run_thermalize(
                 evolving_dm, scratch, jumps[idx],
                 coherent_unitaries === nothing ? nothing : coherent_unitaries[idx],
                 K0s[idx], U_residuals[idx],
-                ham_or_trott, config, precomputed_data, jump_weight_scaling,
+                ham_or_trott, config, precomputed_data, jump_weight_scaling;
+                hermitize=hermitize,
             )
         end
 
-        if step % save_every == 0
-            dist = trace_distance_h(Hermitian(evolving_dm), gibbs)
+        completed_steps = step
+        record_now = requested_record_steps === nothing ? step % save_every == 0 :
+            next_record <= length(requested_record_steps) && step == requested_record_steps[next_record]
+        if record_now || step == total_steps
+            dist = trace_distance_nh(evolving_dm, gibbs_matrix)
             push!(trace_distances, dist)
             push!(trace_values, tr(evolving_dm))
             push!(recorded_steps, step)
+            save_states && push!(states, copy(evolving_dm))
+            observation_callback === nothing || observation_callback(step, evolving_dm)
+            next_record += 1
             verbose && @printf("Dist to Gibbs: %s\n", dist)
             if dist < convergence_cutoff
                 break
@@ -272,11 +329,27 @@ function run_thermalize(
         end
     end
 
+    # A budget can stop between requested observations. Retain its completed
+    # endpoint so final_dm, recorded times, distances, and states stay aligned.
+    if last(recorded_steps) != completed_steps
+        push!(trace_distances, trace_distance_nh(evolving_dm, gibbs_matrix))
+        push!(trace_values, tr(evolving_dm))
+        push!(recorded_steps, completed_steps)
+        save_states && push!(states, copy(evolving_dm))
+        observation_callback === nothing || observation_callback(completed_steps, evolving_dm)
+    end
     time_steps = T.(recorded_steps .* config.delta)
 
     wall_time = time() - t_start
     metadata = _capture_metadata(wall_time_seconds=wall_time)
     metadata[:save_every] = save_every
+    metadata[:requested_steps] = total_steps
+    metadata[:completed_steps] = completed_steps
+    metadata[:recorded_steps] = recorded_steps
+    metadata[:states] = states
+    metadata[:hermitized] = hermitize
+    metadata[:failure] = failure
+    metadata[:convergence_cutoff] = convergence_cutoff
     metadata[:trace_values] = trace_values
     metadata[:trace_drift] = trace_values .- one(Complex{T})
     metadata[:final_trace] = tr(evolving_dm)

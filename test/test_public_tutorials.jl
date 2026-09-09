@@ -37,7 +37,9 @@ end
     scope = Module(gensym(:Readme))
     block = match(r"```julia\n(.*?)```"s, quick_start)
     @test block !== nothing
-    Base.include_string(scope, block.captures[1], "README.md:quick_start")
+    for (i, example) in enumerate(eachmatch(r"```julia\n(.*?)```"s, quick_start))
+        Base.include_string(scope, example.captures[1], "README.md:quick_start_$i")
+    end
     result = getproperty(scope, :result)
     @test result.trajectory.all_converged
     @test result.trajectory.trace_norms ≈ 2result.trajectory.distances
