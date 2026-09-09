@@ -513,7 +513,7 @@ function QuantumFurnace.build_dll_bohr_mpo(
     controls.target_label == :finite_patch_bohr_surrogate ||
         throw(ArgumentError(
             "Task 7B implements only :finite_patch_bohr_surrogate; " *
-            "the full-chain route did not pass Task 6b."))
+            "the full-chain requalification did not pass its scaling gate."))
     radius = something(controls.patch_radius)
     1 <= radius <= 3 || throw(ArgumentError(
         "Task 6b validated fixed patch radii 1:3; got radius=$radius."))

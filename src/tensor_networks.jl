@@ -875,6 +875,7 @@ end
 """Fixed-point, kernel, and structural diagnostics for a represented parent."""
 struct DLLParentDiagnostics{T<:AbstractFloat}
     observed_kernel_dimension::Int
+    observed_manifold_dimension::Int
     kernel_complete::Bool
     kernel_tolerance::T
     kernel_evidence::Symbol
@@ -889,6 +890,7 @@ struct DLLParentDiagnostics{T<:AbstractFloat}
 
     function DLLParentDiagnostics{T}(
         observed_kernel_dimension::Int,
+        observed_manifold_dimension::Int,
         kernel_complete::Bool,
         kernel_tolerance::T,
         kernel_evidence::Symbol,
@@ -903,6 +905,12 @@ struct DLLParentDiagnostics{T<:AbstractFloat}
     ) where {T<:AbstractFloat}
         observed_kernel_dimension >= 0 || throw(ArgumentError(
             "observed_kernel_dimension must be >= 0."))
+        observed_manifold_dimension > 0 || throw(ArgumentError(
+            "observed_manifold_dimension must be > 0."))
+        observed_manifold_dimension >= observed_kernel_dimension ||
+            throw(ArgumentError(
+                "observed_manifold_dimension cannot be smaller than the " *
+                "observed kernel dimension."))
         _require_finite_nonnegative(kernel_tolerance, "kernel_tolerance")
         _require_tn_label(
             kernel_evidence, DLL_KERNEL_EVIDENCE_LABELS, "kernel_evidence")
@@ -929,8 +937,9 @@ struct DLLParentDiagnostics{T<:AbstractFloat}
         tighter_parent_residual === nothing || _require_finite_nonnegative(
             tighter_parent_residual, "tighter_parent_residual")
         return new{T}(
-            observed_kernel_dimension, kernel_complete, kernel_tolerance,
-            kernel_evidence, primitivity_established,
+            observed_kernel_dimension, observed_manifold_dimension,
+            kernel_complete, kernel_tolerance, kernel_evidence,
+            primitivity_established,
             primitivity_provenance, hermiticity_defect, minimum_energy,
             gibbs_energy, gibbs_residual, block_gibbs_residuals,
             tighter_parent_residual)
@@ -939,6 +948,8 @@ end
 
 function DLLParentDiagnostics(;
     observed_kernel_dimension::Integer,
+    observed_manifold_dimension::Integer=
+        max(Int(observed_kernel_dimension), 1),
     kernel_complete::Bool,
     kernel_tolerance::Real,
     kernel_evidence::Symbol,
@@ -968,10 +979,10 @@ function DLLParentDiagnostics(;
     block_residuals = T.(block_gibbs_residuals)
     tighter = tighter_parent_residual === nothing ? nothing : T(tighter_parent_residual)
     return DLLParentDiagnostics{T}(
-        Int(observed_kernel_dimension), kernel_complete, kernel_tolerance_T,
-        kernel_evidence, primitivity_established, primitivity_provenance,
-        hermiticity_T, minimum_T, gibbs_energy_T, gibbs_residual_T,
-        block_residuals, tighter)
+        Int(observed_kernel_dimension), Int(observed_manifold_dimension),
+        kernel_complete, kernel_tolerance_T, kernel_evidence,
+        primitivity_established, primitivity_provenance, hermiticity_T,
+        minimum_T, gibbs_energy_T, gibbs_residual_T, block_residuals, tighter)
 end
 
 function _validate_result_provenance(
@@ -1089,6 +1100,12 @@ function _require_observed_spacing_states(
         "gap_value must equal the adjacent spacing from the top of the " *
         "observed low-energy manifold to the lowest reliable outside state, " *
         "not an arbitrary pairwise level difference."))
+    residual_resolution =
+        reliable_states[required_states].residual +
+        reliable_states[observed_manifold_dimension].residual
+    spacing > residual_resolution || throw(ArgumentError(
+        "observed-manifold spacing $spacing is not resolved beyond the " *
+        "sum of the two adjacent-state residuals $residual_resolution."))
     return nothing
 end
 
@@ -1310,7 +1327,7 @@ function _validate_dll_tensor_network_result(
             "an observed-manifold spacing cannot carry gap bounds."))
         _require_observed_spacing_states(
             low_energy_states, value, gap_controls,
-            diagnostics.observed_kernel_dimension)
+            diagnostics.observed_manifold_dimension)
     else
         throw(ArgumentError(
             ":certified_bracket is reserved until a checked lower-certificate " *

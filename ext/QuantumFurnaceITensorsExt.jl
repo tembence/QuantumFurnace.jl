@@ -14,12 +14,27 @@ export physical_partial_trace
 export ExactDLLParentReference
 export local_operator_siteinds, local_hamiltonian_mpo, local_jump_mpo
 export MPOCompressionRecord, DLLGaussianBohrMPO
+export ParentMPOAssemblyDiagnostics, FinitePatchDLLParent
+export ExactPatchMPOFactorizationControls, ExactPatchMPOFactorizationRecord
+export ExactFinitePatchBohrMPO, ExactFinitePatchDLLParentReference
+export ExactPatchReferenceComparison, build_exact_finite_patch_dll_parent
+export compare_exact_patch_references
+export DLLPatchFidelityLayer, DLLPatchLayerDiscrepancy, DLLPatchFidelityCell
+export FinitePatchParentVerification
+export GibbsDenseVerification, GibbsMPSComparison
+export GibbsPurificationDiagnostics, GibbsPurificationMPS
+export GibbsParentDiagnostics, gibbs_parent_diagnostics
+export ParentLowEnergyAttempt, FinitePatchLowEnergyDiagnostics
 
 include("QuantumFurnaceITensorsExt/conventions.jl")
 include("QuantumFurnaceITensorsExt/dense_bridge.jl")
 include("QuantumFurnaceITensorsExt/dense_parent.jl")
-include("QuantumFurnaceITensorsExt/gap_solver.jl")
 include("QuantumFurnaceITensorsExt/hamiltonian_mpo.jl")
 include("QuantumFurnaceITensorsExt/bohr_mpo.jl")
+include("QuantumFurnaceITensorsExt/parent_mpo.jl")
+include("QuantumFurnaceITensorsExt/patch_fidelity.jl")
+include("QuantumFurnaceITensorsExt/gibbs_mps.jl")
+include("QuantumFurnaceITensorsExt/diagnostics.jl")
+include("QuantumFurnaceITensorsExt/gap_solver.jl")
 
 end

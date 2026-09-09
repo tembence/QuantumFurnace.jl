@@ -390,6 +390,7 @@
 
         incomplete = DLLParentDiagnostics(
             observed_kernel_dimension=2,
+            observed_manifold_dimension=2,
             kernel_complete=false,
             kernel_tolerance=1e-5,
             kernel_evidence=:observed_only,
@@ -436,6 +437,33 @@
             gap_value=0.1,
         )
         @test observed.gap_label == :observed_manifold_spacing
+        @test observed.diagnostics.observed_manifold_dimension == 2
+
+        positive_no_kernel = DLLParentDiagnostics(
+            observed_kernel_dimension=0,
+            observed_manifold_dimension=1,
+            kernel_complete=false,
+            kernel_tolerance=1e-5,
+            kernel_evidence=:observed_only,
+            primitivity_established=false,
+            primitivity_provenance=:observed_only,
+            hermiticity_defect=1e-6,
+            minimum_energy=0.05,
+            gibbs_energy=0.06,
+            gibbs_residual=1e-4,
+            block_gibbs_residuals=fill(1e-4, 6),
+        )
+        positive_spacing = DLLTensorNetworkResult(
+            config, parent, [observed_ground, observed_edge],
+            positive_no_kernel, provenance;
+            bohr_controls=exact_controls,
+            gibbs_controls,
+            gap_controls,
+            gap_label=:observed_manifold_spacing,
+            gap_value=0.05,
+        )
+        @test positive_spacing.gap_value ≈ 0.05 rtol=1e-14
+        @test positive_spacing.diagnostics.observed_kernel_dimension == 0
         observed_higher = DLLParentLowEnergyState(
             ComplexF64[0, 0, 1, 0];
             energy=0.3,
@@ -676,7 +704,21 @@
             low_state.state, 0.2, -1.0, 0.0, Float64[], Int[], 1,
             :unrestricted, false)
         @test_throws ArgumentError DLLParentDiagnostics{Float64}(
-            1, true, 1e-12, :observed_only, false, :none,
+            1, 1, true, 1e-12, :observed_only, false, :none,
             0.0, 0.0, 0.0, 0.0, Float64[], nothing)
+        @test_throws ArgumentError DLLParentDiagnostics(
+            observed_kernel_dimension=2,
+            observed_manifold_dimension=1,
+            kernel_complete=false,
+            kernel_tolerance=1e-8,
+            kernel_evidence=:observed_only,
+            primitivity_established=false,
+            primitivity_provenance=:observed_only,
+            hermiticity_defect=0.0,
+            minimum_energy=0.0,
+            gibbs_energy=0.0,
+            gibbs_residual=0.0,
+            block_gibbs_residuals=Float64[],
+        )
     end
 end
