@@ -1,15 +1,8 @@
 """
-Tests for the grid-independent γ-norm replacement (qf-etx).
+Grid-independent transition-rate normalization.
 
-qf-etx.1: `pick_gamma_sup(config)` returns the closed-form continuum supremum
-of γ (= 1.0 for every standard family). The supremum is verified two ways:
-(1) γ evaluated at its closed-form maximiser equals 1.0;
-(2) γ on a 2^16-point fine grid never exceeds 1.0.
-
-Subsequent regression tests (register invariance, BohrDomain ↔ EnergyDomain
-agreement, Krylov / simulator route invariance, GQSP α_be invariant) are
-added as separate `@testset` blocks below as the qf-etx.{2..7} sub-issues
-land.
+Verify continuum suprema, register invariance, cross-domain agreement,
+Krylov and simulator parity, and the GQSP block-encoding bound.
 """
 
 using Test
@@ -41,7 +34,7 @@ using LinearAlgebra
     @test check_alpha_skew_symmetry(alpha, nu_1, nu_2, beta) === nothing
 end
 
-@testset "qf-etx.1: pick_gamma_sup closed-form is correct continuum sup" begin
+@testset "pick_gamma_sup closed-form is correct continuum sup" begin
     N_FINE = 2^16
     BETA = 10.0
     SIGMA = 0.1
@@ -144,10 +137,10 @@ end
 end
 
 # ---------------------------------------------------------------------------
-# qf-etx.2: `_precompute_data` populates `gamma_norm_factor = 1.0` for every
-# CKG branch — i.e. construction is grid-independent post-fix.
+# `_precompute_data` populates `gamma_norm_factor = 1.0` for every
+# CKG branch — i.e. construction is grid-independent.
 # ---------------------------------------------------------------------------
-@testset "qf-etx.2: _precompute_data has grid-independent gamma_norm_factor" begin
+@testset "_precompute_data has grid-independent gamma_norm_factor" begin
     n = 3
     ham_path = test_hamiltonian_path(n)
     ham = QuantumFurnace._load_hamiltonian_bson(ham_path, 10.0)
@@ -174,11 +167,11 @@ end
 end
 
 # ---------------------------------------------------------------------------
-# qf-etx.3: BohrDomain `construct_lindbladian` is byte-identical across
+# BohrDomain `construct_lindbladian` is byte-identical across
 # `(r_D, w0_D)` register choices. Pre-fix, the two builds disagreed by the
 # ratio of their respective `1.0 / maximum(transition.(...))` samples.
 # ---------------------------------------------------------------------------
-@testset "qf-etx.3: BohrDomain construct_lindbladian register invariance" begin
+@testset "BohrDomain construct_lindbladian register invariance" begin
     n = 3
     ham_path = test_hamiltonian_path(n)
     ham = QuantumFurnace._load_hamiltonian_bson(ham_path, 10.0)
@@ -219,18 +212,11 @@ end
 end
 
 # ---------------------------------------------------------------------------
-# qf-etx.4: BohrDomain ↔ EnergyDomain agreement WITHOUT the script-side
-# `L_test/gnf_test - L_ref/gnf_ref` workaround. Pre-fix raw `‖L_eng-L_bohr‖`
-# was dominated by the gnf mismatch (~5% of ‖L‖); post-fix it is the actual
-# quadrature error which is at machine precision for KMS smooth Metro at
-# R_REF=10 (per qf-7xt: smooth Metro converges at any R_REF ≥ 8).
-#
-# Uses KMS construction (the thesis-canonical construction) including the
-# coherent (Lamb-shift) term. BohrDomain and EnergyDomain coherent terms
-# both call `B_bohr` (exact Bohr frequencies) — they should agree at
-# machine precision regardless of register size.
+# BohrDomain and EnergyDomain use the same continuum normalization.
+# Their difference measures EnergyDomain quadrature error. Both evaluate
+# the coherent term with B_bohr on the exact Bohr frequencies.
 # ---------------------------------------------------------------------------
-@testset "qf-etx.4: BohrDomain ↔ EnergyDomain agreement (no /gnf workaround)" begin
+@testset "BohrDomain ↔ EnergyDomain agreement" begin
     n = 3
     ham_path = test_hamiltonian_path(n)
     ham = QuantumFurnace._load_hamiltonian_bson(ham_path, 10.0)
@@ -302,12 +288,12 @@ end
 end
 
 # ---------------------------------------------------------------------------
-# qf-etx.5: Krylov route — `apply_lindbladian!` matvec parity vs the dense
+# Krylov route — `apply_lindbladian!` matvec parity vs the dense
 # `construct_lindbladian * vec(ρ)` (already a property of the codebase, but
 # we re-verify it survives the gnf fix), and `krylov_spectral_gap`
 # register-invariance for BohrDomain.
 # ---------------------------------------------------------------------------
-@testset "qf-etx.5: Krylov route invariance" begin
+@testset "Krylov route invariance" begin
     n = 3
     ham_path = test_hamiltonian_path(n)
     ham = QuantumFurnace._load_hamiltonian_bson(ham_path, 10.0)
@@ -356,21 +342,21 @@ end
         )
         res_a = krylov_spectral_gap(cfg_a, ham, jumps; krylovdim=20, tol=1e-12)
         res_b = krylov_spectral_gap(cfg_b, ham, jumps; krylovdim=20, tol=1e-12)
-        # BohrDomain has no register-grid dependence post-fix; spectral gaps
+        # BohrDomain has no register-grid dependence; spectral gaps
         # must agree to machine precision.
         @test isapprox(res_a.spectral_gap, res_b.spectral_gap; atol=1e-10, rtol=1e-10)
     end
 end
 
 # ---------------------------------------------------------------------------
-# qf-etx.6: Simulator routes (run_thermalize, predict_channel_trajectory)
+# Simulator routes (run_thermalize, predict_channel_trajectory)
 # register invariance for BohrDomain. Pre-fix, two BohrDomain configs at
 # different `(r_D, w0_D)` produced different `gamma_norm_factor` values,
 # which fed into `jump_weight_scaling` in the trajectory simulator and
 # polluted otherwise grid-independent results. Post-fix the two register
 # choices must produce byte-identical final ρ trajectories.
 # ---------------------------------------------------------------------------
-@testset "qf-etx.6: Simulator routes register invariance" begin
+@testset "Simulator routes register invariance" begin
     n = 3
     ham_path = test_hamiltonian_path(n)
     ham = QuantumFurnace._load_hamiltonian_bson(ham_path, 10.0)
@@ -434,15 +420,11 @@ end
 end
 
 # ---------------------------------------------------------------------------
-# qf-etx.7: GQSP block-encoding invariant `‖B_a / α_a‖_op ≤ 1` after the fix.
-# The bound was originally proved assuming continuum γ ≤ 1; post-fix
-# `gamma_norm_factor = 1.0 / pick_gamma_sup(config) = 1.0` realises that
-# continuum bound exactly. `‖B_a‖_op` and `α_a` both inherit the same scalar
-# γ_nf, so the ratio is invariant under the fix; the meaningful regression
-# is that the invariant continues to hold across filter families and
-# `gqsp_degree` choices.
+# GQSP block-encoding invariant `‖B_a / α_a‖_op ≤ 1`.
+# Both `‖B_a‖_op` and `α_a` inherit the same scalar normalization.
+# Check the bound across filter families and polynomial degrees.
 # ---------------------------------------------------------------------------
-@testset "qf-etx.7: GQSP α_be block-encoding invariant" begin
+@testset "GQSP α_be block-encoding invariant" begin
     n = 3
     ham_path = test_hamiltonian_path(n)
     ham = QuantumFurnace._load_hamiltonian_bson(ham_path, 10.0)
@@ -494,11 +476,11 @@ end
 end
 
 # ---------------------------------------------------------------------------
-# qf-nq5: validate_config! enforces the (a, s) Metropolis taxonomy.
+# validate_config! enforces the (a, s) Metropolis taxonomy.
 # Kinky Metropolis is exactly (s = 0, a = 0); smooth Metropolis is
 # (s > 0, any a ≥ 0). The (s = 0, a > 0) combination is rejected.
 # ---------------------------------------------------------------------------
-@testset "qf-nq5: validate_config! (a, s) Metropolis taxonomy" begin
+@testset "validate_config! (a, s) Metropolis taxonomy" begin
     function _taxonomy_cfg(; a, s, construction=KMS(), domain=BohrDomain())
         Config(
             sim = Lindbladian(), domain = domain, construction = construction,

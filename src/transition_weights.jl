@@ -79,7 +79,7 @@ struct GaussianMixtureTransition{T<:AbstractFloat,N,P} <: AbstractCKGTransition
         all(x->isfinite(x)&&x>0,(b,e)) || throw(ArgumentError("beta and sigma must be positive and finite."))
         _check_ckg_scales(b,e)
         xs=Tuple(T(x) for x in centers); ws=Tuple(T(w) for w in weights)
-        # the Gaussian identity beta=2*x/(sigma^2+variance).
+        # Gaussian identity: beta = 2*x/(sigma^2 + variance).
         all(x->isfinite(x)&&x>b*e^2/2 && isfinite(2x/b-e^2) && 2x/b-e^2>0,xs) ||
             throw(ArgumentError("Each centre must exceed beta*sigma^2/2 with finite positive variance."))
         all(w->isfinite(w)&&w>=0,ws) && isfinite(sum(ws)) && sum(ws)>0 ||
@@ -97,17 +97,31 @@ end
 """Evaluate an unnormalised typed CKG transition rate."""
 transition_value(r::GaussianTransition,w::Real)=exp(-(w+r.beta*(r.sigma^2+r.sigma_gamma^2)/2)^2/(2r.sigma_gamma^2))
 transition_value(r::MetropolisTransition,w::Real)=exp(-r.beta*max(w+r.beta*r.sigma^2/2,zero(w)))
-function transition_value(r::SmoothMetropolisTransition,w::Real)
-    A=sqrt(r.beta*(4r.a+1)/4)
-    B=sqrt(r.beta/4)*abs(w+r.beta*r.sigma^2/2)
-    u=sqrt(r.beta*r.sigma^2*r.s/2)
-    # Stable product exp(-2AB)*erfc(z-) + exp(2AB)*erfc(z+).
-    zminus=A*u-B/u; zplus=A*u+B/u
-    common=-r.beta*w/2-r.beta^2*r.sigma^2/4
-    first=exp(common-2A*B)*erfc(zminus)
-    second=exp(common+2A*B-zplus^2)*erfcx(zplus)
-    return (first+second)/2
+# Evaluate exp(logweight) * erfc(z) without an overflowing exponential.
+@inline _exp_erfc(logweight, z) = z >= 0 ?
+    exp(logweight - z^2) * erfcx(z) : exp(logweight) * erfc(z)
+
+@inline function _metropolis_erfc_pair(A, B, u, common)
+    # The u=0 limit avoids dividing by zero at an unsmoothed transition.
+    iszero(u) && return exp(common - 2A * B)
+    zminus, zplus = A * u - B / u, A * u + B / u
+    return (_exp_erfc(common - 2A * B, zminus) +
+            _exp_erfc(common + 2A * B, zplus)) / 2
 end
+
+@inline _metropolis_kink(beta, w, shift) = exp(-beta * max(w + shift, zero(w + shift)))
+
+@inline function _metropolis_transition(beta, sigma, a, s, w, shift)
+    shifted = w + shift
+    iszero(s) && iszero(a) && return _metropolis_kink(beta, w, shift)
+    A = sqrt(beta / 4) * sqrt(4a + 1)
+    B = sqrt(beta / 4) * abs(shifted)
+    u = sqrt(beta * sigma^2 * s / 2)
+    return _metropolis_erfc_pair(A, B, u, -beta * w / 2 - beta * shift / 2)
+end
+
+transition_value(r::SmoothMetropolisTransition, w::Real) =
+    _metropolis_transition(r.beta, r.sigma, r.a, r.s, w, r.beta * r.sigma^2 / 2)
 function transition_value(r::GaussianMixtureTransition,w::Real)
     sum(weight*exp(-(w+x)^2/(2*(2x/r.beta-r.sigma^2))) for (x,weight) in zip(r.centers,r.weights))
 end

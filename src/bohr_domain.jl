@@ -30,29 +30,8 @@ function B_bohr(hamiltonian::HamHam{T}, jumps::AbstractVector{<:JumpOp}, config:
     end
 
     B = zeros(CT, dim, dim)
-    f_row = Vector{CT}(undef, dim)
-
-    for nu_2 in unique_freqs
-        indices = hamiltonian.bohr_dict[nu_2]
-        last_i = 0
-        @inbounds for idx in indices
-            i = idx[1]; j = idx[2]
-            if i != last_i
-                for col in 1:dim
-                    f_row[col] = f(bohr_freqs[i, col], nu_2)
-                end
-                last_i = i
-            end
-            for jump_idx in 1:n_jumps
-                in_eb = in_ebs[jump_idx]
-                val = conj(in_eb[i, j])
-                # Math: $B_(j k) += conj(A_(i j)) f(Delta_(i k), nu_2) A_(i k)$.
-                @inbounds for col in 1:dim
-                    B[j, col] += val * f_row[col] * in_eb[i, col]
-                end
-            end
-        end
-    end
+    _B_bohr_chunk!(B, hamiltonian, in_ebs, f, unique_freqs,
+        bohr_freqs, dim, n_jumps, 1:n_freqs, CT)
     return B
 end
 
@@ -116,6 +95,7 @@ function _B_bohr_chunk!(
             for jump_idx in 1:n_jumps
                 in_eb = in_ebs[jump_idx]
                 val = conj(in_eb[i, j])
+                # B[j,k] += conj(A[i,j]) * f(Delta[i,k], nu_2) * A[i,k].
                 @inbounds for col in 1:dim
                     B_partial[j, col] += val * f_row[col] * in_eb[i, col]
                 end
@@ -234,21 +214,7 @@ Return the smooth-Metropolis KMS Kossakowski coefficient.
 The real coefficient coupling the two Bohr components.
 """
 function create_alpha(nu_1::Real, nu_2::Real, beta::Real, sigma::Real, a::Real, s::Real)
-
-    sqrtA = sqrt(beta * (4 * a + 1) / 4)
-    sqrtB = sqrt(beta / 16) * abs(nu_1 + nu_2)
-    C = beta * (nu_1 + nu_2) / 4
-    prefactor = exp(a * beta^2 * sigma^2 / 2) / 2
-    u_min = sqrt(beta * sigma^2 * (1 + s) / 2)
-    # Math: $z_+ = sqrt(A) u_min + sqrt(B) / u_min$ and
-    # $z_- = sqrt(A) u_min - sqrt(B) / u_min$.
-    z_plus = sqrtA * u_min + sqrtB / u_min
-    z_minus = sqrtA * u_min - sqrtB / u_min
-
-    alpha_nu_1 = (prefactor * exp(-C) * exp(-(nu_1 - nu_2)^2 / (8 * sigma^2)) * exp(- 2 * sqrtA * sqrtB) *
-                    (erfc(z_minus) + exp(4 * sqrtA * sqrtB) * erfc(z_plus)))
-
-    return alpha_nu_1
+    return _metropolis_alpha(nu_1, nu_2, beta, sigma, a, s, nu_1 + nu_2)
 end
 
 """
@@ -299,18 +265,17 @@ The GNS construction shifts the sum to
 `\$abs(nu_1 + nu_2 + beta sigma^2 / 2)\$` and has no coherent correction.
 """
 function create_alpha_gns(nu_1::Real, nu_2::Real, beta::Real, sigma::Real, a::Real, s::Real)
-    sqrtA = sqrt(beta * (4 * a + 1) / 4)
-    sqrtB = sqrt(beta / 16) * abs(nu_1 + nu_2 + beta * sigma^2 / 2)
-    C = beta * (nu_1 + nu_2) / 4
-    prefactor = exp(a * beta^2 * sigma^2 / 2) / 2
-    u_min = sqrt(beta * sigma^2 * (1 + s) / 2)
-    z_plus = sqrtA * u_min + sqrtB / u_min
-    z_minus = sqrtA * u_min - sqrtB / u_min
+    return _metropolis_alpha(nu_1, nu_2, beta, sigma, a, s,
+        nu_1 + nu_2 + beta * sigma^2 / 2)
+end
 
-    alpha_nu_1 = (prefactor * exp(-C) * exp(-(nu_1 - nu_2)^2 / (8 * sigma^2)) * exp(- 2 * sqrtA * sqrtB) *
-                    (erfc(z_minus) + exp(4 * sqrtA * sqrtB) * erfc(z_plus)))
-
-    return alpha_nu_1
+function _metropolis_alpha(nu_1, nu_2, beta, sigma, a, s, frequency_sum)
+    A = sqrt(beta * (4a + 1) / 4)
+    B = sqrt(beta / 16) * abs(frequency_sum)
+    u = sqrt(beta * sigma^2 * (1 + s) / 2)
+    common = a * beta^2 * sigma^2 / 2 - beta * (nu_1 + nu_2) / 4 -
+        (nu_1 - nu_2)^2 / (8 * sigma^2)
+    return _metropolis_erfc_pair(A, B, u, common)
 end
 
 """
@@ -335,9 +300,8 @@ function create_alpha_gauss(
     (w_gamma, sigma_gamma) = gaussian_parameters
     combined_sigma = sigma^2 + sigma_gamma^2
     prefactor = sigma_gamma / sqrt(combined_sigma)
-    alpha_fn(nu_1) = prefactor * (exp(-(nu_1 + nu_2 + 2 * w_gamma)^2 / (8 * combined_sigma))
-                                    * exp(-(nu_1 - nu_2)^2 / (8 * sigma^2)))
-    return alpha_fn(nu_1)
+    return prefactor * exp(-(nu_1 + nu_2 + 2 * w_gamma)^2 / (8 * combined_sigma)) *
+        exp(-(nu_1 - nu_2)^2 / (8 * sigma^2))
 end
 
 """

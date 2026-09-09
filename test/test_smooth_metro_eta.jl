@@ -9,7 +9,7 @@ Tests for the eta-regularized smooth Metropolis variant (a=0, s>0):
 
 @testset "Smooth Metropolis eta-regularization (a=0, s>0)" begin
 
-    # Legacy 4-arg formula (pre-Phase 45) for reference comparison
+    # Four-argument formula for reference comparison
     function ref_b_plus_metro_legacy(t, beta, sigma, eta)
         if abs(t) < 1e-12
             return complex(1 / (2 * sqrt(2) * pi^2))
@@ -96,6 +96,81 @@ Tests for the eta-regularized smooth Metropolis variant (a=0, s>0):
         end
     end
 
+end
+
+@testset "Metropolis rates and Bohr coefficients against high precision" begin
+    using SpecialFunctions: erfc
+
+    # Evaluate the unfactored closed forms in BigFloat, whose exponent range
+    # retains the large exponentials and small Gaussian tails separately.
+    function reference_rate(w, beta, sigma, a, s, construction)
+        w, beta, sigma, a, s = BigFloat.((w, beta, sigma, a, s))
+        shifted = construction isa KMS ? w + beta * sigma^2 / 2 : w
+        A = sqrt(beta * (4a + 1) / 4)
+        B = sqrt(beta / 4) * abs(shifted)
+        u = sqrt(beta * sigma^2 * s / 2)
+        common = -beta * w / 2 - (construction isa KMS ? beta^2 * sigma^2 / 4 : zero(beta))
+        iszero(s) && return exp(common - 2A * B)
+        return exp(common - 2A * B) *
+            (erfc(A * u - B / u) + exp(4A * B) * erfc(A * u + B / u)) / 2
+    end
+
+    function reference_alpha(v, w, beta, sigma, a, s, construction)
+        v, w, beta, sigma, a, s = BigFloat.((v, w, beta, sigma, a, s))
+        A = sqrt(beta * (4a + 1) / 4)
+        shifted = v + w + (construction isa GNS ? beta * sigma^2 / 2 : zero(beta))
+        B = sqrt(beta / 16) * abs(shifted)
+        u = sqrt(beta * sigma^2 * (1 + s) / 2)
+        return exp(a * beta^2 * sigma^2 / 2) * exp(-beta * (v + w) / 4) *
+            exp(-(v - w)^2 / (8sigma^2)) * exp(-2A * B) *
+            (erfc(A * u - B / u) + exp(4A * B) * erfc(A * u + B / u)) / 2
+    end
+
+    setprecision(BigFloat, 256) do
+        for construction in (KMS(), GNS()), beta in (0.7, 10.0, 2000.0),
+            (a, s) in ((0.0, 0.0), (0.3, 0.0), (0.0, 0.25), (0.3, 0.25))
+            sigma = inv(beta)
+            cfg = Config(; sim=Lindbladian(), domain=BohrDomain(), construction,
+                num_qubits=1, with_linear_combination=true, beta, sigma, a, s)
+            rate = pick_transition(cfg)
+            alpha = QuantumFurnace._pick_alpha(cfg)
+            scalar_alpha = construction isa KMS ? QuantumFurnace.create_alpha : QuantumFurnace.create_alpha_gns
+            kink = construction isa KMS ? -beta * sigma^2 / 2 : 0.0
+            for w in (-0.45, -0.01, 0.0, 0.3, kink)
+                expected = Float64(reference_rate(w, beta, sigma, a, s, construction))
+                @test isfinite(pick_transition(cfg, w))
+                @test pick_transition(cfg, w) ≈ expected rtol=2e-11 atol=0.0
+                @test rate(w) ≈ expected rtol=2e-11 atol=0.0
+                if construction isa KMS && s > 0
+                    typed = SmoothMetropolisTransition(beta; sigma, a, s)
+                    @test transition_value(typed, w) ≈ expected rtol=2e-11 atol=0.0
+                end
+            end
+            for (v, w) in ((-0.45, -0.45), (-0.45, 0.3), (0.0, 0.0), (0.3, 0.3), (-sigma, 0.3sigma))
+                expected = Float64(reference_alpha(v, w, beta, sigma, a, s, construction))
+                actual = scalar_alpha(v, w, beta, sigma, a, s)
+                @test isfinite(actual)
+                @test actual ≈ expected rtol=2e-11 atol=0.0
+                @test alpha(v, w) ≈ expected rtol=2e-11 atol=0.0
+                @test QuantumFurnace._pick_alpha(cfg, v, w) ≈ expected rtol=2e-11 atol=0.0
+            end
+        end
+
+        # Both erfc terms need scaling when the common exponential is large.
+        for construction in (KMS(), GNS())
+            beta, sigma, a, s = 100.0, 1.0, 2.0, 0.001
+            scalar_alpha = construction isa KMS ? QuantumFurnace.create_alpha : QuantumFurnace.create_alpha_gns
+            center = construction isa KMS ? -50.0 : -25.0
+            for (v, w) in ((center, center), (center + 1, center))
+                expected = Float64(reference_alpha(v, w, beta, sigma, a, s, construction))
+                @test isfinite(scalar_alpha(v, w, beta, sigma, a, s))
+                @test scalar_alpha(v, w, beta, sigma, a, s) ≈ expected rtol=2e-11 atol=0.0
+            end
+        end
+        beta, sigma, a, s, frequency = 10000.0, 0.004, 2.0, 0.001, -0.08008
+        expected = Float64(reference_alpha(frequency, frequency, beta, sigma, a, s, KMS()))
+        @test QuantumFurnace.create_alpha(frequency, frequency, beta, sigma, a, s) ≈ expected rtol=2e-11
+    end
 end
 
 @testset "Energy-domain γ for a=0, s>0 uses smooth Metropolis form (eq:smooth-metro)" begin

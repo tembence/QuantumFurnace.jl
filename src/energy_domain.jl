@@ -10,111 +10,38 @@ Return the configured KMS or GNS transition rate, or evaluate it at `w`.
 # Returns
 A scalar callable when `w` is omitted, otherwise the scalar transition rate.
 """
-pick_transition(config::Config{<:Any, <:Any, KMS}) = _pick_transition_kms(config)
-pick_transition(config::Config{<:Any, <:Any, GNS}) = _pick_transition_gns(config)
+function pick_transition(config::Config{<:Any, <:Any, <:Union{KMS, GNS}})
+    if config.construction isa KMS && config.transition_weight !== nothing
+        return w -> transition_value(config.transition_weight, w)
+    end
+    if config.with_linear_combination && iszero(config.a) && iszero(config.s)
+        beta = config.beta
+        shift = config.construction isa KMS ? beta * config.sigma^2 / 2 : zero(beta)
+        return w -> _metropolis_kink(beta, w, shift)
+    end
+    return w -> pick_transition(config, w)
+end
 
-# 2-arg forms: compute transition value directly via dispatch (zero allocation on hot path)
-function pick_transition(config::Config{<:Any, <:Any, KMS}, w::Real)
+@inline function pick_transition(config::Config{<:Any, <:Any, KMS}, w::Real)
     if config.transition_weight !== nothing
-        # Keep the open Config field from erasing scalar inference in the
-        # existing frequency loops, including configurations with no typed rate.
-        T = promote_type(typeof(config.beta),typeof(w))
-        return T(transition_value(config.transition_weight,w))::T
+        # The Config boundary permits several rate types; scalar loops retain
+        # their concrete promoted return type.
+        T = promote_type(typeof(config.beta), typeof(w))
+        return T(transition_value(config.transition_weight, w))::T
     end
-    if !(config.with_linear_combination)
-        return exp(-(w + config.gaussian_parameters[1])^2 / (2 * config.gaussian_parameters[2]^2))
-    end
-    sqrtA = sqrt(config.beta / 4) * sqrt(4 * config.a + 1)
-    sqrtB = sqrt(config.beta / 4) * abs(w + config.beta * config.sigma^2 / 2)
-    if config.s == 0 && config.a == 0
-        return exp(-config.beta * max(w + config.beta * config.sigma^2 / 2, 0.0))
-    else
-        # Math: at $a = 0$, smooth Metro is
-        # $gamma_M^0 (erfc(z_-) + exp(beta abs(tilde(omega))) erfc(z_+)) / 2$.
-        u_min = sqrt(config.beta * config.sigma^2 * config.s / 2)
-        transition_b0 = exp(-2 * sqrtA * sqrtB - config.beta * w / 2 - config.beta^2 * config.sigma^2 / 4)
-        return transition_b0 * (erfc(sqrtA * u_min - sqrtB / u_min) + exp(4 * sqrtA * sqrtB) * erfc(sqrtA * u_min + sqrtB / u_min)) / 2
-    end
+    return _parameter_transition(config, w, config.beta * config.sigma^2 / 2)
 end
 
-function pick_transition(config::Config{<:Any, <:Any, GNS}, w::Real)
-    if !(config.with_linear_combination)
-        w_gamma = config.gaussian_parameters[1]
-        sigma_gamma = config.gaussian_parameters[2]
-        return exp(-(w + w_gamma)^2 / (2 * sigma_gamma^2))
+@inline pick_transition(config::Config{<:Any, <:Any, GNS}, w::Real) =
+    _parameter_transition(config, w, zero(config.beta))
+
+@inline function _parameter_transition(config, w, shift)
+    if !config.with_linear_combination
+        centre, width = config.gaussian_parameters
+        return exp(-(w + centre)^2 / (2 * width^2))
     end
-    sqrtA = sqrt(config.beta / 4) * sqrt(4 * config.a + 1)
-    sqrtB = sqrt(config.beta / 4) * abs(w)
-    if config.s == 0 && config.a == 0
-        return exp(-config.beta * max(w, 0.0))
-    else
-        # The GNS form uses the unshifted frequency `w`.
-        u_min = sqrt(config.beta * config.sigma^2 * config.s / 2)
-        transition_b0 = exp(-2 * sqrtA * sqrtB - config.beta * w / 2)
-        return transition_b0 * (erfc(sqrtA * u_min - sqrtB / u_min) + exp(4 * sqrtA * sqrtB) * erfc(sqrtA * u_min + sqrtB / u_min)) / 2
-    end
+    return _metropolis_transition(config.beta, config.sigma, config.a, config.s, w, shift)
 end
-
-
-function _pick_transition_kms(config::Config{<:Any, <:Any, KMS})
-    config.transition_weight === nothing || return w -> transition_value(config.transition_weight,w)
-
-    if !(config.with_linear_combination)
-        return w -> begin
-            return exp(-(w + config.gaussian_parameters[1])^2 /(2 * config.gaussian_parameters[2]^2))
-        end
-    end
-
-    sqrtA = sqrt(config.beta / 4) * sqrt(4 * config.a + 1)
-    if (config.s == 0 && config.a == 0)
-        return w -> exp(-config.beta * max(w + config.beta * config.sigma^2 / 2, 0.0))
-    else
-        return w -> begin
-            sqrtB = sqrt(config.beta / 4) * abs(w + config.beta * config.sigma^2 / 2)
-            u_min = sqrt(config.beta * config.sigma^2 * config.s / 2)
-            transition_b0 = exp((- 2 * sqrtA * sqrtB - config.beta * w / 2 - config.beta^2 * config.sigma^2 / 4))
-            return (transition_b0 * (erfc(sqrtA * u_min - sqrtB / u_min)
-                + exp(4 * sqrtA * sqrtB) * erfc(sqrtA * u_min + sqrtB / u_min)) / 2)
-        end
-    end
-end
-
-"""
-    _pick_transition_gns(config) -> Function
-
-Return the unshifted GNS detailed-balance transition function.
-
-# Arguments
-- `config`: GNS construction parameters.
-
-# Returns
-A scalar function satisfying
-`\$tilde(gamma)(omega) = tilde(gamma)(-omega) exp(-beta omega)\$`.
-"""
-function _pick_transition_gns(config::Config{<:Any, <:Any, GNS})
-
-    if !(config.with_linear_combination)
-        return w -> begin
-            w_gamma = config.gaussian_parameters[1]
-            sigma_gamma = config.gaussian_parameters[2]
-            return exp(-(w + w_gamma)^2 / (2 * sigma_gamma^2))
-        end
-    end
-
-    sqrtA = sqrt(config.beta / 4) * sqrt(4 * config.a + 1)
-    if (config.s == 0 && config.a == 0)
-        return w -> exp(-config.beta * max(w, 0.0))
-    else
-        return w -> begin
-            sqrtB = sqrt(config.beta / 4) * abs(w)
-            u_min = sqrt(config.beta * config.sigma^2 * config.s / 2)
-            transition_b0 = exp((-2 * sqrtA * sqrtB - config.beta * w / 2))
-            return (transition_b0 * (erfc(sqrtA * u_min - sqrtB / u_min)
-                + exp(4 * sqrtA * sqrtB) * erfc(sqrtA * u_min + sqrtB / u_min)) / 2)
-        end
-    end
-end
-
 
 """
     pick_gamma_sup(config::Config) -> Real
@@ -149,14 +76,13 @@ function _truncate_energy_labels(
     config.transition_weight isa GaussianMixtureTransition && return energy_labels
     transition = pick_transition(config)
     gaussfilter(w, nu) = exp(- (w - nu)^2 / (4 * config.sigma^2)) * sqrt(1 / (config.sigma * sqrt(2 * pi)))
-    integrand_lb(w, nu1, nu2) = transition(w) * gaussfilter(w, nu1) * gaussfilter(w, nu2)
-    integrand_ub(w, nu1, nu2) = transition(w) * gaussfilter(w, nu1) * gaussfilter(w, nu2)
+    integrand(w, nu1, nu2) = transition(w) * gaussfilter(w, nu1) * gaussfilter(w, nu2)
 
     candidate_nus = filter(w -> -0.45 <= w <= (-config.beta * config.sigma^2 / 2), [-0.45:0.05:0.0;])
 
     start_index = length(energy_labels) + 1
     for (nu1_candidate, nu2_candidate) in Iterators.product(candidate_nus, candidate_nus)
-        found_index = findfirst(w -> abs(integrand_lb(w, nu1_candidate, nu2_candidate)) >= cutoff, energy_labels)
+        found_index = findfirst(w -> abs(integrand(w, nu1_candidate, nu2_candidate)) >= cutoff, energy_labels)
         if found_index !== nothing
             start_index = min(start_index, found_index)
         end
@@ -170,7 +96,7 @@ function _truncate_energy_labels(
     candidate_nus = Iterators.reverse(filter(w -> (-config.beta * config.sigma^2 / 2) <= w <= 0.45, [-0.1:0.05:0.45;]))
     end_index = 0
     for (nu1_candidate, nu2_candidate) in Iterators.product(candidate_nus, candidate_nus)
-        found_index = findlast(w -> abs(integrand_ub(w, nu1_candidate, nu2_candidate)) >= cutoff, energy_labels)
+        found_index = findlast(w -> abs(integrand(w, nu1_candidate, nu2_candidate)) >= cutoff, energy_labels)
         if found_index !== nothing
             end_index = max(end_index, found_index)
         end

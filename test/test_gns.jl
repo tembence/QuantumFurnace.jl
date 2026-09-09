@@ -7,10 +7,10 @@ CPTP without a coherent correction.
 
 The GNS (approximate detailed balance) code path uses unshifted transition weights
 and omits the coherent B term. Its fixed point approximates but does not equal the
-exact Gibbs state -- the approximation gap is documented here as a Phase 18 baseline.
+exact Gibbs state -- the approximation gap is documented here as a baseline.
 """
 
-@testset "GNS-01: Lindbladian fixed point (TrotterDomain)" begin
+@testset "Lindbladian fixed point (TrotterDomain)" begin
     config = make_config(Lindbladian(), TrotterDomain(); num_qubits=3, construction=GNS())
     liouv = construct_lindbladian(N3_TROTTER_JUMPS, config, N3_HAM; trotter=N3_TROTTER)
 
@@ -36,19 +36,19 @@ exact Gibbs state -- the approximation gap is documented here as a Phase 18 base
     ss_dm_energy = U_t2e * ss_dm * U_t2e'
     ss_dm_energy = (ss_dm_energy + ss_dm_energy') / 2  # re-Hermitianize after basis change
     gap = trace_distance_h(Hermitian(ss_dm_energy), N3_GIBBS)
-    @info "GNS-01: GNS fixed point to Gibbs trace distance (approximation gap)" gap
+    @info "GNS fixed point to Gibbs trace distance (approximation gap)" gap
 
     # GNS approximate detailed balance: gap is strictly positive because GNS omits the
     # coherent B term and uses unshifted weights. Gap magnitude is system-dependent.
     @test gap > 1e-6     # Strictly positive (GNS does not reproduce exact Gibbs)
-    @info "GNS-01: Gap lower bound" gap lower_bound=1e-6
+    @info "Gap lower bound" gap lower_bound=1e-6
 
     # Sanity bound: gap should be moderate, not wildly wrong. Empirically ~0.08 for this system.
     @test gap < 0.5      # Sanity bound (should be ~0.08, close to EnergyDomain)
-    @info "GNS-01: Gap upper bound" gap upper_bound=0.5
+    @info "Gap upper bound" gap upper_bound=0.5
 end
 
-@testset "GNS-01: CPTP completeness (TrotterDomain)" begin
+@testset "CPTP completeness (TrotterDomain)" begin
     config = make_config(Thermalize(), TrotterDomain(); num_qubits=3, construction=GNS(), delta=0.01)
     precomputed_data = QuantumFurnace._precompute_data(config, N3_TROTTER)
     (; K0s, U_residuals) = QuantumFurnace._precompute_per_jump_channels(
@@ -80,10 +80,10 @@ end
         max_completeness_err = max(max_completeness_err, err)
         @test isapprox(completeness, identity; atol=1e-10)
     end
-    @info "GNS-01: CPTP completeness (TrotterDomain, GNS)" n_jumps max_error=max_completeness_err threshold_atol=1e-10
+    @info "CPTP completeness (TrotterDomain, GNS)" n_jumps max_error=max_completeness_err threshold_atol=1e-10
 end
 
-@testset "GNS-01: BohrDomain detailed balance" begin
+@testset "BohrDomain detailed balance" begin
     config = make_config(Lindbladian(), BohrDomain(); num_qubits=3, construction=GNS())
     liouv = construct_lindbladian(N3_JUMPS, config, N3_HAM)
 
@@ -103,7 +103,7 @@ end
     # GNS fixed point should be distinct from Gibbs
     # GNS approximate detailed balance: strictly positive gap, system-dependent magnitude
     gap_bohr = trace_distance_h(Hermitian(ss_dm_bohr), N3_GIBBS)
-    @info "GNS-01 Bohr: GNS fixed point to Gibbs distance" gap_bohr
+    @info "Bohr: GNS fixed point to Gibbs distance" gap_bohr
     @test gap_bohr > 1e-6  # Strictly positive
-    @info "GNS-01 Bohr: Gap lower bound" gap_bohr lower_bound=1e-6
+    @info "Bohr: Gap lower bound" gap_bohr lower_bound=1e-6
 end
