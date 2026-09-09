@@ -1,77 +1,74 @@
-# # Finding a thermal state
-#
-# This tutorial runs a short full-density-matrix simulation of a quantum Gibbs
-# sampler. The target state is
-# ```math
-# \rho_\beta = \frac{e^{-\beta H}}{\operatorname{tr}(e^{-\beta H})}.
-# ```
-# QuantumFurnace stores the example Hamiltonian with a rescaled spectrum, so
-# `beta_alg` below is the algorithm-side inverse temperature. The corresponding
-# physical value for the un-rescaled Hamiltonian is available through
-# `beta_phys(ham, beta_alg)`.
-
+# # Simulating a Gibbs sampler
+# This is full-density-matrix Lindbladian evolution, with continuous generator
+# time. It is not a sampled quantum-jump trajectory or a channel step count.
 using QuantumFurnace
-using LinearAlgebra
 
-# ## Load the system
-#
-# Small reproducible Heisenberg fixtures are shipped with the package. Loading
-# one constructs its eigendecomposition and caches the Gibbs state at the
-# requested algorithm-side inverse temperature.
+H = pauli_hamiltonian(2, [
+    -1.0 => (1 => :Z, 2 => :Z),
+    -0.7 => (1 => :X,),
+    -0.7 => (2 => :X,),
+])
+result = simulate_gibbs(H; beta_phys=0.8,
+    times=range(0, 4; length=21), diagnostics=:standard)
+result.trajectory.distances
+result.diagnostics
+result.spectrum.reliability
+@assert result.trajectory.all_converged
+@assert result.trajectory.trace_norms ≈ 2result.trajectory.distances
 
-n = 3
-beta_alg = 10.0
-ham = load_hamiltonian("heis", n; beta=beta_alg);
+# Input/output states use the computational basis by default. The initial state
+# is |+><+| tensor power. Saved intermediate states are off by default; request
+# save_states=true with a suitable max_saved_bytes cap if needed.
+# A finite-time failure to reach Gibbs does not establish nonergodicity.
+result.convergence
 
-# ## Construct jump operators
-#
-# We use normalised single-site Pauli operators. `JumpOp` stores each operator
-# both in the computational basis and in the Hamiltonian eigenbasis used by the
-# energy-domain construction.
+# The independent spectral policy uses its own operator starts. A small Ritz
+# residual does not rule out missed modes; inspect reliability and coverage.
+result.spectrum.coverage
 
-local_jumps = ([X], [Y], [Z])
-jump_norm = sqrt(length(local_jumps) * n)
-jumps = JumpOp[]
-
-for local_jump in local_jumps, site in 1:n
-    op = Matrix(pad_term(local_jump, n, site)) / jump_norm
-    op_eig = ham.eigvecs' * op * ham.eigvecs
-    push!(jumps, JumpOp(op, op_eig, op == transpose(op), ishermitian(op)))
+# Save the combined result as versioned data, then continue from its final state.
+# A fresh workspace is rebuilt; no mutable backend plans are loaded. The new
+# segment starts at zero additional time, and records the preceding time origin.
+continuation = mktempdir() do directory
+    path = save_result(result, joinpath(directory, "gibbs.bson"))
+    restored = load_result(path)
+    @assert restored.trajectory.rho_final ≈ result.trajectory.rho_final
+    simulate_gibbs(restored; times=[0.0, 0.1], diagnostics=:quick)
 end
+@assert continuation.provenance.resume_time_origin ≈ last(result.trajectory.t)
 
-# ## Configure the sampler
-#
-# `KMS()` includes the coherent correction required by this construction. The
-# energy domain uses a finite frequency grid for the dissipative integral; the
-# exact coherent term is constructed from the Hamiltonian's Bohr frequencies.
-# A short trajectory keeps this tutorial quick while still showing motion
-# towards the cached Gibbs state.
+# ## Finite channel steps
+# Select the existing run_thermalize backend explicitly. This applies the
+# implemented weak-measurement channel five times, including its coherent step.
+# CKG is selected explicitly because DLL finite channels are not implemented.
+channel = simulate_gibbs(H; sim=Thermalize(), construction=KMS(),
+    beta_phys=0.8, delta=0.01, steps=5, save_states=true,
+    channel_options=(save_every=2,))
+@assert channel.trajectory.channel_steps == [0, 2, 4, 5]
+@assert channel.trajectory.states[end] ≈ channel.trajectory.rho_final
+@assert channel.spectrum.reliability == :not_run
+channel.provenance.channel_representation
 
-config = Config(;
-    sim=Thermalize(),
-    domain=EnergyDomain(),
-    construction=KMS(),
-    num_qubits=n,
-    with_linear_combination=true,
-    beta=beta_alg,
-    sigma=1 / beta_alg,
-    a=beta_alg / 30,
-    s=0.4,
-    num_energy_bits_D=7,
-    w0_D=0.05,
-    mixing_time=0.1,
-    delta=0.01,
-    jump_selection=:sweep,
-);
+# Lindblad evolution computes exp(t*L)rho0: method=:krylov uses successive
+# Arnoldi exponential actions, while method=:predictor reuses captured modes.
+# Finite channel evolution instead applies E_delta repeatedly. These targets
+# need not agree at finite delta. Times for channel runs must lie on the delta
+# grid; integer steps avoid rounding ambiguity. One sweep applies every source.
+# The clock includes the backend rate normalisation recorded in provenance.
+# Hamiltonian rescaling does not independently rescale delta.
 
-# ## Evolve and inspect the result
-#
-# The default initial state is maximally mixed. The result stores the final
-# density matrix together with the sampled times and trace distances to the
-# Gibbs state.
+# channel_options=(jump_selection=:random, seed=42) selects one source per
+# outer step with the backend's default probability compensation. Each returned
+# density matrix is conditioned on those source choices; it is not the average
+# over source histories or a sampled measurement-outcome trajectory.
+# Channel diagnostics check sampled states; spectrum, stationarity and KMS
+# checks are explicitly not_run. Crossing epsilon is only an observed crossing.
+# The finite channel can have a bias from Gibbs even if its ideal generator
+# fixes Gibbs. Source rates must obey the channel's operator-normalisation bound.
 
-result = run_thermalize(jumps, config, ham; save_every=5);
-
-result.time_steps
-result.trace_distances
-tr(result.final_dm)
+# Channel results support save_result/load_result as evidence. Automatic
+# Workspace(result) and simulate_gibbs(result; times=...) reconstruction reject.
+# Continue using the same original inputs and the returned final density matrix:
+next_channel = simulate_gibbs(H; sim=Thermalize(), construction=KMS(),
+    beta_phys=0.8, delta=0.01, steps=2, rho0=channel.trajectory.rho_final)
+@assert next_channel.trajectory.completed_steps == 2
