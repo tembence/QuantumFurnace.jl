@@ -1,6 +1,6 @@
 # API reference
 
-## Physical-input research interface
+## Physical-input interface
 
 ```@docs
 QuantumFurnace.simulate_gibbs

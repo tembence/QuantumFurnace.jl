@@ -50,8 +50,8 @@ makedocs(
             "Interpreting diagnostics" => "generated/tutorial_diagnostics.md",
         ],
         "Interface and capabilities" => "api_contract.md",
+        "Lindblad dynamics" => "theory_dynamics.md",
         "Filter theory" => "theory_filters.md",
-        "Symbolic filter feasibility" => "symbolic_filters.md",
         "API reference" => "api.md",
     ],
 )

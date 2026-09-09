@@ -55,13 +55,14 @@ result.spectrum.reliability
 ```
 
 `beta_phys` is inverse temperature in reciprocal energy units (`k_B=1`). The
-default initial state is the computational-basis product state `|+⟩⊗|+⟩`.
+default initial state is the plus product state `|+⟩⊗|+⟩`, expressed in the
+computational basis.
 `distances` contains trace distance, half the trace norm. A threshold crossing
 concerns this initial state; independent spectral diagnostics can remain
 inconclusive. The times use the generator clock set by the source amplitudes.
 Hamiltonian rescaling alone does not multiply that clock.
 
-To apply the existing finite weak-measurement channel step by step, use:
+To apply the finite weak-measurement channel step by step, use:
 
 ```julia
 channel = simulate_gibbs(H; sim=Thermalize(), construction=KMS(),
@@ -78,7 +79,7 @@ saved states, random source selection and continuation limits.
 Select `construction=KMS()` for CKG KMS. DLL supports Bohr and Time domains;
 custom Time filters require explicit transform controls. DLL Energy, Trotter
 and GQSP reject. General CKG joint kernels support Bohr, Energy and controlled
-Time conversion; custom Trotter rejects. Legacy CKG/GNS APIs remain available.
+Time conversion; custom Trotter rejects. Low-level CKG/GNS APIs remain available.
 See the [capability contract](docs/src/api_contract.md) for precise limits.
 
 The matrix-free evolution still requires dense Hamiltonian spectral preparation

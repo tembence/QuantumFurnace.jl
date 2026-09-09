@@ -18,7 +18,7 @@ println("Reached distance < 0.001: ", last(dll.trajectory.distances) < dll.conve
 # disagreement with the thermal target; zero would mean an exact match.
 
 # The full sampler contains -im[B,rho], with the canonical B correction. The
-# facade does not silently add -im[H,rho]. Supplied sources keep their amplitudes;
+# interface does not silently add -im[H,rho]. Supplied sources keep their amplitudes;
 # the default onsite Pauli family has amplitudes 1/sqrt(3n).
 # CKG KMS is selected through the same physical-input interface:
 ckg = simulate_gibbs(H; beta_phys=0.8, construction=KMS(),
@@ -46,6 +46,6 @@ println("Agreement within absolute tolerance 1e-10: ",
 # A small matrix difference checks the numerical evolution on this example;
 # it does not say that the evolved state has already reached Gibbs.
 
-# Legacy Config keeps algorithm-frame beta. DLL Energy/Trotter/GQSP and custom
+# `Config` keeps algorithm-frame beta. DLL Energy/Trotter/GQSP and custom
 # CKG Trotter are unavailable. See the capability contract before changing a
 # domain; a finite grid requires its own accuracy checks.

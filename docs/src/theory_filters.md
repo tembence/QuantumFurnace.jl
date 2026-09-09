@@ -2,7 +2,7 @@
 
 `ckg_to_dll` is a bounded reference conversion for a small Hamiltonian's Bohr
 frequencies. It represents a positive semidefinite CKG coefficient matrix by
-separate DLL channels. It does not alter the production CKG route.
+separate DLL channels.
 
 Let `nu = E_i - E_j` and write the source components as ``A_\nu``. For a
 Hermitian source, or an equally weighted adjoint-closed source family, the CKG
@@ -74,7 +74,7 @@ reference.evidence.coefficient_total_error_norm
 Rows follow the supplied frequency order. The result's `filter` is a
 `DLLMultiChannelFilter` containing owned finite-frequency tables. These tables
 currently use the low-level `Config` API in the same frequency/temperature frame;
-the physical-input `Workspace(H; ...)` facade rejects them. Use the same Bohr
+the physical-input `Workspace(H; ...)` interface rejects them. Use the same Bohr
 spectrum, inverse temperature, source amplitudes and generator clock. A prepared `CKGJointKernel` can be supplied directly after compilation;
 it must have passing validation evidence. Conversion checks its coefficients
 again with the tighter roundoff tolerance. A passing quadrature check alone

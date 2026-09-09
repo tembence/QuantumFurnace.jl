@@ -41,7 +41,8 @@ Start with [Creating a Hamiltonian](generated/tutorial_hamiltonian.md),
 [Interpreting diagnostics](generated/tutorial_diagnostics.md).
 The [interface contract](api_contract.md) records supported domains, controls,
 physical conversions and reconstruction limits; [filter theory](theory_filters.md)
-explains the finite-spectrum CKG–DLL comparison.
+explains the finite-spectrum CKG–DLL comparison. For the evolution equation
+and its relation to finite channel steps, see [Lindblad dynamics](theory_dynamics.md).
 
 Dense Hamiltonian diagonalisation and density-matrix storage remain exponential
 in qubit number. `dry_run=true` checks resource estimates before spectral

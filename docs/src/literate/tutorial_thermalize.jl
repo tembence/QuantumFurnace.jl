@@ -47,7 +47,7 @@ println("Spectral reliability: ", result.spectrum.reliability)
 # reference. `diagnostics=:strict` enables that reference for this tiny example.
 
 # Save the combined result as versioned data, then continue from its final state.
-# A fresh workspace is rebuilt; no mutable backend plans are loaded. The new
+# A fresh workspace is rebuilt. The continuation
 # segment starts at zero additional time, and records the preceding time origin.
 continuation = mktempdir() do directory
     path = save_result(result, joinpath(directory, "gibbs.bson"))
@@ -64,7 +64,7 @@ println("Distance after continuation: ", round(last(continuation.trajectory.dist
 # it joins the preceding run; the distance shows the state after that extra time.
 
 # ## Finite channel steps
-# Select the existing run_thermalize backend explicitly. This applies the
+# Select the `run_thermalize` backend explicitly. This applies the
 # implemented weak-measurement channel, including its coherent step.
 # CKG is selected explicitly because DLL finite channels are not implemented.
 channel = simulate_gibbs(H; sim=Thermalize(), construction=KMS(),

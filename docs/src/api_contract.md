@@ -1,11 +1,7 @@
-# DLL research interface contract
+# Interface and capabilities
 
-This page describes the implemented research interface, numerical controls and
-capability limits. DLL custom filters, CKG joint compilation and finite-spectrum
-CKG-to-DLL conversion are available. Existing
-`Config`, `HamHam`, `JumpOp`, `Workspace` and result APIs keep their meanings.
-`test/test_research_contract.jl` verifies the repaired T00–T02 regressions
-and is registered in the default test runner.
+This reference describes physical inputs, supported constructions, numerical
+controls and result interpretation for DLL and CKG Gibbs samplers.
 
 For a first worked example, see [Simulating a Gibbs sampler](generated/tutorial_thermalize.md)
 or [Custom filters and rates](generated/tutorial_custom_filters.md). Those
@@ -14,10 +10,10 @@ reference page describe usage and do not display executed results.
 
 ## Entry points and units
 
-`pauli_hamiltonian` and `HamHam(H; beta_phys)` are available.
-`simulate_gibbs`, `GibbsSimulationResult`, and the physical-input `Workspace`
-constructor are available. `KMSFilter`, `FrequencyFilter`, `RateFilter`, and
-`TimeFilter` are available; `TimeFilter` must be prepared before numerical simulation. `Workspace` remains the existing type.
+Build a physical Hamiltonian with `pauli_hamiltonian`, then pass it to
+`simulate_gibbs` or prepare a reusable `Workspace`. `HamHam(H; beta_phys)`
+provides direct access to its eigensystem and Gibbs state. Custom `KMSFilter`,
+`FrequencyFilter`, `RateFilter` and `TimeFilter` specifications are described below.
 
 Executable built-in DLL example:
 
@@ -50,48 +46,45 @@ Their Gibbs state is maximally mixed. A zero `nu_min` also occurs for ordinary
 degenerate spectra; it denotes the minimum adjacent spacing, not a positive
 frequency cutoff. Physical temperature must still be finite and positive.
 
-| Keyword/input | Frozen meaning | Task |
-|---|---|---|
-| `beta_phys` or `temperature` | Exactly one, finite and positive; temperature uses energy units with `k_B=1`. Both zero and infinite endpoint limits reject initially. No implicit unit conversion. | T05 |
-| `construction=DLL()` | New facade default. `KMS()` selects CKG KMS; GNS remains a legacy API. | T05, T09 |
-| `domain=BohrDomain()` | New default. Matrix-free Krylov evolution with dense Hamiltonian spectral preparation. | T09 |
-| `filter=DLLGaussianFilter` | Factory called with physical beta; a supplied filter instance also has physical-frame parameters and must match beta. | T05 |
-| `jumps=:onsite_paulis` | All `3n` onsite Pauli sources with amplitude `1/sqrt(3n)`. Supplied matrices retain their amplitudes. | T04 |
-| `complete_adjoint=false` | Missing adjoints or unequal multiplicities reject. Explicit `true` adds only missing multiplicities and reports additions; Hermitian sources are not doubled. | T04 |
-| `basis=:computational` | Input/output states and supplied jump matrices use the computational basis. Explicit `:eigen` means the Hamiltonian eigenbasis. H itself always uses computational coordinates. | T04, T09 |
-| `rho0` | Default `|+><+|` tensor power, recorded in provenance. Internally rotate once. | T09 |
-| `times` | Nonempty finite strictly increasing nonnegative generator times, starting at zero; time is continuous semigroup time, not steps or wall time. | T09 |
-| `transition_weight=nothing` | DLL thermal tilt is already in the amplitude. An arbitrary CKG rate cannot be multiplied into it. For CKG this input is the joint-validated rate `gamma`. | T05, T15–T17 |
-| `diagnostics=:standard` | Bounded independent spectral starts and subspace refinement; `:quick` can be tentative, `:strict` adds budgeted reference checks. | T06–T09 |
-| `dry_run=true` | Return resolved settings, basis/frame/clock, capabilities, source/channel counts, resource estimates and planned checks before expensive spectral preparation. | T09 |
+| Keyword/input | Meaning |
+|---|---|
+| `beta_phys` or `temperature` | Exactly one, finite and positive; temperature uses energy units with `k_B=1`. Both zero and infinite endpoint limits are unsupported. No implicit unit conversion. |
+| `construction=DLL()` | Default construction. `KMS()` selects CKG KMS; GNS remains a low-level API. |
+| `domain=BohrDomain()` | Default domain. Matrix-free Krylov evolution with dense Hamiltonian spectral preparation. |
+| `filter=DLLGaussianFilter` | Factory called with physical beta; a supplied filter instance also has physical-frame parameters and must match beta. |
+| `jumps=:onsite_paulis` | All `3n` onsite Pauli sources with amplitude `1/sqrt(3n)`. Supplied matrices retain their amplitudes. |
+| `complete_adjoint=false` | Missing adjoints or unequal multiplicities reject. Explicit `true` adds only missing multiplicities and reports additions; Hermitian sources are not doubled. |
+| `basis=:computational` | Input/output states and supplied jump matrices use the computational basis. Explicit `:eigen` means the Hamiltonian eigenbasis. H itself always uses computational coordinates. |
+| `rho0` | Tensor product of single-qubit plus states, recorded in provenance. Rotated internally once. |
+| `times` | Nonempty finite strictly increasing nonnegative generator times, starting at zero; time is continuous semigroup time, not steps or wall time. |
+| `transition_weight=nothing` | DLL thermal tilt is already in the amplitude. An arbitrary CKG rate cannot be multiplied into it. For CKG this input is the joint-validated rate `gamma`. |
+| `diagnostics=:standard` | Bounded independent spectral starts and subspace refinement; `:quick` can be tentative, `:strict` adds budgeted reference checks. |
+| `dry_run=true` | Return resolved settings, basis/frame/clock, capabilities, source/channel counts, resource estimates and planned checks before expensive spectral preparation. |
 
 `Workspace(H; beta_phys, jumps, filter, construction, domain, ...)` compiles once;
-`simulate_gibbs(ws; times, rho0, diagnostics, ...)` reuses that workspace (T09).
-An existing raw builder tuple or `HamHam` retains its explicit frame metadata;
+`simulate_gibbs(ws; times, rho0, diagnostics, ...)` reuses that workspace.
+A raw builder tuple or `HamHam` retains its explicit frame metadata;
 cached Gibbs data and requested temperature must agree or be recomputed with
 recorded provenance. No magnitude-based inference of energy frame is allowed.
 State storage is off by default; requested saved states use the declared basis
-and a memory cap. The facade never falls back silently to a dense Liouvillian.
+and a memory cap. The interface never falls back silently to a dense Liouvillian.
 
-For `H_alg = H_phys/R + sI`, `beta_alg = R*beta_phys`. Legacy `Config.beta`
+For `H_alg = H_phys/R + sI`, `beta_alg = R*beta_phys`. Low-level `Config.beta`
 and positional `HamHam(raw, beta)` retain algorithm-beta semantics. Physical
 DLL amplitudes convert as `F_alg(nu)=F_phys(R*nu)` and
 `f_alg(t)=f_phys(t/R)/R`, including support/width/phase conversions. This
 preserves filtered matrices for unchanged source amplitudes. It does **not**
-imply multiplication of the generator by R. The default facade clock is the
+imply multiplication of the generator by R. The default interface clock is the
 raw generator defined by those amplitudes; a derived clock must state its
-generator multiplier, and rates/times transform reciprocally (T05).
+generator multiplier, and rates/times transform reciprocally.
 
-`GeneratorClock` and `DLLFilterFrame` already live in the core module's
-`tensor_networks.jl`, loaded without ITensors. **T00 decision: no relocation is
-needed.** The physical-input interface reuses these types.
 `GeneratorClock` describes positive derived clocks and intentionally rejects
 `:raw_generator`; store that raw label separately with multiplier one and no
 derived-clock object. A zero generator has no positive derived rate. The
-existing frame record covers built-in support/shift/weight, not arbitrary
+`DLLFilterFrame` record covers built-in support/shift/weight, not arbitrary
 callback identity or phase; retain additional filter provenance separately.
 
-The T04 source preparation API is executable:
+Prepare source operators and their adjoint partners with `prepare_jumps`:
 
 ```julia
 ham = HamHam(0.4X + 0.7Z; beta_phys=0.8)
@@ -99,21 +92,20 @@ jump = JumpOp(Y, ham) # owns computational and eigenbasis matrices
 prepared = prepare_jumps(:onsite_paulis, ham)
 paired = prepare_jumps([ComplexF64[0 1; 0 0]], ham;
     complete_adjoint=true, rates=2.0)
-# Pass prepared.jumps to the existing low-level constructors.
+# Pass prepared.jumps to the low-level constructors.
 ```
 
 `prepare_jumps` returns `jumps` and `provenance`. Matrices retain their input
 amplitudes; each positive rate contributes its square root to the source.
 Adjoint completion preserves multiplicity, appends only missing partners, and
-rejects unequal rates on existing partners. Re-preparing the returned jumps
+rejects unequal rates on partners. Re-preparing the returned jumps
 with default rates is idempotent. Stored `JumpOp` inputs are checked against
-both bases and flags, then copied. `orthogonal` retains the legacy meaning of
-transpose symmetry. Zero, identity and dephasing sources are accepted without
+both bases and flags, then copied. `orthogonal` denotes transpose symmetry. Zero, identity and dephasing sources are accepted without
 asserting ergodicity. The onsite preset records its `1/sqrt(3n)` amplitude;
 user matrices receive no proposal normalisation. Nonuniform rates change the
 generator and are recorded per source, without inventing a single clock factor.
 
-T05 adds an executable preparation helper for the existing DLL backends:
+`prepare_gibbs_inputs` returns a configuration, Hamiltonian, sources and provenance:
 
 ```julia
 p = prepare_gibbs_inputs(0.4X + 0.7Z; temperature=1.25,
@@ -126,13 +118,13 @@ Supply exactly one of `beta_phys` or `temperature`, with `k_B=1` and finite,
 positive values. Prebuilt filters must match the requested physical beta at
 Hamiltonian working precision. Gaussian widths set by beta, Metropolis support
 and symmetric frequency shifts convert together. Channel weights are unchanged.
-The helper supports the existing DLL Gaussian, Metropolis, symmetric-translate
+The helper supports the DLL Gaussian, Metropolis, symmetric-translate
 and multichannel families, plus custom frequency, q and rate specifications in BohrDomain. It rejects negative symmetric shifts explicitly (supply `abs(shift)` if
-intended). CKG also accepts typed transitions in Bohr/Energy through `construction=KMS()`, as described below. GNS retains its low-level `Config` API. The simulation facade uses these same preparation rules.
+intended). CKG also accepts typed transitions in Bohr/Energy through `construction=KMS()`, as described below. GNS retains its low-level `Config` API. The simulation interface uses these same preparation rules.
 
 For DLL Time, supply `domain=TimeDomain()`, physical `time_step` and
-`num_energy_bits`; the algorithm time step is `R*time_step`. Prepared filters accept independent coherent controls as described below. Legacy
-built-ins retain their shared-grid defaults; accuracy must be checked.
+`num_energy_bits`; the algorithm time step is `R*time_step`. Prepared filters accept independent coherent controls as described below. Built-in
+filters use a shared grid by default; accuracy must be checked.
 Bohr preparation needs no register or CKG rate parameters; the returned
 `Config.sigma=1` is an unused DLL compatibility value recorded as such.
 
@@ -153,22 +145,22 @@ decay rates scale by `multiplier`; equal evolutions use times divided by it.
 `declared_rate` is user-provided reference metadata, never a computed gap or a
 positive relaxation-rate claim for a zero generator. With no clock the raw
 multiplier is one, independently of Hamiltonian rescaling. Prepared provenance
-is returned separately from legacy `Config`; portable combined result storage
+is returned separately from low-level `Config`; portable combined result storage
 is described in the persistence section below.
 
 ## Filter and rate authoring
 
 These routes are implemented within the domain and evidence limits below.
 
-| Route | Meaning and required evidence | Task |
-|---|---|---|
-| `KMSFilter(beta_phys; q_positive, name, support, tail_bound=nothing)` | Callback receives physical `nu >= 0`; enforce `q(-nu)=conj(q(nu))`, real `q(0)`, then `F=exp(-beta*nu/4)*q`. Balance by construction; regularity and tails separately classified. | T11 |
-| `FrequencyFilter(beta_phys; amplitude, name, support, tail_bound=nothing)` | Full physical-frequency amplitude on both signs. Test weighted reflection on actual Bohr frequencies; sampled tests are not a global proof. | T10–T12 |
-| `RateFilter(beta_phys; downward_rate, name, support, tail_bound=nothing)` | Callback takes nonnegative energy release `x`, gives `r(-x)`; set `r(x)=exp(-beta*x)*r(-x)` and use the principal square-root amplitude with zero phase. Nonnegative finite rates required. | T11 |
-| `TimeFilter(beta_phys; kernel, name, support, tail_bound=nothing)` | Full physical-time kernel with the DLL Fourier convention. Numerical forward transform, actual-Bohr checks; no silent balance projection. Here support and tails are in time. | T11–T12 |
-| Source/channel assignments | Every adjoint partner has the same filter/rate multiplicity. Channels contribute separate dissipators; no dissipator of their summed amplitude. | T14 |
-| CKG Gaussian-mixture rate | Nonnegative mixture compatible with the same beta and explicitly normalised Gaussian OFT. | T15 |
-| General CKG filter plus rate | Validate joint-kernel PSD and two-frequency KMS symmetry; a classical rate ratio alone is insufficient. | T16–T17 |
+| Route | Meaning and required evidence |
+|---|---|
+| `KMSFilter(beta_phys; q_positive, name, support, tail_bound=nothing)` | Callback receives physical `nu >= 0`; enforce `q(-nu)=conj(q(nu))`, real `q(0)`, then `F=exp(-beta*nu/4)*q`. Balance by construction; regularity and tails separately classified. |
+| `FrequencyFilter(beta_phys; amplitude, name, support, tail_bound=nothing)` | Full physical-frequency amplitude on both signs. Test weighted reflection on actual Bohr frequencies; sampled tests are not a global proof. |
+| `RateFilter(beta_phys; downward_rate, name, support, tail_bound=nothing)` | Callback takes nonnegative energy release `x`, gives `r(-x)`; set `r(x)=exp(-beta*x)*r(-x)` and use the principal square-root amplitude with zero phase. Nonnegative finite rates required. |
+| `TimeFilter(beta_phys; kernel, name, support, tail_bound=nothing)` | Full physical-time kernel with the DLL Fourier convention. Numerical forward transform, actual-Bohr checks; no silent balance projection. Here support and tails are in time. |
+| Source/channel assignments | Every adjoint partner has the same filter/rate multiplicity. Channels contribute separate dissipators; no dissipator of their summed amplitude. |
+| CKG Gaussian-mixture rate | Nonnegative mixture compatible with the same beta and explicitly normalised Gaussian OFT. |
+| General CKG filter plus rate | Validate joint-kernel PSD and two-frequency KMS symmetry; a classical rate ratio alone is insufficient. |
 
 `support=nothing` means unknown support, not a proven infinite-tail bound;
 a finite interval is a user-declared exact support in the input variable.
@@ -179,39 +171,38 @@ multiplies the amplitude by its square root. Filter values are amplitudes, not
 probabilities. Source-rate factors likewise enter sources as square roots.
 
 DLL uses `f(t)=(2pi)^(-1) integral F(nu) exp(-im*nu*t) dnu`.
-Legacy CKG Gaussian shapes have external normalisation factors; adapt rather
+Low-level CKG Gaussian shapes have external normalisation factors; adapt rather
 than reinterpret them. Keep four evidence fields separate: algebraic balance,
 continuum transform existence, numerical error evidence, and applicability of
 an efficient implementation theorem. There is no universal `certified=true`.
 FINUFFT currently evaluates Float64/ComplexF64 internally. Unknown tails stay
-unknown; T12–T13 provide direct references and independent refinement controls.
+unknown. Use the direct Fourier reference and independent refinement controls
+to assess numerical accuracy.
 
 ## Construction and domain capabilities
 
 This table describes the available **Lindbladian** paths.
-The DLL facade supports Bohr and Time execution. Existence of a domain type does not
+The DLL interface supports Bohr and Time execution. Existence of a domain type does not
 establish support. “Available” does not certify a chosen quadrature tolerance.
 
-T01 repaired the Time source adjoint. T02 supports DLL Time workspaces with
-retained per-channel matrices and the same coherent quadrature as dense Time.
-DLL validation no longer requires CKG transition-rate parameters. DLL
-`Thermalize` channels reject explicitly; use `Lindbladian()` evolution.
+DLL Time workspaces retain per-channel matrices and use the same coherent
+quadrature as dense Time. DLL requires no CKG transition-rate parameters and
+supports `Lindbladian()` evolution; finite `Thermalize()` channels are unsupported.
 
-| Construction/filter | Dense Bohr | Bohr workspace | Dense Time | Time workspace | Energy/Trotter | Implementing task |
-|---|---|---|---|---|---|---|
-| DLL built-ins, Hermitian sources | Available | Available | Available | Available | Rejected | T02 complete; T09 facade |
-| DLL built-ins, adjoint-paired sources | Available | Available | Available | Available | Rejected | T01–T02 complete |
-| DLL existing global multichannel filters | Available, separate channels | Available | Available, separate channels | Available | Rejected | T01–T02 and T14 complete; source assignments preserve channel multiplicity |
-| DLL custom complex filters | Available, finite Bohr checks | Available, retained samples | Available with prepared transforms | Available with prepared transforms | Rejected | T10–T14 complete |
-| CKG built-in Gaussian OFT/rates | Available | Available | Available | Available | Available with valid registers/local Trotter cache | T15 typed rates available; T20 release checks |
-| CKG general joint filter/rate | Available, bounded joint compilation | Available, retained samples | Available, explicit transform controls | Available, owned samples | Energy available; custom Trotter rejected | T16–T17 complete |
+| Construction/filter | Dense Bohr | Bohr workspace | Dense Time | Time workspace | Energy/Trotter |
+|---|---|---|---|---|---|
+| DLL built-ins, Hermitian sources | Available | Available | Available | Available | Rejected |
+| DLL built-ins, adjoint-paired sources | Available | Available | Available | Available | Rejected |
+| DLL global multichannel filters | Available, separate channels | Available | Available, separate channels | Available | Rejected |
+| DLL custom complex filters | Available, finite Bohr checks | Available, retained samples | Available with prepared transforms | Available with prepared transforms | Rejected |
+| CKG built-in Gaussian OFT/rates | Available | Available | Available | Available | Available with valid registers/local Trotter cache |
+| CKG general joint filter/rate | Available, bounded joint compilation | Available, retained samples | Available, explicit transform controls | Available, owned samples | Energy available; custom Trotter rejected |
 
-DLL GQSP remains rejected (T02 keeps the rejection); DLL Energy/Trotter and a
-new DLL circuit implementation are outside scope. Existing CKG thermalisation,
-GQSP, GNS and optional TN paths retain their own documented capabilities.
-CKG-to-DLL finite-Bohr factorisation is a bounded reference task (T18), not a
-default scalable replacement. The [T21 symbolic feasibility experiment](symbolic_filters.md)
-retains the numerical provider; no symbolic extension or dependency is added.
+DLL Energy, Trotter and GQSP are unsupported. CKG thermalisation, GQSP and
+GNS have the capabilities described in their API documentation.
+[CKG-to-DLL finite-Bohr factorisation](theory_filters.md) provides a bounded
+small-system reference. Custom Fourier transforms use `prepare_filter_transform`,
+with analytic Gaussian formulas where available and numerical quadrature otherwise.
 
 The strict sampler includes `-im[B,rho]`, with
 `B_ij=(im/2)*tanh(beta*(E_i-E_j)/4)*sum(L' * L)_ij`.
@@ -223,15 +214,13 @@ jumps is a distinct hybrid reference, not proof of the full two-time method.
 
 ## Results and evidence
 
-`GibbsSimulationResult <: AbstractResults` (T09) owns `trajectory`, `spectrum`,
-`diagnostics` and provenance, retaining existing payloads without unnecessary
-array copies. Missing spectrum after a solver failure does not erase a valid
+`GibbsSimulationResult <: AbstractResults` owns `trajectory`, `spectrum`,
+`diagnostics` and provenance. Missing spectrum after a solver failure does not erase a valid
 trajectory. Portable persistence and callback reconstruction are described below.
 
 Every check has `status` in `:pass`, `:fail`, `:inconclusive`, `:not_run`, plus
 quantity, tolerance, method and evidence scope. A separate evidence field
-distinguishes structural facts from numerical tests. T06 implements this
-schema; T07–T08 implement the spectral reliability policies.
+distinguishes structural facts from numerical tests.
 
 | Result question | Required distinction |
 |---|---|
@@ -243,17 +232,13 @@ schema; T07–T08 implement the spectral reliability policies.
 | Budget | Report partial evidence and `:budget_exhausted`; skipped checks remain `:not_run`. No silent tolerance relaxation or long sweep. |
 | State validity | Raw trace, Hermiticity and positivity defects before any repair; record repair magnitude. |
 
-Expose both full `trace_norm` and `trace_distance=trace_norm/2`. Existing
-`distances` arrays retain the half-norm convention. Report simulated time,
+Reports expose both full `trace_norm` and `trace_distance=trace_norm/2`.
+`distances` arrays use the half-norm convention. Report simulated time,
 channel steps, wall time, memory and matvec counts separately. Resource
 estimates include dense H/filtered matrices, Krylov basis and per-thread/channel
 scratch; a dense Liouvillian requires its own explicit small-system cap.
 
-Public tutorials execute during the local documentation build and in default
-integration tests. The capability tests also cover rejected combinations.
-Finite reference checks do not certify continuum tails or scalability.
-
-### Implemented diagnostic checks (T06)
+### Diagnostic checks
 
 `workspace_diagnostics(ws, config, ham; rho=nothing, dense_max_dim=16,
 max_dense_bytes=64*1024^2)` inspects the compiled Lindbladian in the Hamiltonian
@@ -261,43 +246,43 @@ eigenbasis. It retains absolute and probe-normalised residuals for stationarity
 and trace preservation, raw state defects, Gibbs conditioning, and budgeted
 complete KMS-parent/kernel evidence. A failed probe-normalised tolerance is
 conservative: its scale is a lower estimate of the operator norm. Dense budgets
-cover an estimated temporary working set, additional to the existing workspace;
+cover an estimated temporary working set, additional to the workspace;
 they are not operating-system memory limits. Trotter-basis diagnostics currently
 reject explicitly. Unknown integrated transform tails stay `:not_run`.
 `state_diagnostics(rho)` also works independently. No state repair is applied.
 A complete numerical kernel result is scoped to this finite system and the
 reported tolerance; it does not establish uniform mixing.
 
-### Implemented spectral extraction (T07)
+### Spectral extraction
 
-`krylov_spectral_gap` now selects the first resolved decay rate beyond the
-entire detected stationary space. It retains raw eigenvalues/vectors and adds
+`krylov_spectral_gap` selects the first resolved decay rate beyond the
+entire detected stationary space. It retains raw eigenvalues/vectors and reports
 `spectrum_diagnostics`, `fixed_point_diagnostics`, and `gap_mode_index`.
-`NaN` in the legacy scalar gap means no resolved relaxation rate (including
+`NaN` in the scalar gap means no resolved relaxation rate (including
 unstable or unresolved peripheral modes). A positive candidate from a partial
 Krylov spectrum still has `:inconclusive` global reliability and never establishes
 uniqueness. Single-vector Arnoldi can miss multiplicities and slow sectors;
-independent-start refinement is T08. Residual-compatible zeros are numerical
+use `robust_spectral_gap` for independent-start refinement. Residual-compatible zeros are numerical
 resolution statements, not exact kernel certificates. Residuals do not bound
 eigenvalue errors for a general nonnormal operator.
 
 `fixed_point` is phase/trace-normalised without Hermitian or positivity repair;
 inspect its validity report before using it. If no zero-compatible mode has a
-stable nonzero trace, this legacy matrix field contains NaNs. The raw modes
+stable nonzero trace, this matrix field contains NaNs. The raw modes
 remain unmodified. `run_krylov_spectrum` retains diagnostic reports in metadata.
-Channel residuals remain in raw channel units and the legacy converted
-`eigenvalues=(mu-1)/delta` convention is unchanged.
+Channel residuals use raw channel units; the returned eigenvalues use
+`eigenvalues=(mu-1)/delta`.
 
-`extract_leading_eigendata` now uses the complete dense spectrum for its gap.
-Older `compute_fixed_point_distance`/`run_exact_diagnostics` retain their legacy
-state-repair path, and overlap/defect/discriminant convenience fields retain
-second-mode semantics as documented in their docstrings. Use the new checks
-for nonunique or unresolved systems. `kms_parent_spectrum` uses a homogeneous
+`extract_leading_eigendata` uses the complete dense spectrum for its gap.
+`compute_fixed_point_distance` and `run_exact_diagnostics` apply state repair.
+Their overlap, defect and discriminant convenience fields refer to the second
+mode, as documented in their docstrings. Use `spectrum_diagnostics` and
+`fixed_point_diagnostics` for nonunique or unresolved systems. `kms_parent_spectrum` uses a homogeneous
 operator-scale tolerance; `dense_dll_irreducibility` also accepts validated
 adjoint pairs through an equivalent Hermitian source family. Its finite-system
 commutant witness still requires a faithful invariant Gibbs state.
 
-## Independent gap checks (T08)
+## Independent gap checks
 
 `robust_spectral_gap(ws; diagnostics=:standard)` runs three deterministic,
 independent O(1) operator starts and a larger-subspace repeat on the same compiled
@@ -320,10 +305,10 @@ and cooperative time limits, not operating-system caps. Exhaustion preserves
 completed runs and records a reason. No dense fallback occurs on solver failure.
 Strict mode separately budgets complete KMS/kernel checks through
 `dense_max_dim`; `parent_action=true` also measures a transformed Ritz residual
-using the existing KMS-parent action after conditioning and Hermiticity pass.
+using the KMS-parent action after conditioning and Hermiticity pass.
 This optional probe adds no continuum or exhaustive-spectrum guarantee.
 
-## Built-in simulation facade (T09)
+## Simulating a Gibbs sampler
 
 ```julia
 ws = Workspace(0.3X + 0.4Y + 0.7Z; beta_phys=0.8)
@@ -337,7 +322,7 @@ r.diagnostics          # stationarity and available KMS/kernel checks
 
 `simulate_gibbs(H; beta_phys, times, ...)` combines these two steps. Built-in DLL
 Bohr and explicitly discretised Time paths are supported. Typed CKG rates support
-Bohr/Energy through `construction=KMS()`; other legacy CKG/GNS paths remain available. `temperature` is an alternative to `beta_phys`, with `k_B=1`.
+Bohr/Energy through `construction=KMS()`; other low-level CKG/GNS paths remain available. `temperature` is an alternative to `beta_phys`, with `k_B=1`.
 `transition_weight` must be `nothing` for DLL. The canonical coherent correction
 is included. The onsite preset is always assembled in computational coordinates;
 `basis=:eigen` changes supplied state/output coordinates and supplied matrix-source
@@ -357,9 +342,9 @@ The default initial state is computational `|+><+|` tensor power. State storage
 is off by default; final/saved states and predictor modes use the declared basis.
 Independent `spectrum` modes explicitly use `spectrum.basis=:eigen`; its clock is
 the declared compiled generator clock. Continuous semigroup time, wall seconds
-and channel-step counts are separate; this facade's `channel_steps` is `nothing`.
+and channel-step counts are separate; this interface's `channel_steps` is `nothing`.
 
-The default `method=:krylov` uses existing Krylov exponentiation. Raw validity
+The default `method=:krylov` uses Krylov exponentiation. Raw validity
 checks precede any optional `repair_states=true` Hermitian/trace correction;
 `repair_norms` records its size. No positivity clipping occurs. `max_matvecs` and
 `max_seconds` bound trajectory work cooperatively. Diagnostic work has a separate
@@ -386,7 +371,7 @@ reject the mixing-time helper rather than silently dropping their stationary
 contribution. Predictor Time-domain use rejects; direct Krylov Time remains
 available. Combined-result serialization is described below.
 
-T10 compiles each DLL Bohr channel into an owned complex frequency table before
+Compilation samples each DLL Bohr channel into an owned complex frequency table before
 source construction or threading. Every sampled value is finite and the full
 sampled set passes weighted conjugate reflection at working precision. This is
 finite-spectrum numerical evidence; no continuum or implementation theorem is
@@ -394,7 +379,7 @@ inferred. Gain, loss and coherent construction share these samples, and the
 workspace forms its canonical correction from the retained loss matrix.
 Standalone coherent construction retains an independent source-product path.
 
-## Custom frequency filters (T11)
+## Custom frequency filters
 
 ```julia
 beta_phys = 0.8
@@ -410,7 +395,7 @@ result.provenance.filter_compilation
 Callbacks are concretely typed. Supply a stable nonempty `name`, an optional
 `version` (default `"1"`) and a `parameters` named tuple. Parameters are copied;
 callbacks remain user-owned definitions. Compilation owns the numerical samples,
-so subsequent callback mutation cannot change an existing workspace. A new
+so subsequent callback mutation cannot change an workspace. A new
 workspace resamples the callback. Names and parameter records do not make a
 closure portable; reconstruction needs registration or explicit resupply, as described below.
 
@@ -437,7 +422,7 @@ cannot reveal whether the author intended a different unweighted q.
 For all four specifications, `support=nothing` means unknown support; a positive
 finite radius enforces zero outside `[-support,support]`. Frequency specifications
 use physical energy coordinates, whereas `TimeFilter` uses physical time. The
-facade evaluates frequency callbacks at `R*nu_alg`, preserving widths, phases and
+interface evaluates frequency callbacks at `R*nu_alg`, preserving widths, phases and
 amplitudes without an additional clock multiplier. `tail_bound` is an optional
 callable of a cutoff, retained as **user-supplied, unverified** information.
 Compact support alone proves neither smoothness nor a transform theorem.
@@ -451,7 +436,7 @@ per-source assignments are available through `DLLSourceFilters`. Wrap `TimeFilte
 for numerical Time execution. Unprepared callbacks still reject in TimeDomain
 because their numerical windows and controls have not been specified.
 
-### Prepared numerical Fourier transforms (T12)
+### Prepared numerical Fourier transforms
 
 `prepare_filter_transform(f; window, breakpoints, rtol, atol, maxevals,
 max_panels, analytic=true)` owns a deep copy of the filter and its captured data.
@@ -470,8 +455,8 @@ omitted tail. The numerical path reports `:unresolved` when its quadrature budge
 cannot meet the requested tolerance.
 
 The convention is `F(ν)=∫f(t)exp(iνt)dt` with inverse `1/(2π)`. Analytic Gaussian
-pairs are preferred. A prepared legacy `GaussianFilter` adapts its frequency
-shape by `sqrt(π)/sigma`, leaving the existing CKG kernel methods unchanged.
+pairs are preferred. A prepared `GaussianFilter` adapts its frequency
+shape by `sqrt(π)/sigma`, leaving the CKG kernel methods unchanged.
 `fourier_sum(nodes, weights, targets; sign=1, backend=:direct)` provides a generic
 precision reference for finite sums; `backend=:finufft` uses deterministic
 single-threaded Float64/ComplexF64 and explicitly rejects higher precision.
@@ -484,14 +469,14 @@ evidence = transform_values(p, [-1.0, 0.0, 1.0])
 # evidence.tail_status == :unknown; this is not a continuum certificate.
 ```
 
-### Independent coherent controls and custom DLL Time (T13)
+### Independent coherent controls and custom DLL Time
 
 Prepared filters accept `coherent=(; ...)` with independent `time_step`,
 `time_window`, `frequency_window` and `frequency_grid_size`. Omitted coherent
 time controls inherit the supplied dissipative grid. Frequency-input filters
 inherit their transform window; time-input filters must declare a coherent
-frequency window. All supplied coordinates are physical in the facade and
-algorithm coordinates in legacy Config. Conversion includes the Jacobian
+frequency window. All supplied coordinates are physical in the interface and
+algorithm coordinates in `Config`. Conversion includes the Jacobian
 `f_alg(t)=f_phys(t/R)/R`; it changes no generator clock.
 
 ```julia
@@ -509,7 +494,7 @@ result.provenance.time_compilation
 The default `method=:time` transforms the complex two-frequency kernel with
 factor `(2π)^(-2)`, then contracts `A(t′)'*A(t)`. `backend=:direct` supplies a
 precision-preserving finite-sum reference; `:finufft` uses Float64 internally.
-No quadrature or callback runs in a source matvec. The facade includes the
+No quadrature or callback runs in a source matvec. The interface includes the
 largest refinement grids in its construction-memory estimate; `max_points`
 bounds each coherent axis (default 2049). Larger grids require explicit budgets.
 
@@ -530,11 +515,10 @@ from their implemented loss R. Provenance calls this
 its implementation cost and does not restore KMS to inaccurate jumps.
 Hermiticity is checked before optional `repair=true` roundoff symmetrisation;
 a material defect rejects. The repair size is reported separately and is never
-called a KMS correction. Prepared custom channels can be grouped with `DLLMultiChannelFilter`;
-the existing built-in multichannel paths retain their behaviour.
+called a KMS correction. Group prepared custom channels with `DLLMultiChannelFilter`.
 
 
-### Per-source DLL channels (T14)
+### Per-source DLL channels
 
 `DLLMultiChannelFilter((f, g, f), beta_phys)` stores three separate channels.
 Nested families flatten in order; the repeated `f` doubles its contribution to
@@ -549,7 +533,7 @@ multiplicity and source rates. Reuse the same custom callback or prepared
 filter object; a matching name or matching finite samples does not establish
 matching prescriptions. Channel order may differ between partners.
 `complete_adjoint=true` copies the originating prescription to newly appended
-partners; it does not repair conflicting assignments on existing partners.
+partners; it does not repair conflicting assignments on partners.
 
 ```julia
 beta_phys = 0.8
@@ -572,12 +556,11 @@ use only retained matrices. No continuum tail or ergodicity theorem follows
 from these finite-system checks.
 
 
-### Typed CKG rates and Gaussian mixtures (T15)
+### Typed CKG rates and Gaussian mixtures
 
 Select `construction=KMS()` and a typed `transition_weight`. `GaussianTransition`,
-`MetropolisTransition` and `SmoothMetropolisTransition` replace the legacy rate
-parameter combinations while retaining their analytic coefficients, coherent
-term and clock. Each prescription takes physical beta and physical OFT width
+`MetropolisTransition` and `SmoothMetropolisTransition` provide analytic
+coefficients and their coherent correction. Each prescription takes physical beta and physical OFT width
 `sigma` (default `1/beta_phys`). The default CKG prescription is Gaussian.
 
 `GaussianMixtureTransition` accepts finite nonnegative weights and positive
@@ -586,7 +569,7 @@ centres `x`, where the rate Gaussian is centred at `-x` and has variance
 `beta_phys = 2x/(sigma^2 + sigma_gamma^2)`. The variance must be strictly positive;
 the singular zero-variance endpoint rejects. These rates require the normalised
 Gaussian OFT, `C(w)=(2π sigma^2)^(-1/4) exp(-w^2/(4sigma^2))`, implemented using
-`GaussianFilter` and the existing external normalisation. An arbitrary OFT
+`GaussianFilter` and the external normalisation. An arbitrary OFT
 substitution is rejected on this analytic route; use the joint compiler below for a different OFT.
 
 ```julia
@@ -620,11 +603,10 @@ frequency grid; the full requested grid is retained for mixtures. Physical
 widths, centres and energy steps are divided by the Hamiltonian rescaling factor;
 the normalised OFT and integration measure cancel their Jacobians in alpha.
 Mixture Time requires the explicit joint compiler and transform controls below; custom Trotter and GQSP reject.
-Existing built-in Time/Trotter configurations remain available through the legacy
-API. Retained finite-mixture parameters can be saved with Config; the original
+Built-in Time/Trotter configurations use the low-level `Config` API. Retained finite-mixture parameters can be saved with Config; the original
 continuum density or arbitrary callbacks are not reconstructed by that snapshot.
 
-### General CKG joint kernels (T16)
+### General CKG joint kernels
 
 `CKGJointKernel(beta_phys; oft=C, rate=gamma, frequency_window=(lo,hi))`
 accepts the full complex, normalised transform, with `integral(abs2(C))=1`,
@@ -672,7 +654,7 @@ when a smaller numerical floor is needed. `:not_KMS` means the resolved referenc
 fails balance; `:quadrature_unresolved` means the reference passes but the
 implemented grid does not agree; `:reference_unresolved` means the adaptive
 error estimate exceeds tolerance. Failed kernels reject from the standard
-facade. `compile_ckg_kernel(pair, frequencies; strict=false)` exposes these
+interface. `compile_ckg_kernel(pair, frequencies; strict=false)` exposes these
 statuses for inspection without accepting a failed KMS simulation.
 
 The balance metric is a bounded reflection residual divided by the largest
@@ -684,7 +666,7 @@ a caller-supplied source; it does not bypass validation. Neither this compiler
 nor a small defect establishes mixing or an efficient implementation theorem.
 
 Compilation defaults to at most 65 distinct Bohr frequencies and a 64 MiB
-working-set estimate, checked before quadratic kernel allocation. The facade
+working-set estimate, checked before quadratic kernel allocation. The interface
 also checks its total construction budget. `maxevals` is a **per integral** cap;
 there are `1+m*(m+1)/2` adaptive integrals for `m` frequencies. These are bounded
 research references, with O(m²) kernel storage, not an arbitrary-size production
@@ -693,7 +675,7 @@ Prepared data own samples; callback reconstruction requires the original
 definition and the checks described below.
 
 
-### General CKG Time conversion (T17)
+### General CKG Time conversion
 
 Pass physical windows and steps explicitly. This executable example uses the
 normalised `pair.oft` and `pair.rate` from the preceding example:
@@ -735,19 +717,15 @@ to resolve them within the resource budget. No universal Time convergence or
 quantum implementation claim follows. `max_bytes` includes time/frequency
 matrices, prefactors and dimension-dependent contraction scratch.
 
-Custom CKG Trotter remains unsupported: even a retained local Hamiltonian
-needs a separately validated evolution and coherent-kernel algorithm. An
-opaque dense Hamiltonian additionally lacks a local decomposition. The error
-states this gate; legacy built-in `Config` plus `make_trotter_for_config`
-continues to support its established Time/Trotter paths. A future custom
-Trotter task must verify basis, local evolution and independent coherent error
-before this gate can be opened.
+Custom CKG Trotter is unsupported. Built-in Time/Trotter paths use `Config`
+and `make_trotter_for_config`; Trotter synthesis requires a local Hamiltonian
+decomposition.
 
 ## Portable results and continuation
 
 `save_result(result, path)` and `load_result(path)` support
 `GibbsSimulationResult` through a versioned tagged-data schema, alongside the
-legacy BSON result formats. Saved trajectories retain the trace-distance
+`LindbladResults` and `ThermalizeResults` BSON formats. Saved trajectories retain the trace-distance
 convention, basis, diagnostic statuses, and partial results. Loading evidence
 does not require a custom callback definition.
 
@@ -763,11 +741,11 @@ end
 @assert continued.provenance.resume_time_origin ≈ 0.1
 ```
 
-For results produced through the physical-input facade, `Workspace(loaded)`
+For results produced through the physical-input interface, `Workspace(loaded)`
 rebuilds fresh mutable buffers from owned model and source
 matrices, the retained spectral basis, tagged filter/rate parameters and
 transform controls. It preserves already-weighted source amplitudes and the
-original generator clock. A legacy low-level workspace result without a replay
+original generator clock. A low-level workspace result without a replay
 snapshot retains evidence but requires the original inputs for reconstruction.
 Temperature, domain and transform-control changes
 require preparation from new physical inputs; replay does not reuse an old
@@ -804,7 +782,7 @@ continuum tails and unavailable tests remain explicitly unknown or not run.
 
 ## Finite-channel evolution through simulate_gibbs
 
-`sim=Lindbladian()` remains the default. `sim=Thermalize()` calls the existing
+`sim=Lindbladian()` is the default. `sim=Thermalize()` calls the
 `run_thermalize` backend and returns the same `GibbsSimulationResult` envelope:
 
 ```julia
@@ -826,9 +804,9 @@ The evolution target and the numerical method are distinct:
 Physical channel inputs currently support CKG built-in Gaussian OFT/rate
 families in Bohr and Energy domains. Supply `construction=KMS()` explicitly;
 there is no silent switch from the default DLL construction. DLL and general
-custom joint CKG channels reject. Existing Time/Trotter/GNS configurations use
+custom joint CKG channels reject. Time/Trotter/GNS configurations use
 `simulate_gibbs(jumps, config::Config{Thermalize}, ham, trotter=nothing; steps, ...)`.
-The existing GQSP polynomial surrogate remains labelled as such and gives an
+The GQSP polynomial surrogate remains labelled as such and gives an
 inconclusive physical convergence status. It is not a certified circuit block.
 
 `delta` must be finite with `0 < delta <= 1`. Use integer `steps`, or supply
@@ -842,7 +820,7 @@ Memory estimates are working-set gates, not hard RSS guarantees. The requested
 step horizon is not shortened merely because an earlier sample is near Gibbs.
 
 States default to the computational basis and the computational plus product
-initial state, matching the Lindblad facade. For the legacy overload,
+initial state, matching the Lindblad interface. For the low-level overload,
 `basis=:eigen` means the backend working basis: the D-register Trotter eigenbasis
 in TrotterDomain, otherwise the Hamiltonian eigenbasis. JumpOp caches must
 already match that backend basis. Raw updates are used by default;
@@ -850,7 +828,7 @@ already match that backend basis. Raw updates are used by default;
 recorded as `provenance.hermitized`; no trace renormalisation is performed.
 
 A sweep applies all source subchannels in order. Random selection applies one
-source, with the legacy probability-compensation convention unless explicitly
+source, with the default probability-compensation convention unless explicitly
 overridden, and returns density matrices conditioned on that source history.
 It does not average source histories or sample measurement outcomes. Provenance
 retains the seed, source selection multiplier, backend `gamma_norm_factor`,
