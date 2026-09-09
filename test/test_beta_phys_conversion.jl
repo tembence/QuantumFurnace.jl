@@ -12,7 +12,7 @@ const _BPC_HAM_PATH = test_hamiltonian_path(3)
 # raw shape needed by HamHam(raw; beta_phys=...)).
 const _BPC_HAM_ALG10 = QuantumFurnace._load_hamiltonian_bson(_BPC_HAM_PATH, 10.0)
 
-@testset "qf-6vr Task 1 — β_phys / β_alg helpers + HamHam keyword constructor" begin
+@testset "β_phys / β_alg helpers + HamHam keyword constructor" begin
 
     rescale = _BPC_HAM_ALG10.rescaling_factor
     @test rescale > 1.0
@@ -192,26 +192,18 @@ const _BPC_HAM_ALG10 = QuantumFurnace._load_hamiltonian_bson(_BPC_HAM_PATH, 10.0
         residual_matvec = norm(ws.scratch.rho_out) / norm(vec(ρ_phys_mat))
         @test residual_matvec < 1e-10
 
-        # (ii) `predict_lindbladian_trajectory` from the maximally mixed state
-        # converges to ρ_phys.  Horizon t=200 is generous at n=3, β_alg≈14 —
-        # τ_mix ≈ 30 here (gap ~ 0.1) so 200/30 ≈ 6 e-folds is enough for the
-        # captured eigenmode to dominate; the captured `rho_inf` is exact on
-        # the Krylov subspace regardless of horizon.
+        # (ii) Resolve the full small-system operator space before asserting
+        # predictor convergence, then check relaxation toward the physical Gibbs state.
         d = size(ham_phys.data, 1)
         rho_0 = Matrix{ComplexF64}(I(d) ./ d)
         t_grid = collect(range(0.0, 200.0, length=21))
         res = predict_lindbladian_trajectory(cfg_b, ham_phys, jumps, rho_0, t_grid;
-                                              krylovdim = 30, tol = 1e-10)
+                                              krylovdim = d^2, tol = 1e-10)
         @test res.all_converged
         # The trajectory's `sigma_beta` reference must match the physical
         # Gibbs state in eigenbasis.
         @test isapprox(Matrix(res.sigma_beta), Matrix(ρ_phys_eigen); atol=1e-12)
-        # The captured ρ_∞ from the Krylov eigendecomposition must agree with
-        # ρ_phys.  BohrDomain is analytic so the residual is FP-only, but the
-        # KrylovKit Arnoldi `tol = 1e-10` setting controls the leading-mode
-        # null-space accuracy — atol≈5e-8 is the realistic floor here for the
-        # qf-2kd find_typical n=3 fixture (observed ~2.6e-8 in worst-case
-        # off-diagonals; the earlier find_ideal fixture sat at ~5e-9).
+        # The stationary state from the complete subspace agrees with ρ_phys.
         @test isapprox(Matrix(res.rho_inf), Matrix(ρ_phys_eigen); atol=5e-8)
         # Distance at horizon is gap-limited; just assert it is shrinking.
         @test res.distances[end] < res.distances[1]
@@ -221,7 +213,7 @@ const _BPC_HAM_ALG10 = QuantumFurnace._load_hamiltonian_bson(_BPC_HAM_PATH, 10.0
         # built via the simulator-realistic Riemann-sum construction (which
         # production / Krylov sweeps actually consume) still fixes ρ_phys, but
         # only to the EnergyDomain quadrature precision at r_D=12 (~ 1e-5 at
-        # this fixture, per qf-7xt).
+        # this fixture).
         cfg_e = Config(
             sim = Lindbladian(), domain = EnergyDomain(), construction = KMS(),
             num_qubits = 3, with_linear_combination = true,

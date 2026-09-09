@@ -9,7 +9,7 @@
 Build an Arnoldi basis with modified Gram--Schmidt and one reorthogonalisation.
 
 # Returns
-`(Q, H, broke)`, truncated if the basis breaks down before `m` steps.
+`(Q, H, broke)`, with `broke=true` when the orbit closes within `m` steps.
 """
 function _arnoldi_factorize(f, x0::AbstractVector{T}, m::Int) where {T}
     N = length(x0)
@@ -17,8 +17,10 @@ function _arnoldi_factorize(f, x0::AbstractVector{T}, m::Int) where {T}
     H = zeros(T, m + 1, m)
     Q[:, 1] .= x0 ./ norm(x0)
     broke_at = m
+    broke = false
     @inbounds for j in 1:m
         w = f(view(Q, :, j))
+        action_norm = norm(w)
         # Modified Gram–Schmidt
         for i in 1:j
             H[i, j] = dot(view(Q, :, i), w)
@@ -32,13 +34,14 @@ function _arnoldi_factorize(f, x0::AbstractVector{T}, m::Int) where {T}
         end
         h_jp1 = norm(w)
         H[j + 1, j] = h_jp1
-        if h_jp1 < eps(real(T)) * sqrt(N)
+        if h_jp1 <= eps(real(T)) * sqrt(N) * action_norm
+            broke = true
             broke_at = j
             break
         end
         Q[:, j + 1] .= w ./ h_jp1
     end
-    return Q[:, 1:broke_at], H[1:broke_at, 1:broke_at], broke_at < m
+    return Q[:, 1:broke_at], H[1:broke_at, 1:broke_at], broke
 end
 
 
@@ -52,9 +55,9 @@ Build a biorthogonal eigendecomposition in the Krylov subspace seeded by
 
 The small Hessenberg eigendecomposition is lifted through the same Arnoldi
 basis for both left and right modes, preserving biorthogonality. If the
-operator and `rho_0` share a symmetry, unpopulated sectors are absent: the
-trajectory remains correct, but its state-coupled gap need not be the full
-operator gap.
+operator and `rho_0` share a symmetry, unpopulated sectors are absent. These
+sectors are unnecessary for this initial state, but the truncated subspace still
+requires an accuracy check and its gap need not be the full operator gap.
 
 # Returns
 A named tuple containing sorted eigenvalues, left and right modes, projection
@@ -159,7 +162,7 @@ function _krylov_spectral_decomposition(
         c            = Complex{Float64}.(c),
         rho_inf      = rho_inf,
         matvec_count = matvec_count,
-        converged    = !broke,
+        converged    = broke || m == dim2,
         trace_preserving_assumed = assume_trace_preserving,
         invariant_subspace = broke || m == dim2,
     )
@@ -253,8 +256,6 @@ function predict_lindbladian_trajectory(
         t = float(t_grid[k])
         copyto!(rho_t, decomp.rho_inf)
         for i in 1:h
-            # Skip the steady-state mode (its c is ~0 by trace preservation).
-            !raw_reconstruction && abs(decomp.eigenvalues[i]) < 1e-10 && continue
             phase = exp(decomp.eigenvalues[i] * t)
             rho_t .+= (decomp.c[i] * phase) .* decomp.R_modes[i]
         end

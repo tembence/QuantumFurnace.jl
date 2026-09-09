@@ -144,7 +144,9 @@ function discriminant_action_integrate(
     save_states::Bool = false,
 )::NamedTuple where {T<:Complex, F}
     d = size(psi_0, 1)
-    @assert size(psi_0, 2) == d  "psi_0 must be square"
+    _validate_time_grid(t_grid)
+    size(psi_0) == size(psi_eq) == (d,d) || throw(ArgumentError("State dimensions must match."))
+    krylovdim > 0 && isfinite(tol) && tol > 0 || throw(ArgumentError("Require positive krylovdim and finite positive tol."))
 
     in_buf  = Matrix{T}(undef, d, d)
     out_buf = Matrix{T}(undef, d, d)
@@ -173,7 +175,9 @@ function discriminant_action_integrate(
     @inbounds for i in 1:(n_steps - 1)
         dt = float(t_grid[i + 1] - t_grid[i])
 
-        v_next, info = exponentiate(K_vec_apply, dt, v_psi;
+        # Krylov breakdown is measured on the dimensionless action dt*K.
+        step_apply(v) = dt .* K_vec_apply(v)
+        v_next, info = exponentiate(step_apply, one(dt), v_psi;
                                     krylovdim = krylovdim,
                                     tol = tol,
                                     ishermitian = is_hermitian)

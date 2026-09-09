@@ -1,6 +1,6 @@
 # test/test_lindblad_action_sandbox.jl
 #
-# Sandbox shadow of test_lindblad_action.jl (qf-x56.2). The heavy test
+# Sandbox shadow of test_lindblad_action.jl. The heavy test
 # sweeps n ∈ {3, 4, 5}, β = 10 for the (q0) Energy ↔ Bohr dense-L
 # 1e-9 cross-check plus several end-to-end integrator runs. This shadow
 # keeps the canonical 1e-9 cross-domain invariant — the strongest
@@ -15,8 +15,35 @@ using LinearAlgebra: I, Hermitian, dot, eigvals, norm, tr, opnorm
 using Test
 using QuantumFurnace
 
+@testset "Discriminant dephasing in equivalent generator clocks" begin
+    psi_eq = Matrix{ComplexF64}(I, 2, 2) / sqrt(2)
+    psi_0 = fill(ComplexF64(inv(sqrt(2))), 2, 2)
+    elapsed = [0.0, 0.2, 1.0]
+    for rate in (1e-20, 1.0, 1e12)
+        action! = (out, x) -> (out .= rate .* (Z * x * Z - x))
+        result = discriminant_action_integrate(action!, psi_0, psi_eq, elapsed ./ rate;
+            krylovdim=4, tol=1e-12, save_states=true)
+        @test result.all_converged
+        for (t, state) in zip(elapsed, result.states)
+            expected = ComplexF64[1 exp(-2t); exp(-2t) 1] / sqrt(2)
+            @test state ≈ expected atol=1e-11
+        end
+        @test result.distances ≈ exp.(-2 .* elapsed) atol=1e-11
+    end
 
-@testset "Lindbladian-action integrator [sandbox shadow] (qf-x56.2)" begin
+    action! = (out, x) -> (out .= Z * x * Z - x)
+    for times in (Float64[], [0.0, 0.0], [1.0, 0.0], [-1.0, 0.0], [0.0, Inf], [0.0, NaN])
+        @test_throws ArgumentError discriminant_action_integrate(action!, psi_0, psi_eq, times)
+    end
+    @test_throws ArgumentError discriminant_action_integrate(action!, psi_0, zeros(ComplexF64, 3, 3), [0.0])
+    @test_throws ArgumentError discriminant_action_integrate(action!, zeros(ComplexF64, 2, 3), psi_eq, [0.0])
+    for controls in ((; krylovdim=0), (; tol=0.0), (; tol=Inf), (; tol=NaN))
+        @test_throws ArgumentError discriminant_action_integrate(action!, psi_0, psi_eq, [0.0]; controls...)
+    end
+end
+
+
+@testset "Lindbladian-action integrator [sandbox shadow]" begin
 
     @testset "pairwise Hermitian correction under asymmetric Krylov drift" begin
         rates = ComplexF64[0 log(2); log(4) 0]
@@ -52,12 +79,8 @@ using QuantumFurnace
     # -----------------------------------------------------------------------
     # (q0) Energy ↔ Bohr dense Liouvillian agreement at 1e-9 (n=3 only).
     #
-    # Canonical cross-domain controllability invariant per .claude/rules/
-    # julia-code.md Test Suite section: at the recipe register size
-    # (Eb=12, w0=0.05) the EnergyDomain Riemann sum has FP-accumulation-
-    # floor error vs the closed-form BohrDomain. Threshold 1e-9 keeps the
-    # NO_SANDBOX-tier invariant — loosening it would mask the kind of
-    # register-sizing / index-map bug this regression is designed to catch.
+    # At Eb=12, w0=0.05 the EnergyDomain Riemann sum reaches the
+    # floating-point accumulation floor against the closed-form BohrDomain.
     # -----------------------------------------------------------------------
     @testset "(q0) Bohr ≈ Energy dense L at 1e-9 (n=3, β=10)" begin
         beta = 10.0

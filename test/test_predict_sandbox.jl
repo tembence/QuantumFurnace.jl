@@ -1,7 +1,7 @@
 # test/test_predict_sandbox.jl
 #
 # Sandbox shadow of test_predict_lindbladian.jl + test_predict_channel.jl
-# (qf-x56.3). Two headline NO_SANDBOX invariants from qf-ev5:
+# with small fixtures covering these invariants:
 #
 #   1. predict_lindbladian_trajectory matches the dense reference
 #      exp(t·L)·vec(ρ₀) along the trajectory — the spectral-expansion
@@ -21,6 +21,34 @@ using LinearAlgebra: I, eigvals, svdvals, norm, tr, Hermitian
 using Test
 using QuantumFurnace
 
+@testset "Predictor convergence and analytic dephasing" begin
+    initial = fill(ComplexF64(0.5), 2, 2)
+    # The implemented Gaussian DLL filter has f_hat(0)=1. For H=0, a Z
+    # source therefore damps off-diagonal entries at twice its source rate.
+    expected = ComplexF64[0.5 0.5exp(-2); 0.5exp(-2) 0.5]
+    for rate in (1.0, 1e-20)
+        inputs = prepare_gibbs_inputs(zeros(2, 2); beta_phys=0.8, jumps=[Z],
+            clock=GeneratorClock{Float64}(:scaled_dephasing, rate, 1.0))
+        times = [0.0, inv(rate)]
+        for raw in (false, true)
+            truncated = predict_lindbladian_trajectory(inputs.config, inputs.hamiltonian,
+                inputs.jumps, initial, times; krylovdim=1, raw_reconstruction=raw)
+            @test !truncated.all_converged
+            @test !truncated.invariant_subspace
+            @test norm(truncated.rho_final - expected) > 0.1
+            for dimension in (2, 4)
+                exact = predict_lindbladian_trajectory(inputs.config, inputs.hamiltonian,
+                    inputs.jumps, initial, times; krylovdim=dimension,
+                    raw_reconstruction=raw, save_states=true)
+                @test exact.all_converged
+                @test exact.invariant_subspace
+                @test exact.states[1] ≈ initial atol=1e-11
+                @test exact.rho_final ≈ expected atol=1e-11
+            end
+        end
+    end
+end
+
 
 # Measure in hard function scope after repeated warm-up. This avoids soft-scope
 # boxing and exercises the production workspace-reuse path at fixed matvec cost.
@@ -35,11 +63,11 @@ function _measure_channel_predictor_allocs(cfg, ham, jumps, rho_0, k_grid, ws)
 end
 
 
-@testset "Predictor sandbox shadows (qf-x56.3)" begin
+@testset "Predictor sandbox shadows" begin
 
     # -----------------------------------------------------------------------
     # (a) predict_lindbladian_trajectory accuracy vs dense reference.
-    # PHYSICS CHECK: at n=3 with the 3n=9 single-Pauli jump set + KMS-DB
+    # at n=3 with the 3n=9 single-Pauli jump set + KMS-DB
     # the slow spectrum is well-separated; krylovdim=30 captures the entire
     # diagonal-sector dynamics on d²=64 modes. Same threshold as the heavy
     # test (1e-7) — the regime where bi-exp τ_mix extraction is accurate.
@@ -72,7 +100,7 @@ end
         gap = gap_res.spectral_gap
         @test gap > 0
 
-        # qf-6yw: Pass-2 (krylov_spectral_gap) carries operator-side diagnostics
+        # Pass-2 (krylov_spectral_gap) carries operator-side diagnostics
         # (no seeded ρ₀ ⇒ c-side is NaN; R-side is the ρ₀-independent picture).
         gsm = gap_res.spectral_modes
         @test gsm isa SpectralModeDiagnostics
@@ -102,7 +130,7 @@ end
         @test size(res_kr.rho_final) == (d, d)
         @test res_kr.total_matvecs <= length(t_grid) * 30
 
-        # qf-6yw: per-mode spectral diagnostics are attached to every result.
+        # per-mode spectral diagnostics are attached to every result.
         sm = res_kr.spectral_modes
         @test sm isa SpectralModeDiagnostics
         @test length(sm.off_diag_weight) == length(res_kr.eigenvalues)
@@ -162,7 +190,7 @@ end
         @test res_kr.delta_used == delta
         @test res_kr.k_grid == k_grid
 
-        # qf-6yw: per-mode spectral diagnostics on the channel predictor too.
+        # per-mode spectral diagnostics on the channel predictor too.
         # eigenvalues here are the raw channel μ (μ-units mode_spacing — see the
         # SpectralModeDiagnostics docstring); the steady mode (μ₁≈1) ≈ σ_β so its
         # off_diag_weight is small.
@@ -199,7 +227,7 @@ end
     end
 
     # -----------------------------------------------------------------------
-    # (c) run_krylov_spectrum stashes the qf-6yw operator-side diagnostics into
+    # (c) run_krylov_spectrum stashes the operator-side diagnostics into
     # KrylovSpectrumResults.metadata[:spectral_modes]. Operator-only (no seeded
     # ρ₀ in the Pass-2 path) ⇒ the c-side fields are all NaN.
     # -----------------------------------------------------------------------
