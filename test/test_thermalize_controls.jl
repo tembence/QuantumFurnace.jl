@@ -36,13 +36,25 @@ using LinearAlgebra
         calls[] += 1
         calls[] <= 3 || throw(QuantumFurnace._WorkLimit(:steps))
     end
+    partial_seen = Int[]
     partial = run(num_steps=7, record_steps=[0, 7], work_callback=budget,
-        save_states=true, hermitize=false)
+        save_states=true, hermitize=false,
+        observation_callback=(step, rho) -> push!(partial_seen, step))
+    @test partial_seen == [0, 3]
     @test partial.metadata[:completed_steps] == 3
     @test partial.metadata[:recorded_steps] == [0, 3]
     @test partial.metadata[:failure].reason == :steps
     @test partial.final_dm ≈ full.metadata[:states][4] atol=1e-13
     @test partial.metadata[:states][end] ≈ partial.final_dm atol=1e-15
+
+    # A budget ending on an observation step must not emit the endpoint twice.
+    calls[] = 0
+    aligned_seen = Int[]
+    aligned = run(num_steps=7, record_steps=[0, 3, 7], work_callback=budget,
+        save_states=true, observation_callback=(step, rho) -> push!(aligned_seen, step))
+    @test aligned.metadata[:recorded_steps] == aligned_seen == [0, 3]
+    @test length(aligned.metadata[:states]) == length(aligned.trace_distances) == 2
+
     stopped = run(num_steps=7, work_callback=() -> throw(QuantumFurnace._WorkLimit(:time)))
     @test stopped.metadata[:completed_steps] == 0
     @test stopped.metadata[:recorded_steps] == [0]

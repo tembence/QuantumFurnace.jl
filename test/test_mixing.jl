@@ -16,9 +16,9 @@ using StableRNGs
     end
 
     # -----------------------------------------------------------------------
-    # MIX-01: Exponential fit on synthetic trace distance curve
+    # Exponential fit on synthetic trace distance curve
     # -----------------------------------------------------------------------
-    @testset "MIX-01: synthetic gap recovery" begin
+    @testset "synthetic gap recovery" begin
         A_true = 1.5
         gap_true = 0.3
         C_true = 0.001
@@ -35,13 +35,13 @@ using StableRNGs
         @test est.offset >= 0
         @test est.fit_result isa FitResult
 
-        @info "MIX-01 gap recovery" fitted=est.fitted_gap true_gap=gap_true r2=est.r_squared
+        @info "gap recovery" fitted=est.fitted_gap true_gap=gap_true r2=est.r_squared
     end
 
     # -----------------------------------------------------------------------
-    # MIX-02: Extrapolation mode
+    # Extrapolation mode
     # -----------------------------------------------------------------------
-    @testset "MIX-02: extrapolation mode" begin
+    @testset "extrapolation mode" begin
         A_true = 1.5
         gap_true = 0.3
         C_true = 0.001
@@ -59,13 +59,13 @@ using StableRNGs
         @test est.mixing_time == est.mixing_time_extrapolated
         @test est.target_epsilon == 0.01
 
-        @info "MIX-02 extrapolation" t_extrap=est.mixing_time_extrapolated t_expected=t_expected
+        @info "extrapolation" t_extrap=est.mixing_time_extrapolated t_expected=t_expected
     end
 
     # -----------------------------------------------------------------------
-    # MIX-03: Actual mixing time from data (no extrapolation)
+    # Actual mixing time from data (no extrapolation)
     # -----------------------------------------------------------------------
-    @testset "MIX-03: actual mixing time from data" begin
+    @testset "actual mixing time from data" begin
         A_true = 1.5
         gap_true = 0.3
         C_true = 0.001
@@ -87,13 +87,13 @@ using StableRNGs
         @test est.mixing_time == est.mixing_time_actual
         @test est.mixing_time_extrapolated === nothing
 
-        @info "MIX-03 actual crossing" t_actual=est.mixing_time_actual t_expected=expected_time
+        @info "actual crossing" t_actual=est.mixing_time_actual t_expected=expected_time
     end
 
     # -----------------------------------------------------------------------
-    # MIX-04: skip_initial keyword
+    # skip_initial keyword
     # -----------------------------------------------------------------------
-    @testset "MIX-04: skip_initial improves fit" begin
+    @testset "skip_initial improves fit" begin
         gap_true = 0.3
         times = collect(0.0:0.05:30.0)
         # Data with fast transient added
@@ -105,20 +105,20 @@ using StableRNGs
 
         @test abs(est_skip.fitted_gap - gap_true) < abs(est_no_skip.fitted_gap - gap_true)
 
-        @info "MIX-04 skip_initial" gap_no_skip=est_no_skip.fitted_gap gap_skip=est_skip.fitted_gap true_gap=gap_true
+        @info "skip_initial" gap_no_skip=est_no_skip.fitted_gap gap_skip=est_skip.fitted_gap true_gap=gap_true
     end
 
     # -----------------------------------------------------------------------
-    # MIX-05: MixingTimeEstimate struct fields
+    # MixingTimeEstimate struct fields
     # -----------------------------------------------------------------------
-    @testset "MIX-05: struct fields and types" begin
+    @testset "struct fields and types" begin
         times = collect(0.0:0.1:50.0)
         dists = 1.5 .* exp.(-0.3 .* times) .+ 0.001
 
         result = _make_synthetic_result(times, dists; mixing_time=50.0)
         est = estimate_mixing_time(result; skip_initial=0.1, target_epsilon=0.01, extrapolate=true)
 
-        # Check all expected fields exist (including Phase 43 additions)
+        # Check the returned fields.
         expected_fields = [
             :fitted_gap, :amplitude, :offset, :gap_ci, :gap_se, :r_squared,
             :converged, :mixing_time, :mixing_time_extrapolated, :mixing_time_actual,
@@ -142,9 +142,9 @@ using StableRNGs
     end
 
     # -----------------------------------------------------------------------
-    # MIX-07: Quality gate warnings
+    # Quality gate warnings
     # -----------------------------------------------------------------------
-    @testset "MIX-07: R-squared warning for bad fit" begin
+    @testset "R-squared warning for bad fit" begin
         times = collect(0.0:0.1:50.0)
         # Use absolute value of sin to keep values positive (trace distances must be >= 0)
         dists = abs.(sin.(times)) .+ 0.01
@@ -153,7 +153,7 @@ using StableRNGs
         @test_warn "R-squared" estimate_mixing_time(result; skip_initial=0.0)
     end
 
-    @testset "MIX-07: offset warning for large C" begin
+    @testset "offset warning for large C" begin
         times = collect(0.0:0.1:50.0)
         # Large offset C=1.0 relative to target_epsilon=0.5
         dists = 1.0 .* exp.(-0.3 .* times) .+ 1.0
@@ -162,7 +162,7 @@ using StableRNGs
         @test_warn "offset" estimate_mixing_time(result; skip_initial=0.1, target_epsilon=0.5)
     end
 
-    @testset "MIX-07: quality warnings also apply to bi-exponential fits" begin
+    @testset "quality warnings also apply to bi-exponential fits" begin
         times = collect(0.0:0.1:20.0)
         dists = abs.(sin.(times)) .+ 0.01
 
@@ -199,6 +199,12 @@ using StableRNGs
             [times[1:end-1]; times[end-1]], dists)
         @test_throws ArgumentError estimate_mixing_time(
             times, dists; target_epsilon=0.0)
+
+        # Distinct input times can collapse at the fitter's Float64 precision.
+        precise_times = BigFloat.(0:20)
+        precise_times[3] = nextfloat(precise_times[2])
+        @test_throws ArgumentError estimate_mixing_time(
+            precise_times, exp.(-Float64.(precise_times)); skip_initial=0.0)
     end
 
     @testset "Edge: target not reached in data" begin
@@ -234,13 +240,13 @@ using StableRNGs
     end
 
     # ===================================================================
-    # Bi-exponential mixing time tests (Phase 43)
+    # Bi-exponential mixing time tests
     # ===================================================================
 
     # -----------------------------------------------------------------------
-    # BIEXP-MIX-01: extrapolation accuracy on exact synthetic bi-exp data
+    # extrapolation accuracy on exact synthetic bi-exp data
     # -----------------------------------------------------------------------
-    @testset "BIEXP-MIX-01: biexp extrapolation accuracy" begin
+    @testset "biexp extrapolation accuracy" begin
         # Synthetic bi-exponential data mimicking Liouvillian multi-timescale decay
         A1_true = 1.0    # fast mode
         g1_true = 2.0    # fast gap
@@ -285,7 +291,7 @@ using StableRNGs
         @test isfinite(est_single.mixing_time_extrapolated)
         single_err = abs(est_single.mixing_time_extrapolated - t_true) / t_true
         @test biexp_err < single_err
-        @info "BIEXP-MIX-01" t_true=t_true t_biexp=est_biexp.mixing_time_extrapolated t_single=est_single.mixing_time_extrapolated biexp_err=biexp_err single_err=single_err
+        @info "Biexponential mixing extrapolation" t_true=t_true t_biexp=est_biexp.mixing_time_extrapolated t_single=est_single.mixing_time_extrapolated biexp_err=biexp_err single_err=single_err
     end
 
     # -----------------------------------------------------------------------
@@ -320,9 +326,9 @@ using StableRNGs
     end
 
     # ====================================================================
-    # Integrator wrapper (qf-lkb.2): vector-method API + NamedTuple forwarder
+    # Integrator wrapper: vector-method API + NamedTuple forwarder
     # ====================================================================
-    @testset "Integrator wrapper (qf-lkb.2)" begin
+    @testset "Integrator wrapper" begin
 
         # ---------------------------------------------------------------
         # (a) Synthetic single-exp matches analytic
@@ -341,7 +347,7 @@ using StableRNGs
             @test isapprox(est.mixing_time,  log(50) / 0.7; rtol = 1e-2)
             @test est.model_used === :single
 
-            @info "qf-lkb.2 (a)" gap=est.fitted_gap mixing=est.mixing_time
+            @info "Single-exponential mixing fit" gap=est.fitted_gap mixing=est.mixing_time
         end
 
         # ---------------------------------------------------------------
@@ -365,7 +371,7 @@ using StableRNGs
             @test est.model_used === :biexp
             @test est.biexp_fit_result !== nothing
 
-            @info "qf-lkb.2 (b)" slow_gap=est.fitted_gap fast_gap=est.biexp_fit_result.gap_fast tmix=est.mixing_time_extrapolated
+            @info "Biexponential mixing fit" slow_gap=est.fitted_gap fast_gap=est.biexp_fit_result.gap_fast tmix=est.mixing_time_extrapolated
         end
 
         # ---------------------------------------------------------------
@@ -376,7 +382,7 @@ using StableRNGs
             dists = 0.4 .* exp.(-2.0 .* times) .+
                     0.3 .* exp.(-0.3 .* times) .+ 1.0e-5
 
-            # Mock the integrator output shape (qf-lkb.1 contract).
+            # Mock the integrator output shape.
             mock = (
                 t              = times,
                 distances      = dists,
@@ -424,12 +430,12 @@ using StableRNGs
     end
 
     # ====================================================================
-    # Eigenmode τ_mix (qf-e4y.2): closed-form bisection on the Krylov
+    # Eigenmode τ_mix: closed-form bisection on the Krylov
     # spectral decomposition. Replaces the bi-exp curve fit on the :krylov
     # route — same answer on healthy cells, finite/correct on cells where
     # LM degenerates.
     # ====================================================================
-    @testset "Eigenmode τ_mix (qf-e4y.2)" begin
+    @testset "Eigenmode τ_mix" begin
 
         # Hand-built spectral decomposition: build R_modes, c, eigenvalues
         # such that ρ(t) - σ_β = Σ_i c_i e^{λ_i t} R_i is a known scalar
@@ -556,7 +562,7 @@ using StableRNGs
             @test isfinite(res_eig.mixing_time) && res_eig.mixing_time > 0
             @test res_eig.gap > 0
 
-            # qf-3uj: the NamedTuple convenience method reproduces the explicit-
+            # the NamedTuple convenience method reproduces the explicit-
             # args call bit-for-bit, and the biexp curve fit must refuse the
             # predictor result (τ_mix on this path is bisection-only).
             res_conv = eigenmode_mixing_time(pres, target)
@@ -719,7 +725,7 @@ using StableRNGs
             @test certified_periodic.source === :certified_no_crossing
             @test certified_periodic.mixing_time == Inf
 
-            # qf-3uj guards: the curve fit refuses both predictor NamedTuples…
+            # The curve fit refuses both predictor NamedTuples…
             @test_throws ArgumentError estimate_mixing_time(trajL; target_epsilon = target)
             @test_throws ArgumentError estimate_mixing_time(trajC; target_epsilon = target)
             # …and the convenience method needs the spectral fields.

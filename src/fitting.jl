@@ -77,6 +77,20 @@ function _compute_r_squared(values::AbstractVector{<:Real}, residuals::AbstractV
     return 1.0 - ss_res / ss_tot
 end
 
+# A singular covariance leaves fitted parameters usable but uncertainty unavailable.
+function _gap_uncertainty(fit, index, level)
+    try
+        se = stderror(fit)
+        ci = confint(fit; level=level)
+        return se[index], (ci[index][1], ci[index][2])
+    catch e
+        covariance_singular = e isa LinearAlgebra.SingularException ||
+            (e isa LinearAlgebra.LAPACKException && e.info > 0)
+        covariance_singular || rethrow(e)
+        return Inf, (-Inf, Inf)
+    end
+end
+
 """
     fit_exponential_decay(times, values; skip_initial=0.0, p0=nothing, level=0.95) -> FitResult
 
@@ -134,21 +148,7 @@ function fit_exponential_decay(
     A       = params[_IDX_A]
     C       = params[_IDX_C]
 
-    # Standard errors and confidence intervals may fail when the Jacobian is
-    # rank-deficient (e.g., flat time series after skip_initial).  Julia 1.10's
-    # LAPACK reports this as LAPACKException(info > 0), while newer versions
-    # normally surface SingularException.  In either case the fit parameters
-    # remain usable, but their uncertainty estimates are unavailable.
-    gap_se, gap_ci = try
-        se = stderror(fit)
-        ci = confint(fit; level=level)
-        se[_IDX_GAP], (ci[_IDX_GAP][1], ci[_IDX_GAP][2])
-    catch e
-        covariance_singular = e isa LinearAlgebra.SingularException ||
-            (e isa LinearAlgebra.LAPACKException && e.info > 0)
-        covariance_singular || rethrow(e)
-        Inf, (-Inf, Inf)
-    end
+    gap_se, gap_ci = _gap_uncertainty(fit, _IDX_GAP, level)
 
     resid   = residuals(fit)
     conv    = fit.converged
@@ -199,12 +199,11 @@ struct BiexpFitResult
 end
 
 """
-    _biexp_initial_guess(times, values, single_fit::FitResult) -> Vector{Float64}
+    _biexp_initial_guess(values, single_fit::FitResult) -> Vector{Float64}
 
 Seed `[A1, g1, A2, g2, C]` from a single-exponential fit and its residuals.
 """
 function _biexp_initial_guess(
-    times::AbstractVector{<:Real},
     values::AbstractVector{<:Real},
     single_fit::FitResult,
 )
@@ -216,7 +215,6 @@ function _biexp_initial_guess(
 
     # Residuals of single-exp fit
     resids = single_fit.residuals
-    t_used = single_fit.times_used
 
     # Estimate fast mode from early residuals
     # If residuals show a fast-decaying pattern, use it
@@ -284,7 +282,7 @@ function fit_biexponential_decay(
     else
         # Fit single-exp first, then use residuals to seed bi-exp
         single_fit = fit_exponential_decay(times_fit, values_fit; skip_initial=0.0, level=level)
-        _biexp_initial_guess(times_fit, values_fit, single_fit)
+        _biexp_initial_guess(values_fit, single_fit)
     end
     length(p0_used) == 5 || throw(ArgumentError(
         "p0 must contain [A1, g1, A2, g2, C]"))
@@ -301,43 +299,11 @@ function fit_biexponential_decay(
     fit = curve_fit(_biexp_decay_model, times_fit, values_fit, p0_used;
                     lower=lower, upper=upper)
 
-    # --- Extract raw parameters ---
     params = coef(fit)
-    A1_raw = params[_BIEXP_IDX_A1]
-    g1_raw = params[_BIEXP_IDX_G1]
-    A2_raw = params[_BIEXP_IDX_A2]
-    g2_raw = params[_BIEXP_IDX_G2]
-    C_raw  = params[_BIEXP_IDX_C]
-
-    # --- Sort so g1 >= g2 (fast >= slow) ---
-    # Track which raw index is the slow gap for SE/CI extraction
-    if g1_raw >= g2_raw
-        # Already sorted: g1=fast, g2=slow
-        gap_fast = g1_raw
-        gap_slow = g2_raw
-        amp_fast = A1_raw
-        amp_slow = A2_raw
-        slow_gap_raw_idx = _BIEXP_IDX_G2
-    else
-        # Swap: g2 was actually faster
-        gap_fast = g2_raw
-        gap_slow = g1_raw
-        amp_fast = A2_raw
-        amp_slow = A1_raw
-        slow_gap_raw_idx = _BIEXP_IDX_G1
-    end
-
-    # --- SE and CI for the slow gap ---
-    gap_se, gap_ci = try
-        se = stderror(fit)
-        ci = confint(fit; level=level)
-        se[slow_gap_raw_idx], (ci[slow_gap_raw_idx][1], ci[slow_gap_raw_idx][2])
-    catch e
-        covariance_singular = e isa LinearAlgebra.SingularException ||
-            (e isa LinearAlgebra.LAPACKException && e.info > 0)
-        covariance_singular || rethrow(e)
-        Inf, (-Inf, Inf)
-    end
+    # Parameter pairs are [amplitude, gap]; preserve the slow-gap index for its CI.
+    fast_index, slow_index = params[_BIEXP_IDX_G1] >= params[_BIEXP_IDX_G2] ?
+        (_BIEXP_IDX_G1, _BIEXP_IDX_G2) : (_BIEXP_IDX_G2, _BIEXP_IDX_G1)
+    gap_se, gap_ci = _gap_uncertainty(fit, slow_index, level)
 
     resid = residuals(fit)
     conv  = fit.converged
@@ -346,7 +312,8 @@ function fit_biexponential_decay(
     r2 = _compute_r_squared(values_fit, resid)
 
     return BiexpFitResult(
-        gap_slow, gap_fast, amp_slow, amp_fast, C_raw,
+        params[slow_index], params[fast_index],
+        params[slow_index - 1], params[fast_index - 1], params[_BIEXP_IDX_C],
         gap_ci, gap_se, r2, conv, resid, times_fit, values_fit,
     )
 end

@@ -3,9 +3,9 @@ using StableRNGs
 @testset "Fitting" begin
 
     # -----------------------------------------------------------------------
-    # FIT-01: basic exponential decay recovery (clean data)
+    # basic exponential decay recovery (clean data)
     # -----------------------------------------------------------------------
-    @testset "FIT-01: basic exponential decay recovery" begin
+    @testset "basic exponential decay recovery" begin
         A_true = 2.0
         gap_true = 0.5
         C_true = 0.3
@@ -23,9 +23,9 @@ using StableRNGs
     end
 
     # -----------------------------------------------------------------------
-    # FIT-01: noisy data recovery within CI
+    # noisy data recovery within CI
     # -----------------------------------------------------------------------
-    @testset "FIT-01: noisy data recovery within CI" begin
+    @testset "noisy data recovery within CI" begin
         rng = StableRNG(42)
         A_true = 2.0
         gap_true = 0.5
@@ -45,9 +45,9 @@ using StableRNGs
     end
 
     # -----------------------------------------------------------------------
-    # FIT-02: auto-generated initial guess (log-linear)
+    # auto-generated initial guess (log-linear)
     # -----------------------------------------------------------------------
-    @testset "FIT-02: auto-generated initial guess (log-linear)" begin
+    @testset "auto-generated initial guess (log-linear)" begin
         A_true = 5.0
         gap_true = 1.5
         C_true = -0.5
@@ -62,9 +62,9 @@ using StableRNGs
     end
 
     # -----------------------------------------------------------------------
-    # FIT-02: log-linear fallback for difficult data
+    # log-linear fallback for difficult data
     # -----------------------------------------------------------------------
-    @testset "FIT-02: log-linear fallback for difficult data" begin
+    @testset "log-linear fallback for difficult data" begin
         times = collect(0.0:0.1:4.9)
         values = fill(1.0, 50)
 
@@ -74,9 +74,9 @@ using StableRNGs
     end
 
     # -----------------------------------------------------------------------
-    # FIT-03: skip_initial window selection
+    # skip_initial window selection
     # -----------------------------------------------------------------------
-    @testset "FIT-03: skip_initial window selection" begin
+    @testset "skip_initial window selection" begin
         gap_true = 0.3
         times = collect(0.0:0.05:10.0)
         # Data with fast-decaying transient added to the slow exponential
@@ -90,9 +90,9 @@ using StableRNGs
     end
 
     # -----------------------------------------------------------------------
-    # FIT-04: quality metrics present and correct
+    # quality metrics present and correct
     # -----------------------------------------------------------------------
-    @testset "FIT-04: quality metrics present and correct" begin
+    @testset "quality metrics present and correct" begin
         times = collect(0.0:0.1:10.0)
         values = 2.0 .* exp.(-0.5 .* times) .+ 0.3
 
@@ -108,9 +108,9 @@ using StableRNGs
     end
 
     # -----------------------------------------------------------------------
-    # FIT-05: non-negative gap enforced via bounds
+    # non-negative gap enforced via bounds
     # -----------------------------------------------------------------------
-    @testset "FIT-05: non-negative gap bound" begin
+    @testset "non-negative gap bound" begin
         times = collect(0.0:0.1:10.0)
         # Negative amplitude: rising exponential that LM might explore negative gap for
         values = -1.5 .* exp.(-0.3 .* times) .+ 2.0
@@ -121,9 +121,9 @@ using StableRNGs
     end
 
     # -----------------------------------------------------------------------
-    # FIT-04: R-squared not clamped for bad fits
+    # R-squared not clamped for bad fits
     # -----------------------------------------------------------------------
-    @testset "FIT-04: R-squared not clamped for bad fits" begin
+    @testset "R-squared not clamped for bad fits" begin
         times = collect(0.0:0.1:10.0)
         values = sin.(times)
 
@@ -153,9 +153,9 @@ using StableRNGs
     # ===================================================================
 
     # -----------------------------------------------------------------------
-    # BIEXP-01: Clean bi-exponential data recovery
+    # Clean bi-exponential data recovery
     # -----------------------------------------------------------------------
-    @testset "BIEXP-01: clean bi-exp data recovery" begin
+    @testset "clean bi-exp data recovery" begin
         A1_true = 1.0    # fast amplitude
         g1_true = 2.0    # fast gap
         A2_true = 0.5    # slow amplitude
@@ -187,13 +187,13 @@ using StableRNGs
         # Mode sorting: fast >= slow
         @test result.gap_fast >= result.gap
 
-        @info "BIEXP-01" gap_slow=result.gap gap_fast=result.gap_fast offset=result.offset r2=result.r_squared
+        @info "Biexponential fit recovery" gap_slow=result.gap gap_fast=result.gap_fast offset=result.offset r2=result.r_squared
     end
 
     # -----------------------------------------------------------------------
-    # BIEXP-02: Offset accuracy — bi-exp closer to true C than single-exp
+    # Offset accuracy — bi-exp closer to true C than single-exp
     # -----------------------------------------------------------------------
-    @testset "BIEXP-02: offset accuracy vs single-exp" begin
+    @testset "offset accuracy vs single-exp" begin
         # This is the key validation: bi-exp should give more accurate offset
         # when data has two timescales
         A1_true = 1.0    # fast
@@ -215,13 +215,13 @@ using StableRNGs
 
         @test biexp_err < single_err
         @test biexp_err <= 1e-12
-        @info "BIEXP-02 offset comparison" true_C=C_true single_C=single_fit.offset biexp_C=biexp_fit.offset single_err=single_err biexp_err=biexp_err
+        @info "offset comparison" true_C=C_true single_C=single_fit.offset biexp_C=biexp_fit.offset single_err=single_err biexp_err=biexp_err
     end
 
     # -----------------------------------------------------------------------
-    # BIEXP-03: skip_initial works with bi-exp
+    # skip_initial works with bi-exp
     # -----------------------------------------------------------------------
-    @testset "BIEXP-03: skip_initial with bi-exp" begin
+    @testset "skip_initial with bi-exp" begin
         A1_true = 1.0
         g1_true = 2.0
         A2_true = 0.5
@@ -243,7 +243,7 @@ using StableRNGs
         @test isapprox(r2.gap_fast, g1_true; rtol=1e-7)
     end
 
-    @testset "BIEXP-04: fitted distance is nonnegative and nonincreasing" begin
+    @testset "fitted distance is nonnegative and nonincreasing" begin
         times = collect(range(0.0, 10.0; length=101))
         increasing_data = 0.2 .+ 0.03 .* times
         result = fit_biexponential_decay(
@@ -261,7 +261,7 @@ using StableRNGs
         @test all(diff(fitted) .<= 10eps(Float64))
     end
 
-    @testset "BIEXP-05: physical input and initial-guess validation" begin
+    @testset "physical input and initial-guess validation" begin
         times = collect(range(0.0, 5.0; length=21))
         values = exp.(-times)
 
@@ -284,6 +284,30 @@ using StableRNGs
         times = collect(0.0:1.0:5.0)  # 6 points
         values = exp.(-0.3 .* times)
         @test_throws ArgumentError fit_biexponential_decay(times, values)
+    end
+
+    @testset "Singular fits retain parameters without uncertainty estimates" begin
+        times = collect(range(0.0, 10.0; length=21))
+        result = fit_exponential_decay(times, ones(length(times)); p0=[0.0, 0.0, 1.0])
+        @test isapprox(result.offset, 1.0; atol=1e-12)
+        @test isinf(result.gap_se)
+        @test result.gap_ci[1] == -Inf
+        @test result.gap_ci[2] == Inf
+    end
+
+    @testset "Biexponential mode ordering preserves slow-gap uncertainty" begin
+        times = collect(range(0.0, 30.0; length=301))
+        values = 0.8 .* exp.(-1.2 .* times) .+ 1.2 .* exp.(-0.16 .* times) .+
+            0.001 .+ 1e-4 .* sin.(times)
+        fast_first = fit_biexponential_decay(times, values;
+            p0=[0.8, 1.2, 1.2, 0.16, 0.001])
+        slow_first = fit_biexponential_decay(times, values;
+            p0=[1.2, 0.16, 0.8, 1.2, 0.001])
+        for field in (:gap, :gap_fast, :amplitude, :amplitude_fast, :offset, :gap_se)
+            @test isapprox(getfield(fast_first, field), getfield(slow_first, field);
+                rtol=1e-7, atol=1e-10)
+        end
+        @test all(isapprox.(fast_first.gap_ci, slow_first.gap_ci; rtol=1e-7, atol=1e-10))
     end
 
 end

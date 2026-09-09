@@ -1,4 +1,4 @@
-@testset "sweep_channel_mixing harness (qf-e4z.2)" begin
+@testset "sweep_channel_mixing harness" begin
     using LinearAlgebra
     using BSON
     using QuantumFurnace: predict_channel_trajectory, _load_hamiltonian_bson,
@@ -8,7 +8,7 @@
 
     # The smoke cell for P0b: n=3, β=10, ε=1e-3, smooth-Metro KMS, TimeDomain.
     # Downstream sweeps may pick TrotterDomain (canonical KMS coherent uses the
-    # qf-e4z.20 TrotterTriple — three independent per-leg Strang caches).
+    # TrotterTriple — three independent per-leg Strang caches).
     param_table = QuantumFurnace._package_data_path("channel_param_table.bson")
     ham_path = test_hamiltonian_path(3)
 

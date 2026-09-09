@@ -78,10 +78,10 @@ function _reconstruct_config(d::Dict)
     config_type = d[:config_type]   # "KMS", "GNS", or "DLL"
 
     # Determine sim type: prefer config_kind tag, fall back to presence of mixing_time
-    # "liouv" (old) and "lindbladian" (new) both map to Lindbladian() (the else branch)
+    # Both "liouv" and "lindbladian" deserialize as Lindbladian().
     config_kind = get(d, :config_kind, nothing)
 
-    kwargs = _dict_to_config_kwargs(d, domain)
+    kwargs = _dict_to_config_kwargs(d)
 
     construction = if config_type == "KMS"
         KMS()
@@ -109,12 +109,12 @@ function _reconstruct_config(d::Dict)
 end
 
 """
-    _dict_to_config_kwargs(d::Dict, domain) -> Dict{Symbol, Any}
+    _dict_to_config_kwargs(d::Dict) -> Dict{Symbol, Any}
 
 Build a kwargs Dict from serialized config fields, suitable for @kwdef constructors.
 Filters out nothing values for optional fields to let defaults apply.
 """
-function _dict_to_config_kwargs(d::Dict, domain)
+function _dict_to_config_kwargs(d::Dict)
     kwargs = Dict{Symbol, Any}()
 
     # Required fields (with_coherent derived from construction type, not stored)
@@ -218,9 +218,13 @@ _result_type_tag(::LindbladResults) = "lindblad"
 _result_type_tag(::ThermalizeResults) = "thermalize"
 _result_type_tag(::KrylovSpectrumResults) = "krylov_spectrum"
 
-# Result-to-dictionary conversion.
+"""
+    _result_to_dict(r::AbstractResults) -> Dict{Symbol, Any}
 
-function _lindblad_to_dict(r::LindbladResults)
+Convert a typed result to a dictionary for BSON serialization.
+"""
+
+function _result_to_dict(r::LindbladResults)
     return Dict{Symbol, Any}(
         :result_type  => "lindblad",
         :config       => _config_to_dict(r.config),
@@ -232,7 +236,7 @@ function _lindblad_to_dict(r::LindbladResults)
     )
 end
 
-function _thermalize_to_dict(r::ThermalizeResults)
+function _result_to_dict(r::ThermalizeResults)
     return Dict{Symbol, Any}(
         :result_type      => "thermalize",
         :config           => _config_to_dict(r.config),
@@ -243,7 +247,7 @@ function _thermalize_to_dict(r::ThermalizeResults)
     )
 end
 
-function _krylov_spectrum_to_dict(r::KrylovSpectrumResults)
+function _result_to_dict(r::KrylovSpectrumResults)
     return Dict{Symbol, Any}(
         :result_type          => "krylov_spectrum",
         :config               => _config_to_dict(r.config),
@@ -261,21 +265,6 @@ function _krylov_spectrum_to_dict(r::KrylovSpectrumResults)
     )
 end
 
-"""
-    _result_to_dict(r::AbstractResults) -> Dict{Symbol, Any}
-
-Convert any typed Result to a Dict for BSON serialization.
-Dispatches to the appropriate type-specific conversion function.
-"""
-function _result_to_dict(r::LindbladResults)
-    return _lindblad_to_dict(r)
-end
-function _result_to_dict(r::ThermalizeResults)
-    return _thermalize_to_dict(r)
-end
-function _result_to_dict(r::KrylovSpectrumResults)
-    return _krylov_spectrum_to_dict(r)
-end
 # ---------------------------------------------------------------------------
 # Dict -> Result reconstruction
 # ---------------------------------------------------------------------------

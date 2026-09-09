@@ -270,11 +270,20 @@ function run_thermalize(
     jump_weight_scaling = rescale ? (precomputed_data.gamma_norm_factor / p_jump) : precomputed_data.gamma_norm_factor
 
     gibbs_matrix = Matrix(gibbs)
-    trace_distances = T[trace_distance_nh(evolving_dm, gibbs_matrix)]
-    trace_values = Complex{T}[tr(evolving_dm)]
-    recorded_steps = Int[0]
-    states = save_states ? [copy(evolving_dm)] : nothing
-    observation_callback === nothing || observation_callback(0, evolving_dm)
+    trace_distances = T[]
+    trace_values = Complex{T}[]
+    recorded_steps = Int[]
+    states = save_states ? Matrix{CT}[] : nothing
+    function record_state!(step)
+        distance = trace_distance_nh(evolving_dm, gibbs_matrix)
+        push!(trace_distances, distance)
+        push!(trace_values, tr(evolving_dm))
+        push!(recorded_steps, step)
+        save_states && push!(states, copy(evolving_dm))
+        observation_callback === nothing || observation_callback(step, evolving_dm)
+        return distance
+    end
+    record_state!(0)
     completed_steps = 0
     failure = nothing
     next_record = 2
@@ -315,12 +324,7 @@ function run_thermalize(
         record_now = requested_record_steps === nothing ? step % save_every == 0 :
             next_record <= length(requested_record_steps) && step == requested_record_steps[next_record]
         if record_now || step == total_steps
-            dist = trace_distance_nh(evolving_dm, gibbs_matrix)
-            push!(trace_distances, dist)
-            push!(trace_values, tr(evolving_dm))
-            push!(recorded_steps, step)
-            save_states && push!(states, copy(evolving_dm))
-            observation_callback === nothing || observation_callback(step, evolving_dm)
+            dist = record_state!(step)
             next_record += 1
             verbose && @printf("Dist to Gibbs: %s\n", dist)
             if dist < convergence_cutoff
@@ -332,11 +336,7 @@ function run_thermalize(
     # A budget can stop between requested observations. Retain its completed
     # endpoint so final_dm, recorded times, distances, and states stay aligned.
     if last(recorded_steps) != completed_steps
-        push!(trace_distances, trace_distance_nh(evolving_dm, gibbs_matrix))
-        push!(trace_values, tr(evolving_dm))
-        push!(recorded_steps, completed_steps)
-        save_states && push!(states, copy(evolving_dm))
-        observation_callback === nothing || observation_callback(completed_steps, evolving_dm)
+        record_state!(completed_steps)
     end
     time_steps = T.(recorded_steps .* config.delta)
 

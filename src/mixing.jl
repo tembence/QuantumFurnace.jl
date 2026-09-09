@@ -234,55 +234,38 @@ function estimate_mixing_time(
         throw(ArgumentError("target_epsilon must be finite and > 0"))
 
     t_mix_actual = _find_actual_mixing_time(times, distances, target_eps_f)
+    # Fit validation operates at Float64 precision; already-converted inputs need no copy.
+    fit_times = eltype(times) === Float64 ? times : Float64.(times)
+    fit_distances = eltype(distances) === Float64 ? distances : Float64.(distances)
 
-    if model == :single
-        fit = fit_exponential_decay(Float64.(times), Float64.(distances);
+    fit, bifit, t_mix_extrap = if model == :single
+        single_fit = fit_exponential_decay(fit_times, fit_distances;
             skip_initial=skip_initial_f, level=level_f)
-
-        _check_fit_quality(fit, target_eps_f)
-
-        t_mix_extrap = extrapolate ? _extrapolate_mixing_time(fit, target_eps_f) : nothing
-
-        mixing_time = if extrapolate
-            t_mix_extrap !== nothing ? t_mix_extrap : NaN
-        elseif target_eps_f !== nothing
-            t_mix_actual !== nothing ? t_mix_actual : NaN
-        else
-            Float64(last(times))
-        end
-
-        return MixingTimeEstimate(
-            fit.gap, fit.amplitude, fit.offset,
-            fit.gap_ci, fit.gap_se, fit.r_squared, fit.converged,
-            mixing_time, t_mix_extrap, t_mix_actual, target_eps_f,
-            fit, :single, nothing,
-        )
-
-    else  # model == :biexp
-        bifit = fit_biexponential_decay(Float64.(times), Float64.(distances);
+        _check_fit_quality(single_fit, target_eps_f)
+        crossing = extrapolate ? _extrapolate_mixing_time(single_fit, target_eps_f) : nothing
+        single_fit, nothing, crossing
+    else
+        biexp_fit = fit_biexponential_decay(fit_times, fit_distances;
             skip_initial=skip_initial_f, level=level_f)
-
-        _check_fit_quality(bifit, target_eps_f; model_label="Bi-exponential fit")
-
-        t_mix_extrap = extrapolate ? _extrapolate_mixing_time_biexp(bifit, target_eps_f) : nothing
-
-        mixing_time = if extrapolate
-            t_mix_extrap !== nothing ? t_mix_extrap : NaN
-        elseif target_eps_f !== nothing
-            t_mix_actual !== nothing ? t_mix_actual : NaN
-        else
-            Float64(last(times))
-        end
-
-        synthetic_fit = _biexp_to_single_fit_result(bifit)
-
-        return MixingTimeEstimate(
-            bifit.gap, bifit.amplitude, bifit.offset,
-            bifit.gap_ci, bifit.gap_se, bifit.r_squared, bifit.converged,
-            mixing_time, t_mix_extrap, t_mix_actual, target_eps_f,
-            synthetic_fit, :biexp, bifit,
-        )
+        _check_fit_quality(biexp_fit, target_eps_f; model_label="Bi-exponential fit")
+        crossing = extrapolate ? _extrapolate_mixing_time_biexp(biexp_fit, target_eps_f) : nothing
+        _biexp_to_single_fit_result(biexp_fit), biexp_fit, crossing
     end
+
+    mixing_time = if extrapolate
+        t_mix_extrap !== nothing ? t_mix_extrap : NaN
+    elseif target_eps_f !== nothing
+        t_mix_actual !== nothing ? t_mix_actual : NaN
+    else
+        Float64(last(times))
+    end
+
+    return MixingTimeEstimate(
+        fit.gap, fit.amplitude, fit.offset,
+        fit.gap_ci, fit.gap_se, fit.r_squared, fit.converged,
+        mixing_time, t_mix_extrap, t_mix_actual, target_eps_f,
+        fit, model, bifit,
+    )
 end
 
 """

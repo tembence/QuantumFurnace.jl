@@ -3,7 +3,7 @@ using QuantumFurnace
 using LinearAlgebra
 using BSON
 
-# Test the qf-6vr Task 3 sweep harness β_phys-first mode against the legacy
+# Test the sweep harness β_phys-first mode against the legacy
 # β_alg-first mode. We exercise `sweep_mixing_times` (KMS BohrDomain, dense)
 # at the smallest cell (n=3) so the test finishes in a few seconds.
 
@@ -13,7 +13,7 @@ const _BPS_HAM_PATH = test_hamiltonian_path(3)
 const _BPS_HAM = QuantumFurnace._load_hamiltonian_bson(_BPS_HAM_PATH, 10.0)
 const _BPS_RESCALE = _BPS_HAM.rescaling_factor
 
-@testset "qf-6vr Task 3 — sweep_mixing_times / sweep_channel_mixing β_phys mode" begin
+@testset "sweep_mixing_times / sweep_channel_mixing β_phys mode" begin
 
     @testset "(a) error: both beta_values and beta_phys_values" begin
         @test_throws ArgumentError sweep_mixing_times(

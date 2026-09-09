@@ -1,5 +1,5 @@
 # ============================================================================
-# Tests for scaling_fit.jl (qf-now)
+# Tests for scaling_fit.jl
 # ============================================================================
 # Coverage:
 #   (a) M0 recovers known (C, x, y) from synthetic power-law data
@@ -16,7 +16,7 @@ using QuantumFurnace
 using LinearAlgebra
 using Random: MersenneTwister
 
-@testset "scaling_fit.jl (qf-now)" begin
+@testset "scaling_fit.jl" begin
     # ------------------------------------------------------------------------
     # (a) M0 exponent recovery: τ = C · n^x · β^y
     # ------------------------------------------------------------------------
@@ -262,7 +262,7 @@ using Random: MersenneTwister
         s0 = formula_string(fits[:M0])
         @test occursin("τ_mix", s0)
         @test occursin("n^", s0)
-        # qf-6vr: formula_string disambiguates β with the explicit kind suffix.
+        # formula_string disambiguates β with the explicit kind suffix.
         @test occursin("β_alg^", s0)
         @test occursin("±", s0)
 
@@ -272,7 +272,7 @@ using Random: MersenneTwister
         @test occursin("exp(", s1)
         @test occursin("·β_alg", s1)
 
-        # qf-6vr: explicit beta_kind=:phys tag flips the label in the formula.
+        # explicit beta_kind=:phys tag flips the label in the formula.
         fits_phys = fit_scaling(n_vals, β_vals, τ_vals; beta_kind = :phys)
         s0_phys = formula_string(fits_phys[:M0])
         @test occursin("β_phys^", s0_phys)

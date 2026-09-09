@@ -8,8 +8,8 @@ const _SCALING_IDX_X     = 2
 const _SCALING_IDX_SLOPE = 3   # y for M0, α for M1
 
 # `xdata` is an N×2 matrix; column 1 is log(n), column 2 is log(β) for M0 or β for M1.
-_scaling_M0_model(xdata, p) = @. p[_SCALING_IDX_C] + p[_SCALING_IDX_X] * xdata[:, 1] + p[_SCALING_IDX_SLOPE] * xdata[:, 2]
-_scaling_M1_model(xdata, p) = @. p[_SCALING_IDX_C] + p[_SCALING_IDX_X] * xdata[:, 1] + p[_SCALING_IDX_SLOPE] * xdata[:, 2]
+_scaling_model(xdata, p) = @views @. p[_SCALING_IDX_C] +
+    p[_SCALING_IDX_X] * xdata[:, 1] + p[_SCALING_IDX_SLOPE] * xdata[:, 2]
 
 """
     ScalingFit
@@ -78,7 +78,6 @@ function _build_scaling_fit(
     beta_vals::AbstractVector{<:Real},
     log_τ::AbstractVector{<:Real},
     xdata::AbstractMatrix{<:Real},
-    model_fn,
     level::Real;
     beta_kind::Symbol = :alg,
 )
@@ -112,7 +111,7 @@ function _build_scaling_fit(
         fill(NaN, n_param, n_param)
     end
 
-    log_τ_pred = model_fn(xdata, p)
+    log_τ_pred = _scaling_model(xdata, p)
     # LsqFit.residuals uses model - data.  ScalingFit's public convention is
     # observed - predicted so positive residuals mean the model underpredicts.
     resid = log_τ .- log_τ_pred
@@ -186,26 +185,17 @@ function fit_scaling(
 
     out = Dict{Symbol, ScalingFit}()
 
-    if :M0 in models
-        xdata = hcat(log_n, log_β)
-        # Initial guess: c=0, x=1 (mild superlinear in n), y=1 (linear in β).
-        p0 = [0.0, 1.0, 1.0]
-        fit = curve_fit(_scaling_M0_model, xdata, log_τ, p0)
-        out[:M0] = _build_scaling_fit(:M0, (:c, :x, :y), fit,
-                                       n_vals, beta_vals, log_τ, xdata,
-                                       _scaling_M0_model, level;
-                                       beta_kind = beta_kind)
-    end
-
-    if :M1 in models
-        xdata = hcat(log_n, Float64.(beta_vals))
-        # Initial guess: c=0, x=1, α=0.1 (mild Arrhenius slope).
-        p0 = [0.0, 1.0, 0.1]
-        fit = curve_fit(_scaling_M1_model, xdata, log_τ, p0)
-        out[:M1] = _build_scaling_fit(:M1, (:c, :x, :α), fit,
-                                       n_vals, beta_vals, log_τ, xdata,
-                                       _scaling_M1_model, level;
-                                       beta_kind = beta_kind)
+    for model in (:M0, :M1)
+        model in models || continue
+        beta_data, names, p0 = if model === :M0
+            log_β, (:c, :x, :y), [0.0, 1.0, 1.0]
+        else
+            Float64.(beta_vals), (:c, :x, :α), [0.0, 1.0, 0.1]
+        end
+        xdata = hcat(log_n, beta_data)
+        fit = curve_fit(_scaling_model, xdata, log_τ, p0)
+        out[model] = _build_scaling_fit(model, names, fit,
+            n_vals, beta_vals, log_τ, xdata, level; beta_kind=beta_kind)
     end
 
     return out

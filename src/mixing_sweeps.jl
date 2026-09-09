@@ -33,6 +33,41 @@ function _make_init_state(init_state::Symbol, d::Integer,
     end
 end
 
+function _sweep_temperature_grid(beta_values, beta_phys_values)
+    physical = beta_phys_values !== nothing
+    physical && !isempty(beta_values) && throw(ArgumentError(
+        "Pass either positional `beta_values` (β_alg list) or `beta_phys_values` (β_phys list), not both."))
+    !physical && isempty(beta_values) && throw(ArgumentError(
+        "Specify positional `beta_values` (β_alg list) or `beta_phys_values` (β_phys list)."))
+    return physical, Float64.(physical ? beta_phys_values : beta_values)
+end
+
+function _sweep_temperature_tag(beta, beta_phys)
+    value = beta_phys === nothing ? beta : beta_phys
+    tag = beta_phys === nothing ? "beta" : "betaphys"
+    formatted = rstrip(rstrip(@sprintf("%.6f", float(value)), '0'), '.')
+    return tag * (isempty(formatted) ? "0" : formatted)
+end
+
+function _load_sweep_sidecar(path)
+    isfile(path) || return nothing
+    try
+        return NamedTuple(BSON.load(path, @__MODULE__)[:result])
+    catch err
+        @warn "Failed to load sweep sidecar; will recompute" path err
+        return nothing
+    end
+end
+
+function _save_sweep_sidecar(path, result)
+    try
+        BSON.bson(path, Dict(:result => Dict(pairs(result))))
+    catch err
+        @warn "Sweep sidecar write failed (continuing)" path err
+    end
+    return nothing
+end
+
 """
     _sweep_sidecar_path(output_dir, n, beta, seed, mode, construction_tag, domain_tag;
                         beta_phys=nothing) -> String
@@ -46,14 +81,8 @@ function _sweep_sidecar_path(output_dir::AbstractString, n::Integer, beta::Real,
                              construction_tag::AbstractString,
                              domain_tag::AbstractString;
                              beta_phys::Union{Nothing, Real} = nothing)
-    b_value = beta_phys === nothing ? float(beta) : float(beta_phys)
-    b_tag   = beta_phys === nothing ? "beta"      : "betaphys"
-    beta_str = let s = @sprintf("%.6f", b_value)
-        s = rstrip(s, '0')
-        s = rstrip(s, '.')
-        isempty(s) ? "0" : s
-    end
-    fname = "sweep_n$(n)_$(b_tag)$(beta_str)_seed$(seed)_$(mode)_$(construction_tag)_$(domain_tag).bson"
+    temperature_tag = _sweep_temperature_tag(beta, beta_phys)
+    fname = "sweep_n$(n)_$(temperature_tag)_seed$(seed)_$(mode)_$(construction_tag)_$(domain_tag).bson"
     return joinpath(output_dir, fname)
 end
 
@@ -71,14 +100,9 @@ function _channel_sweep_sidecar_path(output_dir::AbstractString, n::Integer,
                                      construction_tag::AbstractString,
                                      domain_tag::AbstractString;
                                      beta_phys::Union{Nothing, Real} = nothing)
-    b_value = beta_phys === nothing ? float(beta) : float(beta_phys)
-    b_tag   = beta_phys === nothing ? "beta"      : "betaphys"
-    beta_str = let s = @sprintf("%.6f", b_value)
-        s = rstrip(s, '0'); s = rstrip(s, '.')
-        isempty(s) ? "0" : s
-    end
+    temperature_tag = _sweep_temperature_tag(beta, beta_phys)
     eps_str = @sprintf("%.0e", float(eps))            # e.g. "1e-03"
-    fname = "channel_n$(n)_$(b_tag)$(beta_str)_seed$(seed)_eps$(eps_str)_$(filter_kind)_$(construction_tag)_$(domain_tag).bson"
+    fname = "channel_n$(n)_$(temperature_tag)_seed$(seed)_eps$(eps_str)_$(filter_kind)_$(construction_tag)_$(domain_tag).bson"
     return joinpath(output_dir, fname)
 end
 
@@ -191,21 +215,11 @@ function sweep_mixing_times(
     domain isa Union{BohrDomain, EnergyDomain} || throw(
         ArgumentError("sweep_mixing_times supports BohrDomain or EnergyDomain only (got $(typeof(domain)))"))
     domain isa EnergyDomain && construction isa DLL && throw(
-        ArgumentError("DLL construction is not supported in EnergyDomain (out of scope for DLL-2)"))
+        ArgumentError("DLL construction is not supported in EnergyDomain"))
 
     # Exactly one temperature grid is supplied; physical values are converted
     # using each Hamiltonian's rescaling factor and tagged separately on disk.
-    mode_phys = beta_phys_values !== nothing
-    if mode_phys && !isempty(beta_values)
-        throw(ArgumentError(
-            "sweep_mixing_times: pass either positional `beta_values` (β_alg list) " *
-            "OR kwarg `beta_phys_values` (β_phys list), not both."))
-    end
-    if !mode_phys && isempty(beta_values)
-        throw(ArgumentError(
-            "sweep_mixing_times: must specify positional `beta_values` (β_alg list) " *
-            "or kwarg `beta_phys_values` (β_phys list)."))
-    end
+    mode_phys, β_unit_values = _sweep_temperature_grid(beta_values, beta_phys_values)
 
     # Extend tighter-tolerance trajectories far enough to resolve the fit offset.
     # Math: $t_max = max(5, 1.5 log_10(1 / epsilon)) / gap$.
@@ -249,7 +263,6 @@ function sweep_mixing_times(
     # Flat product of (n, β_unit, seed). `β_unit` is β_phys in mode_phys, β_alg
     # otherwise — the runner resolves the (β_phys, β_alg) pair per-cell once
     # `ham.rescaling_factor` is in hand. Materialised so @threads can index it.
-    β_unit_values = mode_phys ? Float64.(beta_phys_values) : Float64.(beta_values)
     points = [(Int(n), Float64(β), Int(s)) for n in n_values
                                             for β in β_unit_values
                                             for s in seeds]
@@ -264,20 +277,13 @@ function sweep_mixing_times(
         for i in 1:n_points
             n_i, β_unit_i, seed_i = points[i]
             # Sidecars are keyed by the supplied temperature convention.
-            sidecar = mode_phys ?
-                _sweep_sidecar_path(output_dir, n_i, 0.0, seed_i,
-                                    mode, construction_tag, domain_tag;
-                                    beta_phys = β_unit_i) :
-                _sweep_sidecar_path(output_dir, n_i, β_unit_i, seed_i,
-                                    mode, construction_tag, domain_tag)
-            if isfile(sidecar)
-                try
-                    d_loaded = BSON.load(sidecar, @__MODULE__)
-                    results[i] = NamedTuple(d_loaded[:result])
-                    skipped[i] = true
-                catch err
-                    @warn "skip_existing: failed to load sidecar; will recompute" sidecar err
-                end
+            sidecar = _sweep_sidecar_path(output_dir, n_i, β_unit_i, seed_i,
+                mode, construction_tag, domain_tag;
+                beta_phys=mode_phys ? β_unit_i : nothing)
+            cached = _load_sweep_sidecar(sidecar)
+            if cached !== nothing
+                results[i] = cached
+                skipped[i] = true
             end
         end
     end
@@ -508,17 +514,10 @@ function sweep_mixing_times(
         results[i] = result
 
         if output_dir !== nothing
-            sidecar = mode_phys ?
-                _sweep_sidecar_path(output_dir, n_i, β_i, seed_i,
-                                    mode, construction_tag, domain_tag;
-                                    beta_phys = β_phys_i) :
-                _sweep_sidecar_path(output_dir, n_i, β_i, seed_i,
-                                    mode, construction_tag, domain_tag)
-            try
-                BSON.bson(sidecar, Dict(:result => Dict(pairs(result))))
-            catch err
-                @warn "Sidecar write failed (continuing)" sidecar err
-            end
+            sidecar = _sweep_sidecar_path(output_dir, n_i, β_i, seed_i,
+                mode, construction_tag, domain_tag;
+                beta_phys=mode_phys ? β_phys_i : nothing)
+            _save_sweep_sidecar(sidecar, result)
         end
         return
     end
@@ -684,17 +683,7 @@ function sweep_channel_mixing(
 
     # Exactly one temperature grid is supplied; physical values are converted
     # per cell, while parameter-table lookup always uses `beta_alg`.
-    mode_phys = beta_phys_values !== nothing
-    if mode_phys && !isempty(beta_values)
-        throw(ArgumentError(
-            "sweep_channel_mixing: pass either positional `beta_values` (β_alg list) " *
-            "OR kwarg `beta_phys_values` (β_phys list), not both."))
-    end
-    if !mode_phys && isempty(beta_values)
-        throw(ArgumentError(
-            "sweep_channel_mixing: must specify positional `beta_values` (β_alg list) " *
-            "or kwarg `beta_phys_values` (β_phys list)."))
-    end
+    mode_phys, β_unit_values = _sweep_temperature_grid(beta_values, beta_phys_values)
 
     construction_tag = construction isa KMS ? "KMS" : construction isa GNS ? "GNS" : "DLL"
     domain_tag = domain isa TrotterDomain ? "Trotter" : "Time"
@@ -708,7 +697,6 @@ function sweep_channel_mixing(
     # Flat product of (n, β_unit, ε, filter, seed). β_unit is β_phys in
     # mode_phys, β_alg otherwise; the runner resolves the (β_phys, β_alg)
     # pair per-cell via `ham.rescaling_factor`.
-    β_unit_values = mode_phys ? Float64.(beta_phys_values) : Float64.(beta_values)
     points = [(Int(n), Float64(β), Float64(ε), f, Int(s))
               for n in n_values for β in β_unit_values
               for ε in target_epsilons for f in filter_kinds for s in seeds]
@@ -720,20 +708,13 @@ function sweep_channel_mixing(
     if output_dir !== nothing && skip_existing
         for i in 1:n_points
             n_i, β_unit_i, ε_i, f_i, seed_i = points[i]
-            sidecar = mode_phys ?
-                _channel_sweep_sidecar_path(output_dir, n_i, 0.0, seed_i, ε_i,
-                                            f_i, construction_tag, domain_tag;
-                                            beta_phys = β_unit_i) :
-                _channel_sweep_sidecar_path(output_dir, n_i, β_unit_i, seed_i, ε_i,
-                                            f_i, construction_tag, domain_tag)
-            if isfile(sidecar)
-                try
-                    d_loaded = BSON.load(sidecar, @__MODULE__)
-                    results[i] = NamedTuple(d_loaded[:result])
-                    skipped[i] = true
-                catch err
-                    @warn "skip_existing: failed to load channel sidecar; will recompute" sidecar err
-                end
+            sidecar = _channel_sweep_sidecar_path(output_dir, n_i, β_unit_i, seed_i, ε_i,
+                f_i, construction_tag, domain_tag;
+                beta_phys=mode_phys ? β_unit_i : nothing)
+            cached = _load_sweep_sidecar(sidecar)
+            if cached !== nothing
+                results[i] = cached
+                skipped[i] = true
             end
         end
     end
@@ -957,17 +938,10 @@ function sweep_channel_mixing(
         results[i] = result
 
         if output_dir !== nothing
-            sidecar = mode_phys ?
-                _channel_sweep_sidecar_path(output_dir, n_i, β_i, seed_i, ε_i,
-                                            f_i, construction_tag, domain_tag;
-                                            beta_phys = β_phys_i) :
-                _channel_sweep_sidecar_path(output_dir, n_i, β_i, seed_i, ε_i,
-                                            f_i, construction_tag, domain_tag)
-            try
-                BSON.bson(sidecar, Dict(:result => Dict(pairs(result))))
-            catch err
-                @warn "Channel sidecar write failed (continuing)" sidecar err
-            end
+            sidecar = _channel_sweep_sidecar_path(output_dir, n_i, β_i, seed_i, ε_i,
+                f_i, construction_tag, domain_tag;
+                beta_phys=mode_phys ? β_phys_i : nothing)
+            _save_sweep_sidecar(sidecar, result)
         end
     end
 
