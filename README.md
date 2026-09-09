@@ -1,8 +1,8 @@
 # QuantumFurnace.jl
 
 QuantumFurnace.jl is a Julia package for constructing and simulating quantum
-Gibbs samplers based on detailed-balance Lindbladians. It supports dense
-reference calculations, matrix-free Krylov methods, and full-density-matrix
+Gibbs samplers based on detailed balance Lindbladians. It supports dense
+reference calculations, matrix-free Krylov methods, and full density matrix
 channel simulations across Bohr, energy, time, and Trotter domains.
 
 The package is under active development and should currently be treated as
@@ -10,13 +10,12 @@ pre-alpha research software.
 
 ## Features
 
-- Construct KMS, GNS, and Ding--Li--Lin (DLL) Gibbs-sampling Lindbladians.
+- Construct GNS and KMS detailed balanced Gibbs sampling Lindbladians from CKG/CKBG and DLL.
 - Compare exact Bohr-domain constructions with energy-, time-, and
   Trotter-domain approximations.
 - Compute fixed points and spectral gaps with dense or matrix-free methods.
 - Simulate retained weak-measurement channels and track convergence to the
   Gibbs state.
-- Build reproducible Heisenberg and transverse-field Ising Hamiltonians.
 
 ## Installation
 
